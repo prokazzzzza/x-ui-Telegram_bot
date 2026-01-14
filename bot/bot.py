@@ -7,12 +7,26 @@ import time
 import datetime
 import shutil
 import os
+from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
+
+# Load environment variables
+load_dotenv()
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButtonRequestUsers
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, PreCheckoutQueryHandler, MessageHandler, filters
 
 # Config
-TOKEN = "7278544362:AAGBc_Aep_V53Hz6vw2GLVTNFJF4uLnkhmY"
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = os.getenv("ADMIN_ID")
+
+if not TOKEN:
+    logging.error("BOT_TOKEN not found in environment variables")
+    exit(1)
+
+if not ADMIN_ID:
+    logging.warning("ADMIN_ID not found in environment variables")
+
 DB_PATH = "/etc/x-ui/x-ui.db"
 BOT_DB_PATH = "/usr/local/x-ui/bot/bot_data.db"
 INBOUND_ID = 1
@@ -21,8 +35,8 @@ IP = "93.88.205.120"
 PORT = 17343
 SNI = "google.com"
 SID = "b2"
-ADMIN_ID = "369456269"
 TIMEZONE = ZoneInfo("Europe/Moscow")
+
 
 # Prices in Telegram Stars (XTR)
 PRICES = {
