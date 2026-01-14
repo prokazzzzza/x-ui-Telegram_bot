@@ -4,3 +4,7 @@
 /x-ui.service.debian
 /x-ui.service.rhel
 /x-ui.sh
+.env
+welcome.jpg
+bot/.env
+bot/welcome.jpg
