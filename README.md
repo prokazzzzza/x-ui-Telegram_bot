@@ -36,20 +36,43 @@ Accessible only to the administrator, offering full control over the service:
 
 ## 🛠 Installation & Setup
 
-### Prerequisites
+### Automatic Installation (Recommended)
+You can deploy the bot on any server with a single command. The script will check for X-UI, install it if missing, and configure the bot for you.
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/prokazzzzza/x-ui/main/bot/install_bot.sh)
+```
+
+During installation, you will be prompted to enter:
+1.  **Telegram Bot Token** (from @BotFather)
+2.  **Admin Telegram ID** (your numerical ID)
+
+### Manual Installation
+
+#### Prerequisites
 -   Linux Server (Ubuntu/Debian recommended)
 -   Python 3.9+
 -   X-UI (MHSanaei fork) installed
--   Telegram Bot Token
 
-### Configuration
-The bot is configured via `bot.py`. Key variables:
--   `TOKEN`: Your Telegram Bot Token.
--   `ADMIN_ID`: Telegram ID of the admin.
--   `DB_PATH`: Path to X-UI database.
--   `BOT_DB_PATH`: Path to the bot's internal database.
+#### Configuration
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/prokazzzzza/x-ui.git
+    cd x-ui/bot
+    ```
+2.  Create a `.env` file with your credentials:
+    ```env
+    BOT_TOKEN=your_bot_token_here
+    ADMIN_ID=your_admin_id_here
+    ```
+3.  Install dependencies:
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
 
-### Running the Bot
+#### Running the Bot
 The bot runs as a systemd service:
 ```bash
 systemctl start x-ui-bot
@@ -58,13 +81,17 @@ systemctl enable x-ui-bot
 
 ## 📂 Project Structure
 -   `bot.py`: Main application logic.
+-   `install_bot.sh`: Automated deployment script.
+-   `.env`: Configuration file for secrets (not tracked in git).
 -   `bot_data.db`: SQLite database for user preferences, transactions, and promos.
 -   `/etc/x-ui/x-ui.db`: External connection to X-UI database for client management.
 
 ## 📝 Recent Updates
+-   **Deployment Script**: Added `install_bot.sh` for one-click installation and configuration.
+-   **Security**: Moved sensitive credentials (Token, Admin ID) to `.env` file.
 -   **Sales Log**: Added a dedicated menu to view recent sales history directly in the admin panel.
 -   **Admin Notifications**: Real-time notifications to the admin for every new purchase.
--   **Stability**: Improved error handling and keyboard navigation.
+
 
 ## 📜 License
 Private / Proprietary
