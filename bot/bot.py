@@ -2059,21 +2059,21 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = cursor.fetchone()
         
         if not row:
-        try:
-            await query.edit_message_text(
-                "Error: Inbound not found.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
-            )
-        except Exception as e:
-            if "Message is not modified" not in str(e):
-                 await query.message.delete()
-                 await context.bot.send_message(
-                     chat_id=tg_id,
-                     text="Error: Inbound not found.",
-                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
-                 )
-        conn.close()
-        return
+            try:
+                await query.edit_message_text(
+                    "Error: Inbound not found.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+                )
+            except Exception as e:
+                if "Message is not modified" not in str(e):
+                     await query.message.delete()
+                     await context.bot.send_message(
+                         chat_id=tg_id,
+                         text="Error: Inbound not found.",
+                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+                     )
+            conn.close()
+            return
             
         settings = json.loads(row[0])
         clients = settings.get('clients', [])
