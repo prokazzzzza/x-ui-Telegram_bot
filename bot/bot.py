@@ -147,6 +147,7 @@ TEXTS = {
         "invoice_title": "Maxi_VPN Subscription",
         "success_created": "✅ *Success!* Subscription created.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
         "success_extended": "✅ *Success!* Subscription extended.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
+        "success_updated": "✅ *Success!* Subscription updated.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
         "error_generic": "An error occurred. Please contact support.",
         "sub_expired": "⚠️ *Subscription Expired*\n\nYour subscription has expired. Please buy a new plan to restore access.",
         "sub_active": "✅ *Your Subscription is Active*\n\n📅 Expires: {expiry}\n\nKey:\n`{link}`",
@@ -210,6 +211,7 @@ TEXTS = {
         "invoice_title": "Maxi_VPN Подписка",
         "success_created": "✅ *Успешно!* Подписка создана.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
         "success_extended": "✅ *Успешно!* Подписка продлена.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
+        "success_updated": "✅ *Успешно!* Подписка обновлена.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
         "error_generic": "Произошла ошибка. Пожалуйста, свяжитесь с поддержкой.",
         "sub_expired": "⚠️ *Подписка истекла*\n\nВаша подписка закончилась. Пожалуйста, купите новый план для восстановления доступа.",
         "sub_active": "✅ *Ваша подписка активна*\n\n📅 Истекает: {expiry}\n\nКлюч:\n`{link}`",
@@ -2104,15 +2106,108 @@ async def admin_promo_user_detail(update: Update, context: ContextTypes.DEFAULT_
             date_str = datetime.datetime.fromtimestamp(used_at, tz=TIMEZONE).strftime("%d.%m.%Y %H:%M")
             days_str = f"{days} дн." if days else "N/A"
             safe_code = html.escape(code)
-            text += f"🏷 <code>{safe_code}</code>\n⏳ {days_str} | 📅 {date_str}\n\n"
             
-    keyboard = [[InlineKeyboardButton("🔙 К списку", callback_data='admin_promo_uses_0')]]
+            # Check expiration
+            is_expired = False
+            if days:
+                expire_ts = used_at + (days * 24 * 3600)
+                if expire_ts < time.time():
+                    is_expired = True
+                    
+            icon = "❌" if is_expired else "✅"
+            text += f"{icon} 🏷 <code>{safe_code}</code>\n⏳ {days_str} | 📅 {date_str}\n\n"
+            
+    keyboard = []
+    if rows:
+        keyboard.append([InlineKeyboardButton("🗑 Аннулировать промокод", callback_data=f'admin_revoke_menu_{tg_id}')])
+        
+    keyboard.append([InlineKeyboardButton("🔙 К списку", callback_data='admin_promo_uses_0')])
     
     await query.edit_message_text(
         text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
+
+async def admin_revoke_promo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = query.data.split('_')[3]
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT u.code, p.days 
+        FROM user_promos u 
+        LEFT JOIN promo_codes p ON u.code = p.code 
+        WHERE u.tg_id=?
+    """, (tg_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    keyboard = []
+    for row in rows:
+        code, days = row
+        keyboard.append([InlineKeyboardButton(f"{code} (-{days} дн.)", callback_data=f'admin_revoke_conf_{tg_id}_{code}')])
+        
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f'admin_promo_u_{tg_id}')])
+    
+    await query.edit_message_text("🗑 *Аннулирование промокода*\n\nВыберите промокод для отмены (срок подписки уменьшится):", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_revoke_promo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split('_')
+    # admin_revoke_conf_TGID_CODE
+    tg_id = parts[3]
+    code = parts[4]
+    
+    # Get days
+    days = 0
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT days FROM promo_codes WHERE code=?", (code,))
+    row = cursor.fetchone()
+    if row: days = row[0]
+    conn.close()
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ Да, аннулировать", callback_data=f'admin_revoke_act_{tg_id}_{code}')],
+        [InlineKeyboardButton("❌ Отмена", callback_data=f'admin_revoke_menu_{tg_id}')]
+    ]
+    
+    await query.edit_message_text(f"⚠️ Вы уверены, что хотите аннулировать промокод `{code}` для пользователя `{tg_id}`?\n\nСрок подписки уменьшится на {days} дней.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_revoke_promo_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split('_')
+    tg_id = parts[3]
+    code = parts[4]
+    
+    # 1. Get days and delete from DB
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get days first
+    cursor.execute("SELECT days FROM promo_codes WHERE code=?", (code,))
+    row = cursor.fetchone()
+    days = row[0] if row else 0
+    
+    # Delete from user_promos
+    cursor.execute("DELETE FROM user_promos WHERE tg_id=? AND code=?", (tg_id, code))
+    
+    # Decrement used_count
+    cursor.execute("UPDATE promo_codes SET used_count = MAX(0, used_count - 1) WHERE code=?", (code,))
+    
+    conn.commit()
+    conn.close()
+    
+    # 2. Update Subscription (-days)
+    if days > 0:
+        await process_subscription(tg_id, -days, update, context, get_lang(tg_id), is_callback=True)
+        
+    await query.edit_message_text(f"✅ Промокод `{code}` аннулирован.\nСрок подписки уменьшен на {days} дн.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 К пользователю", callback_data=f'admin_promo_u_{tg_id}')]]), parse_mode='Markdown')
 
 async def admin_new_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3243,6 +3338,8 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
             clients[client_index] = user_client
             
             msg_key = "success_extended"
+            if days_to_add < 0:
+                msg_key = "success_updated"
             
             # Special case: If unlimited, we might want to tell user "You have unlimited, no changes made" 
             # but usually extending unlimited is just ... unlimited.
@@ -4108,6 +4205,9 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_promo_list, pattern='^admin_promo_list$'))
     application.add_handler(CallbackQueryHandler(admin_promo_uses, pattern='^admin_promo_uses_'))
     application.add_handler(CallbackQueryHandler(admin_promo_user_detail, pattern='^admin_promo_u_'))
+    application.add_handler(CallbackQueryHandler(admin_revoke_promo_menu, pattern='^admin_revoke_menu_'))
+    application.add_handler(CallbackQueryHandler(admin_revoke_promo_confirm, pattern='^admin_revoke_conf_'))
+    application.add_handler(CallbackQueryHandler(admin_revoke_promo_action, pattern='^admin_revoke_act_'))
     application.add_handler(CallbackQueryHandler(admin_broadcast, pattern='^admin_broadcast$'))
     application.add_handler(CallbackQueryHandler(admin_broadcast_target, pattern='^admin_broadcast_(all|en|ru|individual|toggle|page|confirm).*'))
     application.add_handler(CallbackQueryHandler(admin_sales_log, pattern='^admin_sales_log$'))
