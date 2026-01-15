@@ -1074,6 +1074,11 @@ def get_system_stats():
 
 async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    
+    # If called from "Live" button, we might loop.
+    # But usually we separate the loop handler.
+    # Let's check if this is a refresh or initial load.
+    
     await query.answer("Обновление данных...")
     
     stats = get_system_stats()
@@ -1099,6 +1104,7 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔄 Обновлено: {datetime.datetime.now(TIMEZONE).strftime("%H:%M:%S")}"""
 
     keyboard = [
+        [InlineKeyboardButton("🔴 Live Мониторинг (1 мин)", callback_data='admin_server_live')],
         [InlineKeyboardButton("🔄 Обновить", callback_data='admin_server')],
         [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
     ]
@@ -1109,6 +1115,59 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # If message content is same (Telegram API error), we just ignore or answer
         if "Message is not modified" not in str(e):
              await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Запуск Live мониторинга...")
+    
+    # Run for 20 iterations * ~3 seconds = 60 seconds
+    for i in range(20):
+        try:
+            stats = get_system_stats() # Takes ~1 second due to sleep(1.0) inside
+            
+            tx_speed_str = format_bytes(stats['tx_speed']) + "/s"
+            rx_speed_str = format_bytes(stats['rx_speed']) + "/s"
+            
+            text = f"""🖥 *Состояние сервера (LIVE 🔴)*
+    
+🧠 *CPU:* {stats['cpu']:.1f}%
+💾 *RAM:* {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)
+💿 *Disk:* {stats['disk_usage']:.1f}%
+├ Использовано: {stats['disk_used']:.2f} GB
+├ Свободно: {stats['disk_free']:.2f} GB
+└ Всего: {stats['disk_total']:.2f} GB
+
+📊 *Общая скорость передачи трафика в реальном времени*
+⬆️ *Отправка:*
+{tx_speed_str}
+⬇️ *Загрузка:*
+{rx_speed_str}
+
+🔄 Обновлено: {datetime.datetime.now(TIMEZONE).strftime("%H:%M:%S")}
+⏳ Осталось: {60 - (i*3)} сек."""
+
+            keyboard = [
+                [InlineKeyboardButton("⏹ Стоп", callback_data='admin_server')],
+                [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
+            ]
+            
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            
+            # Wait 2 seconds + 1 second measure = 3 seconds total interval
+            await asyncio.sleep(2)
+            
+        except Exception as e:
+            # If message deleted or other error, stop loop
+            if "Message is not modified" not in str(e):
+                logging.error(f"Live monitor error: {e}")
+                break
+            # If "Message is not modified", just continue (maybe stats didn't change much, though timestamp did)
+            await asyncio.sleep(2)
+
+    # After loop finishes, show standard static view
+    try:
+        await admin_server(update, context)
+    except: pass
 
 async def admin_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3649,6 +3708,7 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_stats, pattern='^admin_stats$'))
     application.add_handler(CallbackQueryHandler(admin_sync_nicknames, pattern='^admin_sync_nicks$'))
     application.add_handler(CallbackQueryHandler(admin_server, pattern='^admin_server$'))
+    application.add_handler(CallbackQueryHandler(admin_server_live, pattern='^admin_server_live$'))
     application.add_handler(CallbackQueryHandler(admin_rebind_user, pattern='^admin_rebind_'))
     application.add_handler(CallbackQueryHandler(admin_users_list, pattern='^admin_users_'))
     application.add_handler(CallbackQueryHandler(admin_user_detail, pattern='^admin_u_'))

@@ -8,3 +8,5 @@
 welcome.jpg
 bot/.env
 bot/welcome.jpg
+.trae/rules
+.gitignore
