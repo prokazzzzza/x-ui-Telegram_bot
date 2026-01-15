@@ -203,6 +203,8 @@ TEXTS = {
         "plan_unlimited": "Безлимит",
         "sub_type_unknown": "Неизвестно",
         "stats_sub_type": "💳 Тариф: {plan}",
+        "remaining_days": "⏳ Осталось: {days} дн.",
+        "remaining_hours": "⏳ Осталось: {hours} ч.",
         "rank_info": "\n\n🏆 Ваш статус в клубе:\nВы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!"
     }
 }
@@ -2849,6 +2851,7 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 sub_link = f"{protocol}://{IP}:{port}{path}{u_uuid}"
             
+            remaining_str = ""
             if expiry_ms == 0:
                 if lang == 'ru':
                     expiry_str = "Безлимит"
@@ -2857,7 +2860,22 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 expiry_str = datetime.datetime.fromtimestamp(expiry_ms / 1000, tz=TIMEZONE).strftime('%d.%m.%Y %H:%M')
                 
-            msg_text = f"✅ <b>Ваша подписка активна</b>\n\n📅 Истекает: {expiry_str}\n\n👇 <b>Рекомендуется использовать подписку</b>\n        (Нажмите на ссылку для копирования)\n\n📋 <b>Ссылка подписки:</b>\n<code>{html.escape(sub_link)}</code>\n\n🔑 <b>Ключ доступа:</b> (Нажмите чтобы развернуть)\n<tg-spoiler><code>{html.escape(vless_link)}</code></tg-spoiler>"
+                # Calculate remaining
+                diff = expiry_ms - int(time.time() * 1000)
+                if diff > 0:
+                    days = diff / (1000 * 3600 * 24)
+                    if days < 1:
+                        hours = int(diff / (1000 * 3600))
+                        if hours < 1: hours = 1
+                        remaining_str = t("remaining_hours", lang).format(hours=hours)
+                    else:
+                        remaining_str = t("remaining_days", lang).format(days=int(days))
+                
+            msg_text = f"✅ <b>Ваша подписка активна</b>\n\n📅 Истекает: {expiry_str}"
+            if remaining_str:
+                msg_text += f"\n{remaining_str}"
+            
+            msg_text += f"\n\n👇 <b>Рекомендуется использовать подписку</b>\n        (Нажмите на ссылку для копирования)\n\n📋 <b>Ссылка подписки:</b>\n<code>{html.escape(sub_link)}</code>\n\n🔑 <b>Ключ доступа:</b> (Нажмите чтобы развернуть)\n<tg-spoiler><code>{html.escape(vless_link)}</code></tg-spoiler>"
             
             try:
                 await query.edit_message_text(
