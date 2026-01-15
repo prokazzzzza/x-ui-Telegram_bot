@@ -7,6 +7,9 @@ import time
 import datetime
 import shutil
 import os
+import asyncio
+import math
+import html
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
 
@@ -30,12 +33,60 @@ if not ADMIN_ID:
 DB_PATH = "/etc/x-ui/x-ui.db"
 BOT_DB_PATH = "/usr/local/x-ui/bot/bot_data.db"
 INBOUND_ID = 1
-PUBLIC_KEY = "T6c3nRb47HsltG6ojFbNImgouFB5ii6UrYYIs9xPf1A"
-IP = "93.88.205.120"
-PORT = 17343
-SNI = "google.com"
-SID = "b2"
+PUBLIC_KEY = os.getenv("PUBLIC_KEY", "T6c3nRb47HsltG6ojFbNImgouFB5ii6UrYYIs9xPf1A")
+IP = os.getenv("HOST_IP", "93.88.205.120")
+PORT = int(os.getenv("HOST_PORT", 17343))
+SNI = os.getenv("SNI", "google.com")
+SID = os.getenv("SID", "b2")
 TIMEZONE = ZoneInfo("Europe/Moscow")
+
+def load_config_from_db():
+    global PUBLIC_KEY, PORT, SNI, SID
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT settings, stream_settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            # Parse settings for Port (wait, port is in 'port' column, need to fetch it)
+            # Re-query with port
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT port, stream_settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                db_port = row[0]
+                stream_settings = json.loads(row[1])
+                reality = stream_settings.get('realitySettings', {})
+                settings_inner = reality.get('settings', {})
+                
+                db_public_key = settings_inner.get('publicKey')
+                db_sni_list = reality.get('serverNames', [])
+                db_short_ids = reality.get('shortIds', [])
+                
+                # Update globals if found
+                if db_port: 
+                    PORT = int(db_port)
+                    logging.info(f"Loaded PORT from DB: {PORT}")
+                if db_public_key: 
+                    PUBLIC_KEY = db_public_key
+                    logging.info(f"Loaded PUBLIC_KEY from DB: {PUBLIC_KEY}")
+                if db_sni_list: 
+                    SNI = db_sni_list[0]
+                    logging.info(f"Loaded SNI from DB: {SNI}")
+                if db_short_ids: 
+                    SID = db_short_ids[0]
+                    logging.info(f"Loaded SID from DB: {SID}")
+                    
+    except Exception as e:
+        logging.error(f"Error loading config from DB: {e}")
+
+# Try to load from DB to override defaults/env if available
+load_config_from_db()
 
 
 # Prices in Telegram Stars (XTR)
@@ -56,39 +107,39 @@ TEXTS = {
         "btn_trial": "🆓 Free Trial (3 Days)",
         "btn_ref": "👥 Referrals",
         "btn_promo": "🎁 Redeem Promo",
-        "shop_title": "🛒 **Select a Plan:**\n\nPay safely with Telegram Stars.",
+        "shop_title": "🛒 *Select a Plan:*\n\nPay safely with Telegram Stars.",
         "btn_back": "🔙 Back",
         "label_1_month": "1 Month Subscription",
         "label_3_months": "3 Months Subscription",
         "label_6_months": "6 Months Subscription",
         "label_1_year": "1 Year Subscription",
         "invoice_title": "Maxi_VPN Subscription",
-        "success_created": "✅ **Success!** Subscription created.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
-        "success_extended": "✅ **Success!** Subscription extended.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
+        "success_created": "✅ *Success!* Subscription created.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
+        "success_extended": "✅ *Success!* Subscription extended.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
         "error_generic": "An error occurred. Please contact support.",
-        "sub_expired": "⚠️ **Subscription Expired**\n\nYour subscription has expired. Please buy a new plan to restore access.",
-        "sub_active": "✅ **Your Subscription is Active**\n\n📅 Expires: {expiry}\n\nKey:\n`{link}`",
-        "sub_not_found": "❌ **No Subscription Found**\n\nYou don't have an active subscription. Please visit the shop.",
-        "stats_title": "📊 **Your Stats**\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
+        "sub_expired": "⚠️ *Subscription Expired*\n\nYour subscription has expired. Please buy a new plan to restore access.",
+        "sub_active": "✅ *Your Subscription is Active*\n\n📅 Expires: {expiry}\n\nKey:\n`{link}`",
+        "sub_not_found": "❌ *No Subscription Found*\n\nYou don't have an active subscription. Please visit the shop.",
+        "stats_title": "📊 *Your Stats*\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
         "stats_no_sub": "No stats found. Subscription required.",
-        "expiry_warning": "⚠️ **Subscription Expiring Soon!**\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
+        "expiry_warning": "⚠️ *Subscription Expiring Soon!*\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
         "btn_renew": "💎 Renew Now",
         "btn_instructions": "📚 Setup Instructions",
         "lang_sel": "Language selected: English 🇬🇧",
-        "trial_used": "⚠️ **Trial Already Used**\n\nYou have already used your trial period.\nActivated: {date}",
-        "trial_activated": "🎉 **Trial Activated!**\n\nYou have received 3 days of free access.\nCheck '🚀 My Config' to connect.",
-        "ref_title": "👥 **Referral Program**\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n`{link}`\n\n🎁 You have invited: {count} users.",
-        "promo_prompt": "🎁 **Redeem Promo Code**\n\nPlease enter your promo code:",
-        "promo_success": "✅ **Promo Code Redeemed!**\n\nAdded {days} days to your subscription.",
-        "promo_invalid": "❌ **Invalid or Expired Code**",
-        "promo_used": "⚠️ **Code Already Used**",
-        "instr_menu": "📚 **Setup Instructions**\n\nChoose your device:",
+        "trial_used": "⚠️ *Trial Already Used*\n\nYou have already used your trial period.\nActivated: {date}",
+        "trial_activated": "🎉 *Trial Activated!*\n\nYou have received 3 days of free access.\nCheck '🚀 My Config' to connect.",
+        "ref_title": "👥 *Referral Program*\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n`{link}`\n\n🎁 You have invited: {count} users.",
+        "promo_prompt": "🎁 *Redeem Promo Code*\n\nPlease enter your promo code:",
+        "promo_success": "✅ *Promo Code Redeemed!*\n\nAdded {days} days to your subscription.",
+        "promo_invalid": "❌ *Invalid or Expired Code*",
+        "promo_used": "⚠️ *Code Already Used*",
+        "instr_menu": "📚 *Setup Instructions*\n\nChoose your device:",
         "btn_android": "📱 Android (v2RayTun)",
         "btn_ios": "🍎 iOS (V2Box)",
         "btn_pc": "💻 PC (Amnezia/Hiddify)",
-        "instr_android": "📱 **Android Setup**\n\n1. Install **[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)** from Google Play.\n2. Copy your key from '🚀 My Config'.\n3. Open v2RayTun -> Tap 'Import' -> 'Import from Clipboard'.\n4. Tap the connection button.",
-        "instr_ios": "🍎 **iOS Setup**\n\n1. Install **[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)** from App Store.\n2. Copy your key from '🚀 My Config'.\n3. Open V2Box, it should detect the key automatically.\n4. Tap 'Import' and then swipe to connect.",
-        "instr_pc": "💻 **PC Setup**\n\n1. Install **[AmneziaVPN](https://amnezia.org/)** or **[Hiddify](https://github.com/hiddify/hiddify-next/releases)**.\n2. Copy your key from '🚀 My Config'.\n3. Open the app and paste the key (Import from Clipboard).\n4. Connect.",
+        "instr_android": "📱 *Android Setup*\n\n1. Install *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* from Google Play.\n2. Copy your key from '🚀 My Config'.\n3. Open v2RayTun -> Tap 'Import' -> 'Import from Clipboard'.\n4. Tap the connection button.",
+        "instr_ios": "🍎 *iOS Setup*\n\n1. Install *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* from App Store.\n2. Copy your key from '🚀 My Config'.\n3. Open V2Box, it should detect the key automatically.\n4. Tap 'Import' and then swipe to connect.",
+        "instr_pc": "💻 *PC Setup*\n\n1. Install *[AmneziaVPN](https://amnezia.org/)* or *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Copy your key from '🚀 My Config'.\n3. Open the app and paste the key (Import from Clipboard).\n4. Connect.",
         "plan_1_month": "1 Month",
         "plan_3_months": "3 Months",
         "plan_6_months": "6 Months",
@@ -98,11 +149,11 @@ TEXTS = {
         "plan_unlimited": "Unlimited",
         "sub_type_unknown": "Unknown",
         "stats_sub_type": "💳 Plan: {plan}",
-        "rank_info": "\n🏆 **Your Rank:** #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)"
+        "rank_info": "\n🏆 *Your Rank:* #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)"
     },
     "ru": {
-        "welcome": "Добро пожаловать в Maxi_VPN! 🛡️\n\nПожалуйста, выберите язык:",
-        "main_menu": "🚀 *Maxi_VPN* — Твой пропуск в свободный интернет!\n\n⚡️ Высокая скорость, анонимность и доступ к любым сервисам.\n💎 Оплата в один клик через Telegram Stars.",
+        "welcome": "Добро пожаловать в Maxi-VPN! 🛡️\n\nПожалуйста, выберите язык:",
+        "main_menu": "🚀 Maxi-VPN — Твой пропуск в свободный интернет!\n\n⚡️ Высокая скорость, анонимность и доступ к любым сервисам.\n💎 Оплата в один клик через Telegram Stars.",
         "btn_buy": "💎 Купить подписку",
         "btn_config": "🚀 Мой конфиг",
         "btn_stats": "📊 Моя статистика",
@@ -127,6 +178,7 @@ TEXTS = {
         "expiry_warning": "⚠️ *Подписка скоро истекает!*\n\nВаша VPN подписка истечет менее чем через 24 часа.\nПожалуйста, продлите её, чтобы избежать отключения.",
         "btn_renew": "💎 Продлить сейчас",
         "btn_instructions": "📚 Инструкция по настройке",
+        "btn_lang": "🌐 Язык",
         "lang_sel": "Выбран язык: Русский 🇷🇺",
         "trial_used": "⚠️ *Пробный период уже использован*\n\nВы уже активировали свои 3 дня бесплатно.\nДата активации: {date}",
         "trial_activated": "🎉 *Пробный период активирован!*\n\nВам начислено 3 дня доступа.\nНажмите '🚀 Мой конфиг' для подключения.",
@@ -151,7 +203,7 @@ TEXTS = {
         "plan_unlimited": "Безлимит",
         "sub_type_unknown": "Неизвестно",
         "stats_sub_type": "💳 Тариф: {plan}",
-        "rank_info": "\n\n🏆 *Ваш статус в клубе:*\nВы занимаете *{rank}-е место* в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!"
+        "rank_info": "\n\n🏆 Ваш статус в клубе:\nВы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!"
     }
 }
 
@@ -181,6 +233,15 @@ def init_db():
     except: pass
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN trial_activated_at INTEGER")
+    except: pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN username TEXT")
+    except: pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN first_name TEXT")
+    except: pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN last_name TEXT")
     except: pass
     
     # Promo tables
@@ -246,6 +307,34 @@ def init_db():
     conn.commit()
     conn.close()
 
+def update_user_info(tg_id, username, first_name, last_name):
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        # Ensure user exists first (handled by set_lang usually, but safer to upsert)
+        # We use INSERT OR IGNORE then UPDATE to avoid unique constraint fail if we don't know other fields
+        # Or just UPDATE if exists, else INSERT
+        
+        # Simple Upsert logic for user info
+        cursor.execute("SELECT 1 FROM user_prefs WHERE tg_id=?", (str(tg_id),))
+        if cursor.fetchone():
+            cursor.execute("""
+                UPDATE user_prefs 
+                SET username=?, first_name=?, last_name=? 
+                WHERE tg_id=?
+            """, (username, first_name, last_name, str(tg_id)))
+        else:
+            # New user, might default lang to en
+            cursor.execute("""
+                INSERT INTO user_prefs (tg_id, username, first_name, last_name, lang)
+                VALUES (?, ?, ?, ?, 'en')
+            """, (str(tg_id), username, first_name, last_name))
+            
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Error updating user info: {e}")
+
 def get_lang(tg_id):
     try:
         conn = sqlite3.connect(BOT_DB_PATH)
@@ -253,16 +342,21 @@ def get_lang(tg_id):
         cursor.execute("SELECT lang FROM user_prefs WHERE tg_id=?", (str(tg_id),))
         row = cursor.fetchone()
         conn.close()
-        if row:
+        if row and row[0]:
             return row[0]
     except Exception as e:
         logging.error(f"DB Error: {e}")
-    return "en"
+    return "ru"
 
 def set_lang(tg_id, lang):
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO user_prefs (tg_id, lang) VALUES (?, ?)", (str(tg_id), lang))
+    # Check if user exists
+    cursor.execute("SELECT 1 FROM user_prefs WHERE tg_id=?", (str(tg_id),))
+    if cursor.fetchone():
+        cursor.execute("UPDATE user_prefs SET lang=? WHERE tg_id=?", (lang, str(tg_id)))
+    else:
+        cursor.execute("INSERT INTO user_prefs (tg_id, lang) VALUES (?, ?)", (str(tg_id), lang))
     conn.commit()
     conn.close()
     
@@ -435,6 +529,10 @@ def t(key, lang="en"):
     return TEXTS.get(lang, TEXTS["en"]).get(key, key)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message and update.message.from_user:
+        user = update.message.from_user
+        update_user_info(user.id, user.username, user.first_name, user.last_name)
+        
     tg_id = str(update.message.from_user.id)
     
     # Referral check
@@ -453,7 +551,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = cursor.fetchone()
     conn.close()
 
-    if not row:
+    if not row or not row[0]:
         # Show language selection
         keyboard = [
             [InlineKeyboardButton("English 🇬🇧", callback_data='set_lang_en')],
@@ -491,13 +589,29 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Show main menu
     await show_main_menu_query(query, context, lang)
 
+async def change_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("English 🇬🇧", callback_data='set_lang_en')],
+        [InlineKeyboardButton("Русский 🇷🇺", callback_data='set_lang_ru')]
+    ]
+    text = "Please select your language / Пожалуйста, выберите язык:"
+    
+    try:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception:
+        await query.message.delete()
+        await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
+
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lang):
     tg_id = str(update.message.from_user.id)
     keyboard = [
         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
-        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral')]
+        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')]
     ]
     if tg_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("👮‍♂️ Админ панель", callback_data='admin_panel')])
@@ -512,12 +626,12 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
     if os.path.exists(welcome_photo_path):
         try:
             with open(welcome_photo_path, 'rb') as photo:
-                await update.message.reply_photo(photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+                await update.message.reply_photo(photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
              logging.error(f"Failed to send welcome photo: {e}")
-             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def show_main_menu_query(query, context, lang):
     tg_id = str(query.from_user.id)
@@ -525,7 +639,7 @@ async def show_main_menu_query(query, context, lang):
         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
-        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral')]
+        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton("🌐 Language", callback_data='change_lang')]
     ]
     if tg_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("👮‍♂️ Админ панель", callback_data='admin_panel')])
@@ -548,7 +662,7 @@ async def show_main_menu_query(query, context, lang):
     #          logging.error(f"Failed to send welcome photo (query): {e}")
     #          await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     # else:
-    await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -598,7 +712,7 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
-        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral')]
+        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton("🌐 Language", callback_data='change_lang')]
     ]
     if tg_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("👮‍♂️ Админ панель", callback_data='admin_panel')])
@@ -610,11 +724,11 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Revert to text-only main menu
     try:
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     except Exception as e:
         if "Message is not modified" not in str(e):
              await query.message.delete()
-             await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+             await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def try_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -732,7 +846,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # We use edit_message_text if callback, reply if command
     if query:
-        text = "👮‍♂️ **Админ панель**\n\nВыберите действие:"
+        text = "👮‍♂️ *Админ панель*\n\nВыберите действие:"
         try:
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         except Exception as e:
@@ -740,7 +854,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  await query.message.delete()
                  await context.bot.send_message(chat_id=tg_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     else:
-        await update.message.reply_text("👮‍♂️ **Админ панель**\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await update.message.reply_text("👮‍♂️ *Админ панель*\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 def get_system_stats():
     # CPU
@@ -817,11 +931,11 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     stats = get_system_stats()
     
-    text = f"""🖥 **Состояние сервера**
-
-🧠 **CPU:** {stats['cpu']:.1f}%
-💾 **RAM:** {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)
-💿 **Disk:** {stats['disk_usage']:.1f}%
+    text = f"""🖥 *Состояние сервера*
+    
+🧠 *CPU:* {stats['cpu']:.1f}%
+💾 *RAM:* {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)
+💿 *Disk:* {stats['disk_usage']:.1f}%
 ├ Использовано: {stats['disk_used']:.2f} GB
 ├ Свободно: {stats['disk_free']:.2f} GB
 └ Всего: {stats['disk_total']:.2f} GB
@@ -863,7 +977,7 @@ async def admin_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')])
     
     await query.edit_message_text(
-        "💰 **Настройка цен**\n\nВыберите тариф для изменения стоимости:",
+        "💰 *Настройка цен*\n\nВыберите тариф для изменения стоимости:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
@@ -884,7 +998,7 @@ async def admin_edit_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     await query.edit_message_text(
-        f"✏️ **Изменение цены: {labels.get(key, key)}**\n\nВведите новую стоимость в Telegram Stars (целое число):",
+        f"✏️ *Изменение цены: {labels.get(key, key)}*\n\n Введите новую стоимость в Telegram Stars (целое число):",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_prices')]]),
         parse_mode='Markdown'
     )
@@ -969,16 +1083,16 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Re-eval for trials:
                 # if expiry > 0 and expiry < current_time_ms: expired_trials += 1
 
-    text = f"""📊 **Статистика**
+    text = f"""📊 *Статистика*
     
-👥 **Пользователи бота:** {total_users}
-⚡ **Пользователи онлайн:** {online_users}
-🔌 **Всего клиентов:** {total_clients}
-✅ **Активные клиенты:** {active_subs}
-🆓 **Пробные подписки:** {active_trials}
-❌ **Истекшие пробные:** {expired_trials}
-💰 **Выручка:** {total_revenue} ⭐️
-🛒 **Продажи:** {total_sales}
+👥 *Пользователи бота:* {total_users}
+⚡ *Пользователи онлайн:* {online_users}
+🔌 *Всего клиентов:* {total_clients}
+✅ *Активные клиенты:* {active_subs}
+🆓 *Пробные подписки:* {active_trials}
+❌ *Истекшие пробные:* {expired_trials}
+💰 *Выручка:* {total_revenue} ⭐️
+🛒 *Продажи:* {total_sales}
 """
     keyboard = [
         [
@@ -990,9 +1104,113 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("⚡ Онлайн", callback_data='admin_users_online_0'),
             InlineKeyboardButton("🆓 Пробный период", callback_data='admin_users_trial_0')
         ],
+        [InlineKeyboardButton("🔄 Обновить ники", callback_data='admin_sync_nicks')],
         [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Синхронизация...", show_alert=False)
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        await query.message.reply_text("❌ X-UI Inbound not found.")
+        return
+        
+    settings = json.loads(row[0])
+    clients = settings.get('clients', [])
+    
+    updated_count = 0
+    failed_count = 0
+    total = len(clients)
+    
+    progress_msg = await context.bot.send_message(chat_id=query.from_user.id, text=f"🔄 Синхронизация: 0/{total}")
+    
+    changed = False
+    
+    for i, client in enumerate(clients):
+        tg_id = str(client.get('tgId', ''))
+        
+        if tg_id and tg_id.isdigit():
+            try:
+                # 1. Fetch from Telegram
+                chat = await context.bot.get_chat(tg_id)
+                uname = chat.username
+                fname = chat.first_name
+                lname = chat.last_name
+                
+                # 2. Update Bot DB
+                update_user_info(tg_id, uname, fname, lname)
+                
+                # 3. Update X-UI Email (if needed)
+                # Format: tg_{ID}_{Username} or tg_{ID}_{FirstName}
+                # Sanitize: Alphanumeric only + underscores
+                
+                base_name = ""
+                if uname:
+                    base_name = uname
+                elif fname:
+                    base_name = fname
+                    
+                # Sanitize
+                import re
+                clean_name = re.sub(r'[^a-zA-Z0-9]', '', base_name)
+                if not clean_name: clean_name = "User"
+                
+                new_email = f"tg_{tg_id}_{clean_name}"
+                old_email = client.get('email')
+                
+                if old_email != new_email:
+                    # Check for duplicates? X-UI might complain if duplicate.
+                    # But tg_ID is unique usually.
+                    
+                    # Update Client Object
+                    client['email'] = new_email
+                    clients[i] = client
+                    changed = True
+                    
+                    # Update client_traffics to preserve stats
+                    try:
+                        conn.execute("UPDATE client_traffics SET email=? WHERE email=?", (new_email, old_email))
+                        # Also update local history if any
+                        conn_bot = sqlite3.connect(BOT_DB_PATH)
+                        conn_bot.execute("UPDATE traffic_history SET email=? WHERE email=?", (new_email, old_email))
+                        conn_bot.commit()
+                        conn_bot.close()
+                    except: pass
+                
+                updated_count += 1
+            except Exception:
+                failed_count += 1
+        
+        # Update progress
+        if (i + 1) % 2 == 0 or (i + 1) == total:
+            try:
+                await progress_msg.edit_text(f"🔄 Синхронизация: {i+1}/{total}")
+            except: pass
+            
+        await asyncio.sleep(0.05)
+        
+    if changed:
+        # Save X-UI settings
+        new_settings = json.dumps(settings, indent=2)
+        cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (new_settings, INBOUND_ID))
+        conn.commit()
+        # Restart X-UI
+        subprocess.run(["systemctl", "restart", "x-ui"])
+        
+    try:
+        await progress_msg.edit_text(f"✅ Синхронизация завершена!\n\nОбновлено: {updated_count}\nОшибок: {failed_count}\n\n⚠️ X-UI был перезапущен для обновления имен в панели.")
+    except: pass
+    
+    # Return to stats
+    await admin_stats(update, context)
 
 async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1082,6 +1300,26 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settings = json.loads(row[0])
         clients = settings.get('clients', [])
         
+        # Pre-fetch user details (username/name) from DB for ALL clients to avoid N+1 queries later
+        # We can fetch all user_prefs and map by tg_id
+        conn_bot = sqlite3.connect(BOT_DB_PATH)
+        cursor_bot = conn_bot.cursor()
+        try:
+            cursor_bot.execute("SELECT tg_id, username, first_name, last_name FROM user_prefs")
+            user_prefs_rows = cursor_bot.fetchall()
+        except:
+            user_prefs_rows = []
+        conn_bot.close()
+        
+        user_info_map = {} # tg_id -> {username, first_name, last_name}
+        for r in user_prefs_rows:
+            tid, uname, fname, lname = r
+            user_info_map[str(tid)] = {
+                'username': uname,
+                'first_name': fname,
+                'last_name': lname
+            }
+        
         # Filtering
         filtered_clients = []
         current_time = int(time.time() * 1000)
@@ -1123,9 +1361,25 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status = "🟢" if c.get('enable') else "🔴"
             email = c.get('email', 'Unknown')
             uid = c.get('id')
+            tg_id = str(c.get('tgId', ''))
+            
+            label = f"{status} {email}"
+            
+            # Enrich label with name if available
+            if tg_id in user_info_map:
+                uinfo = user_info_map[tg_id]
+                if uinfo['username']:
+                    label = f"{label} (@{uinfo['username']})"
+                elif uinfo['first_name']:
+                    name = uinfo['first_name']
+                    if uinfo['last_name']:
+                        name += f" {uinfo['last_name']}"
+                    label = f"{label} ({name})"
+            
             display_items.append({
-                'label': f"{status} {email}",
-                'callback': f"admin_u_{uid}"
+                'label': label,
+                'callback': f"admin_u_{uid}",
+                'tg_id': tg_id
             })
 
     # Pagination
@@ -1142,7 +1396,34 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = []
     for item in current_items:
-        keyboard.append([InlineKeyboardButton(item['label'], callback_data=item['callback'])])
+        # If still no name (not in DB), try dynamic fetch (fallback, slower but works for fresh start)
+        # But wait, we are in a loop for 10 items.
+        # If user interacts with bot, it will be in DB.
+        # If user never interacted (manual add), we can't get name anyway except get_chat.
+        # Let's keep the get_chat fallback for the current page only if DB failed.
+        
+        label = item['label']
+        # Check if label already enriched (contains @ or ())
+        if "(@" not in label and "(" not in label and "tg_" in label:
+             tg_id_str = item.get('tg_id')
+             if tg_id_str and tg_id_str.isdigit():
+                 try:
+                     chat = await context.bot.get_chat(tg_id_str)
+                     # Also save to DB for next time!
+                     uname = chat.username
+                     fname = chat.first_name
+                     lname = chat.last_name
+                     update_user_info(tg_id_str, uname, fname, lname)
+                     
+                     if uname:
+                         label = f"{label} (@{uname})"
+                     elif fname:
+                         name = fname
+                         if lname: name += f" {lname}"
+                         label = f"{label} ({name})"
+                 except: pass
+
+        keyboard.append([InlineKeyboardButton(label, callback_data=item['callback'])])
         
     # Navigation
     nav_row = []
@@ -1160,7 +1441,7 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("🔙 Назад к статистике", callback_data='admin_stats')])
     
     title_map = {'all': 'Все клиенты', 'active': 'Активные клиенты', 'expiring': 'Скоро истекают (<7д)', 'online': 'Онлайн клиенты', 'trial': 'Использовали пробный (Все)'}
-    await query.edit_message_text(f"📋 **{title_map.get(filter_type, 'Clients')}**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    await query.edit_message_text(f"📋 *{title_map.get(filter_type, 'Clients')}*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def admin_reset_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1275,25 +1556,63 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if client.get('tgId'):
         tg_id_val = str(client.get('tgId'))
-        conn = sqlite3.connect(BOT_DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT trial_used FROM user_prefs WHERE tg_id=?", (tg_id_val,))
-        row = cursor.fetchone()
-        conn.close()
         
-        if row:
-            if row[0]:
-                trial_status_str = "✅ Использован"
-                show_reset_trial = True
+        # Try to get Username
+        username = "Не найден"
+        try:
+            # Check DB first
+            conn = sqlite3.connect(BOT_DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, first_name, last_name, trial_used FROM user_prefs WHERE tg_id=?", (tg_id_val,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            db_uname = None
+            db_fname = None
+            db_lname = None
+            trial_status_str = "❌ Не использован"
+            show_reset_trial = False
+            
+            if row:
+                db_uname = row[0]
+                db_fname = row[1]
+                db_lname = row[2]
+                if row[3]:
+                    trial_status_str = "✅ Использован"
+                    show_reset_trial = True
             else:
-                trial_status_str = "❌ Не использован"
-        else:
-             trial_status_str = "❌ Не использован (нет в базе)"
+                trial_status_str = "❌ Не использован (нет в базе)"
+            
+            # Use DB info if available
+            if db_uname:
+                username = f"@{db_uname}"
+            elif db_fname:
+                username = db_fname
+                if db_lname: username += f" {db_lname}"
+            else:
+                # Try fetch if not in DB
+                chat = await context.bot.get_chat(tg_id_val)
+                if chat.username:
+                    username = f"@{chat.username}"
+                    # Update DB
+                    update_user_info(tg_id_val, chat.username, chat.first_name, chat.last_name)
+                elif chat.first_name:
+                    username = chat.first_name
+                    if chat.last_name:
+                        username += f" {chat.last_name}"
+                    update_user_info(tg_id_val, None, chat.first_name, chat.last_name)
+        except Exception as e:
+            # logging.error(f"Failed to resolve username for {tg_id_val}: {e}")
+            pass
+            
     else:
-         tg_id_val = "Не привязан"
+        tg_id_val = "Не привязан"
+        username = "-"
+        trial_status_str = "❓ Неизвестно"
     
     text = f"""📧 Email: {email}
 🆔 TG ID: {tg_id_val}
+👤 Никнейм: {username}
 🔌 Включен: {is_enabled_str}
 📶 Соединение: {online_status}
 📅 Подписка: {sub_active_str}
@@ -1310,6 +1629,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("🔄 Сбросить пробный период", callback_data=f'admin_reset_trial_{uid}')])
         
     keyboard.append([InlineKeyboardButton("🔄 Перепривязать пользователя", callback_data=f'admin_rebind_{uid}')])
+    keyboard.append([InlineKeyboardButton("❌ Удалить пользователя", callback_data=f'admin_del_client_ask_{uid}')])
     keyboard.append([InlineKeyboardButton("🔙 Назад к списку", callback_data='admin_users_0')])
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1340,7 +1660,7 @@ async def admin_rebind_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.delete()
     await context.bot.send_message(
         chat_id=query.from_user.id,
-        text=f"👤 **Перепривязка пользователя**\nUUID: `{uid}`\n\nПожалуйста, выберите пользователя через кнопку ниже или отправьте контакт.",
+        text=f"👤 *Перепривязка пользователя*\nUUID: `{uid}`\n\nПожалуйста, выберите пользователя через кнопку ниже или отправьте контакт.",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
         parse_mode='Markdown'
     )
@@ -1350,7 +1670,7 @@ async def admin_new_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     await query.edit_message_text(
-        "🎁 **Создать промокод**\n\nОтправьте детали промокода в формате:\n`CODE DAYS LIMIT`\n\nПример: `NEWYEAR 30 100`",
+        "🎁 *Создать промокод*\n\nОтправьте детали промокода в формате:\n`CODE DAYS LIMIT`\n\nПример: `NEWYEAR 30 100`",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]]),
         parse_mode='Markdown'
     )
@@ -1361,7 +1681,7 @@ async def admin_search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     await query.edit_message_text(
-        "🔍 **Поиск пользователя**\n\nОтправьте **Telegram ID** пользователя для поиска в базе данных.",
+        "🔍 *Поиск пользователя*\n\nОтправьте *Telegram ID* пользователя для поиска в базе данных.",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]]),
         parse_mode='Markdown'
     )
@@ -1381,13 +1701,13 @@ async def admin_sales_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not rows:
             await query.edit_message_text(
-                "📜 **Журнал продаж**\n\nПродаж пока нет.",
+                "📜 *Журнал продаж*\n\nПродаж пока нет.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]]),
                 parse_mode='Markdown'
             )
             return
 
-        text = "📜 **Журнал продаж (последние 20)**\n\n"
+        text = "📜 *Журнал продаж (последние 20)*\n\n"
         
         for row in rows:
             tg_id, amount, date_ts, plan_id = row
@@ -1418,7 +1738,7 @@ async def admin_user_db_detail(update: Update, context: ContextTypes.DEFAULT_TYP
         if user_data.get('trial_activated_at'):
             trial_date = datetime.datetime.fromtimestamp(user_data['trial_activated_at'], tz=TIMEZONE).strftime("%d.%m.%Y %H:%M")
             
-    text = f"""👤 **Информация о пользователе (DB)**
+    text = f"""👤 *Информация о пользователе (DB)*
     
 🆔 TG ID: `{tg_id}`
 🌍 Язык: {lang}
@@ -1492,14 +1812,202 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    keyboard = [
+        [InlineKeyboardButton("📢 Всем", callback_data='admin_broadcast_all')],
+        [InlineKeyboardButton("🇮🇧 Английский (en)", callback_data='admin_broadcast_en')],
+        [InlineKeyboardButton("🇷🇺 Русский (ru)", callback_data='admin_broadcast_ru')],
+        [InlineKeyboardButton("👥 Индивидуально", callback_data='admin_broadcast_individual')],
+        [InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]
+    ]
+    
     await query.edit_message_text(
-        "📢 **Рассылка сообщений**\n\nОтправьте сообщение, которое хотите отправить ВСЕМ пользователям.\nПоддерживается Markdown.",
+        "📢 *Рассылка сообщений*\n\nВыберите аудиторию для рассылки:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+def get_users_pagination_keyboard(users, selected_ids, page, users_per_page=10):
+    total_pages = math.ceil(len(users) / users_per_page)
+    if total_pages == 0: total_pages = 1
+    
+    start = page * users_per_page
+    end = start + users_per_page
+    current_users = users[start:end]
+    
+    keyboard = []
+    for u in current_users:
+        uid = str(u[0])
+        first_name = u[1] or ""
+        username = f" (@{u[2]})" if u[2] else ""
+        # Truncate name if too long
+        name_display = (first_name + username).strip() or f"ID: {uid}"
+        if len(name_display) > 30: name_display = name_display[:27] + "..."
+        
+        icon = "✅" if uid in selected_ids else "☑️"
+        label = f"{icon} {name_display}"
+        
+        keyboard.append([InlineKeyboardButton(label, callback_data=f'admin_broadcast_toggle_{uid}_{page}')])
+    
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f'admin_broadcast_page_{page-1}'))
+    
+    nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data='noop'))
+    
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("➡️", callback_data=f'admin_broadcast_page_{page+1}'))
+    
+    keyboard.append(nav_row)
+    
+    confirm_text = f"✅ Готово ({len(selected_ids)})"
+    keyboard.append([InlineKeyboardButton(confirm_text, callback_data='admin_broadcast_confirm')])
+    keyboard.append([InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    
+    parts = query.data.split('_')
+    # Format: admin_broadcast_ACTION_PARAM...
+    # actions: all, en, ru, individual, toggle, page, confirm
+    action = parts[2]
+    
+    if action == 'individual':
+        await query.answer()
+        context.user_data['broadcast_selected_ids'] = []
+        context.user_data['broadcast_target'] = 'individual'
+        
+        # Sync users from X-UI DB to Bot DB to ensure all active clients are available
+        try:
+            conn_xui = sqlite3.connect(DB_PATH)
+            cursor_xui = conn_xui.cursor()
+            cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+            row = cursor_xui.fetchone()
+            conn_xui.close()
+            
+            if row:
+                settings = json.loads(row[0])
+                clients = settings.get('clients', [])
+                
+                conn_bot = sqlite3.connect(BOT_DB_PATH)
+                cursor_bot = conn_bot.cursor()
+                
+                for client in clients:
+                    tg_id = client.get('tgId')
+                    email = client.get('email', '')
+                    
+                    if tg_id:
+                        tg_id_str = str(tg_id)
+                        # Check if user exists
+                        cursor_bot.execute("SELECT tg_id FROM user_prefs WHERE tg_id=?", (tg_id_str,))
+                        if not cursor_bot.fetchone():
+                            # Add basic info if missing
+                            # Use email as first_name to identify user
+                            cursor_bot.execute("INSERT INTO user_prefs (tg_id, lang, first_name) VALUES (?, ?, ?)", (tg_id_str, 'ru', email))
+                
+                conn_bot.commit()
+                conn_bot.close()
+        except Exception as e:
+            logging.error(f"Error syncing users for broadcast: {e}")
+        
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT tg_id, first_name, username FROM user_prefs")
+        users = cursor.fetchall()
+        conn.close()
+        
+        keyboard = get_users_pagination_keyboard(users, [], 0)
+        await query.edit_message_text(
+            "📢 *Индивидуальная рассылка*\n\nВыберите пользователей из списка:",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+        return
+
+    if action == 'toggle':
+        uid = parts[3]
+        page = int(parts[4])
+        selected = context.user_data.get('broadcast_selected_ids', [])
+        
+        if uid in selected:
+            selected.remove(uid)
+        else:
+            selected.append(uid)
+        
+        context.user_data['broadcast_selected_ids'] = selected
+        
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT tg_id, first_name, username FROM user_prefs")
+        users = cursor.fetchall()
+        conn.close()
+        
+        keyboard = get_users_pagination_keyboard(users, selected, page)
+        try:
+            await query.edit_message_reply_markup(reply_markup=keyboard)
+        except:
+            pass
+        await query.answer()
+        return
+
+    if action == 'page':
+        page = int(parts[3])
+        selected = context.user_data.get('broadcast_selected_ids', [])
+        
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT tg_id, first_name, username FROM user_prefs")
+        users = cursor.fetchall()
+        conn.close()
+        
+        keyboard = get_users_pagination_keyboard(users, selected, page)
+        try:
+            await query.edit_message_reply_markup(reply_markup=keyboard)
+        except:
+            pass
+        await query.answer()
+        return
+
+    if action == 'confirm':
+        selected = context.user_data.get('broadcast_selected_ids', [])
+        if not selected:
+             await query.answer("⚠️ Выберите хотя бы одного пользователя!", show_alert=True)
+             return
+        
+        await query.answer()
+        context.user_data['broadcast_users'] = selected
+        context.user_data['broadcast_target'] = 'individual'
+        
+        await query.edit_message_text(
+            f"✅ Выбрано {len(selected)} получателей.\n\nТеперь отправьте сообщение (текст, фото, видео, стикер), которое хотите отправить.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]]),
+            parse_mode='Markdown'
+        )
+        context.user_data['admin_action'] = 'awaiting_broadcast'
+        return
+    
+    # Fallback for all/en/ru
+    await query.answer()
+    target = action
+    context.user_data['broadcast_target'] = target
+    
+    target_name = "ВСЕМ"
+    if target == 'en': target_name = "English (en)"
+    if target == 'ru': target_name = "Русский (ru)"
+    
+    await query.edit_message_text(
+        f"📢 *Рассылка ({target_name})*\n\nОтправьте сообщение (текст, фото, видео, стикер), которое хотите отправить.",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]]),
         parse_mode='Markdown'
     )
     context.user_data['admin_action'] = 'awaiting_broadcast'
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message and update.message.from_user:
+        user = update.message.from_user
+        update_user_info(user.id, user.username, user.first_name, user.last_name)
+
     tg_id = str(update.message.from_user.id)
     lang = get_lang(tg_id)
     text = update.message.text
@@ -1521,7 +2029,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📜 Журнал продаж", callback_data='admin_sales_log')],
         [InlineKeyboardButton("🔙 Главное меню", callback_data='back_to_main')]
     ]
-            await update.message.reply_text("👮‍♂️ **Админ панель**\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            await update.message.reply_text("👮‍♂️ *Админ панель*\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
             return
 
         # Handle User Shared (Rebind)
@@ -1557,15 +2065,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             found = False
             client_email = ""
+            old_email = ""
+            
             for client in clients:
                 if client.get('id') == uid:
+                    old_email = client.get('email')
                     client['tgId'] = int(target_tg_id) if target_tg_id.isdigit() else target_tg_id
+                    client['email'] = f"tg_{target_tg_id}" # Update email to match standard format
                     client['updated_at'] = int(time.time() * 1000)
                     client_email = client.get('email')
                     found = True
                     break
             
             if found:
+                # Need to update client_traffics as well because email changed
+                # We rename old email to new email in client_traffics table
+                try:
+                    if old_email and client_email and old_email != client_email:
+                         # Check if record exists for old email
+                         conn.execute("UPDATE client_traffics SET email=? WHERE email=?", (client_email, old_email))
+                         # Also update traffic_history if we want to preserve history
+                         conn_bot = sqlite3.connect(BOT_DB_PATH)
+                         conn_bot.execute("UPDATE traffic_history SET email=? WHERE email=?", (client_email, old_email))
+                         conn_bot.commit()
+                         conn_bot.close()
+                         
+                         # Force update current traffic from client dict to client_traffics table
+                         # Because X-UI might overwrite it with 0 if we just changed email?
+                         # Or maybe client dict has the correct current values 'up' and 'down'.
+                         current_up = client.get('up', 0)
+                         current_down = client.get('down', 0)
+                         if current_up > 0 or current_down > 0:
+                             conn.execute("UPDATE client_traffics SET up=?, down=? WHERE email=?", (current_up, current_down, client_email))
+                         
+                except Exception as e: 
+                     logging.error(f"Error migrating stats: {e}")
+
                 new_settings = json.dumps(settings, indent=2)
                 cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (new_settings, INBOUND_ID))
                 conn.commit()
@@ -1574,7 +2109,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Restart X-UI
                 subprocess.run(["systemctl", "restart", "x-ui"])
                 
-                await update.message.reply_text(f"✅ **Успешно!**\nКлиент `{client_email}` перепривязан к Telegram ID `{target_tg_id}`.\nX-UI перезапущен.", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+                await update.message.reply_text(f"✅ *Успешно!*\nКлиент `{client_email}` перепривязан к Telegram ID `{target_tg_id}`.\n\n🔄 *Внимание:* Для корректного отображения статистики и работы подписки, бот автоматически обновил email клиента на `{client_email}`.\n\nX-UI перезапущен.", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
                 
                 # Show admin user detail again
                 keyboard = [
@@ -1650,24 +2185,107 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Ошибка. Введите целое положительное число.")
             return
 
-        elif action == 'awaiting_broadcast':
+        elif action == 'awaiting_broadcast_users_input':
             if not text: return
-            msg = text
+            clean_text = text.replace(',', ' ').strip()
+            ids = clean_text.split()
+            valid_ids = []
+            for uid in ids:
+                if uid.isdigit() or (uid.startswith('-') and uid[1:].isdigit()):
+                     valid_ids.append(uid)
+            
+            if not valid_ids:
+                 await update.message.reply_text("❌ Не найдено корректных ID. Попробуйте еще раз или нажмите Отмена.")
+                 return
+            
+            context.user_data['broadcast_users'] = valid_ids
+            context.user_data['admin_action'] = 'awaiting_broadcast'
+            
+            await update.message.reply_text(
+                f"✅ Принято {len(valid_ids)} получателей.\n\nТеперь отправьте сообщение (текст, фото, видео, стикер), которое хотите отправить.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]])
+            )
+            return
+
+        elif action == 'awaiting_broadcast':
+            # Use copy_message to support all content types (text, photo, video, sticker, etc.)
+            msg_id = update.message.message_id
+            chat_id_from = update.message.chat_id
+            target = context.user_data.get('broadcast_target', 'all')
+            
             conn = sqlite3.connect(BOT_DB_PATH)
             cursor = conn.cursor()
-            cursor.execute("SELECT tg_id FROM user_prefs")
-            users = cursor.fetchall()
+            
+            users = []
+            
+            if target == 'all':
+                # Sync all active users from X-UI DB first
+                try:
+                    conn_xui = sqlite3.connect(DB_PATH)
+                    cursor_xui = conn_xui.cursor()
+                    cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+                    row = cursor_xui.fetchone()
+                    conn_xui.close()
+                    
+                    if row:
+                        settings = json.loads(row[0])
+                        clients = settings.get('clients', [])
+                        for client in clients:
+                            tg_id = client.get('tgId')
+                            if tg_id:
+                                users.append((str(tg_id),))
+                except Exception as e:
+                     logging.error(f"Error getting X-UI users for broadcast: {e}")
+                
+                # Also get users from bot DB who might not be active in X-UI anymore but are in bot
+                cursor.execute("SELECT tg_id FROM user_prefs")
+                bot_users = cursor.fetchall()
+                
+                # Merge lists, unique IDs
+                user_ids = set([u[0] for u in users])
+                for u in bot_users:
+                    if u[0] not in user_ids:
+                        users.append(u)
+                        user_ids.add(u[0])
+                        
+            elif target == 'individual':
+                user_ids = context.user_data.get('broadcast_users', [])
+                users = [(uid,) for uid in user_ids]
+            else:
+                cursor.execute("SELECT tg_id FROM user_prefs WHERE lang=?", (target,))
+                users = cursor.fetchall()
+            
             conn.close()
             
             sent = 0
-            for user in users:
-                try:
-                    await context.bot.send_message(chat_id=user[0], text=msg, parse_mode='Markdown')
-                    sent += 1
-                except: pass
+            blocked = 0
             
-            await update.message.reply_text(f"✅ Broadcast sent to {sent} users.")
+            target_name = "ВСЕМ"
+            if target == 'en': target_name = "English (en)"
+            if target == 'ru': target_name = "Русский (ru)"
+            if target == 'individual': target_name = f"Индивидуально: {len(users)}"
+            
+            status_msg = await update.message.reply_text(f"⏳ Рассылка запущена ({target_name})...")
+            
+            for user in users:
+                user_id = user[0]
+                # Skip sending to self (admin) if desired, or keep it for verification
+                if str(user_id) == str(tg_id):
+                    # We can skip the sender to avoid double notification, or just let it be
+                    pass
+                    
+                try:
+                    await context.bot.copy_message(chat_id=user_id, from_chat_id=chat_id_from, message_id=msg_id)
+                    sent += 1
+                    await asyncio.sleep(0.05) # Rate limit protection
+                except Exception as e:
+                    if "Forbidden" in str(e) or "blocked" in str(e):
+                        blocked += 1
+                    pass
+            
+            await status_msg.edit_text(f"✅ Рассылка завершена ({target_name}).\n\n📤 Отправлено: {sent}\n🚫 Не доставлено (бот заблокирован): {blocked}")
             context.user_data['admin_action'] = None
+            context.user_data['broadcast_target'] = None
             return
             
         elif action == 'awaiting_search_user':
@@ -1777,9 +2395,9 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Celebration animation for Payment
     import asyncio
     msg = await update.message.reply_text("🎆")
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1.0)
     await msg.edit_text("🎆 🎇")
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.75)
     await msg.edit_text("🎆 🎇 ✨")
     await asyncio.sleep(0.5)
     await msg.edit_text("🎉 ОПЛАТА ПРОШЛА УСПЕШНО! 🎉")
@@ -1946,11 +2564,13 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
         if user_client:
             current_expiry = user_client.get('expiryTime', 0)
             
-            # Policy: 
-            # 1. If current is unlimited (0), KEEP IT 0. Don't overwrite with finite trial.
-            # 2. If current is finite:
-            #    a. If active (expiry > now), add to expiry.
-            #    b. If expired (expiry < now), set to now + days.
+            # Ensure email is updated if nickname is available
+            # Check if email is in old format tg_ID or just different
+            # We can't easily fetch nickname here without API call, which is slow.
+            # But if we have it in DB, we can use it.
+            # However, to avoid complexity, we can just respect the existing email 
+            # UNLESS we are creating a NEW one.
+            # If updating existing, we keep email unless Admin syncs it.
             
             if current_expiry == 0:
                 new_expiry = 0 # Remain unlimited
@@ -1974,9 +2594,36 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
         else:
             u_uuid = str(uuid.uuid4())
             new_expiry = current_time_ms + ms_to_add
+            
+            # Try to get nickname for new client
+            uname_val = "User"
+            try:
+                # Check DB first
+                conn_db = sqlite3.connect(BOT_DB_PATH)
+                cursor_db = conn_db.cursor()
+                cursor_db.execute("SELECT username, first_name FROM user_prefs WHERE tg_id=?", (tg_id,))
+                row_db = cursor_db.fetchone()
+                conn_db.close()
+                
+                if row_db:
+                    if row_db[0]: uname_val = row_db[0]
+                    elif row_db[1]: uname_val = row_db[1]
+                else:
+                    # Fetch
+                    chat = await context.bot.get_chat(tg_id)
+                    if chat.username: uname_val = chat.username
+                    elif chat.first_name: uname_val = chat.first_name
+            except: pass
+            
+            import re
+            clean_name = re.sub(r'[^a-zA-Z0-9]', '', uname_val)
+            if not clean_name: clean_name = "User"
+            
+            new_email = f"tg_{tg_id}_{clean_name}"
+            
             new_client = {
                 "id": u_uuid,
-                "email": f"tg_{tg_id}",
+                "email": new_email,
                 "limitIp": 0,
                 "totalGB": 0,
                 "expiryTime": new_expiry,
@@ -1997,7 +2644,7 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
             cursor.execute("""
                 INSERT INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset, all_time, last_online)
                 VALUES (?, ?, ?, 0, 0, ?, 0, 0, 0, 0)
-            """, (INBOUND_ID, 1, f"tg_{tg_id}", new_expiry))
+            """, (INBOUND_ID, 1, new_email, new_expiry))
             
         cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(settings), INBOUND_ID))
         conn.commit()
@@ -2005,7 +2652,13 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
         
         subprocess.run(["systemctl", "restart", "x-ui"])
         
-        expiry_date = datetime.datetime.fromtimestamp(new_expiry / 1000, tz=TIMEZONE).strftime('%d.%m.%Y %H:%M')
+        if new_expiry == 0:
+            if lang == 'ru':
+                expiry_date = "Безлимит"
+            else:
+                expiry_date = "Unlimited"
+        else:
+            expiry_date = datetime.datetime.fromtimestamp(new_expiry / 1000, tz=TIMEZONE).strftime('%d.%m.%Y %H:%M')
         
         text = t(msg_key, lang).format(expiry=expiry_date)
         
@@ -2075,7 +2728,7 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         user_client = None
         for client in clients:
-            if str(client.get('tgId')) == tg_id or client.get('email') == f"tg_{tg_id}":
+            if str(client.get('tgId', '')) == tg_id or client.get('email') == f"tg_{tg_id}":
                 user_client = client
                 break
         
@@ -2086,48 +2739,191 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_ms = int(time.time() * 1000)
             
             if expiry_ms > 0 and expiry_ms < current_ms:
-                 await query.edit_message_text(
-                     t("sub_expired", lang),
-                     reply_markup=InlineKeyboardMarkup([
-                         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
-                         [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
-                     ]),
-                     parse_mode='Markdown'
-                 )
+                 try:
+                     await query.edit_message_text(
+                         t("sub_expired", lang),
+                         reply_markup=InlineKeyboardMarkup([
+                             [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+                             [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
+                         ]),
+                         parse_mode='Markdown'
+                     )
+                 except Exception:
+                     await query.message.delete()
+                     await context.bot.send_message(
+                         chat_id=tg_id,
+                         text=t("sub_expired", lang),
+                         reply_markup=InlineKeyboardMarkup([
+                             [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+                             [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
+                         ]),
+                         parse_mode='Markdown'
+                     )
                  return
 
             u_uuid = user_client['id']
-            link = f"vless://{u_uuid}@{IP}:{PORT}?security=reality&encryption=none&pbk={PUBLIC_KEY}&headerType=none&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni={SNI}&sid={SID}#VPN_{username}"
+            client_email = user_client.get('email', f"VPN_{username}")
+            client_flow = user_client.get('flow', '')
+            
+            # Retrieve Reality Settings from Inbound Settings (row[0])
+            inbound_settings_json = json.loads(row[0])
+            stream_settings = inbound_settings_json.get('stream_settings', {})
+            # Note: stream_settings might be a JSON string or dict depending on X-UI version
+            # In previous tool output, we saw stream_settings as a key in row_dict, but here we only fetched 'settings' column from inbounds table.
+            # Wait, the SELECT query was: SELECT settings FROM inbounds WHERE id=?
+            # The 'settings' column in database only contains client list mostly.
+            # The REAL stream settings are in 'stream_settings' column.
+            # We need to fetch stream_settings column as well.
+            pass
+            
+            # Direct VLESS link
+            # vless://UUID@IP:PORT?type=tcp&encryption=none&security=reality&pbk=KEY&fp=chrome&sni=google.com&sid=b2&spx=%2F#tg_ID
+            
+            # We need to fetch stream_settings from DB to be accurate
+            conn2 = sqlite3.connect(DB_PATH)
+            cursor2 = conn2.cursor()
+            cursor2.execute("SELECT stream_settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+            row_ss = cursor2.fetchone()
+            conn2.close()
+            
+            spx_val = "%2F" # Default
+            if row_ss:
+                 try:
+                     ss = json.loads(row_ss[0])
+                     reality = ss.get('realitySettings', {})
+                     settings_inner = reality.get('settings', {})
+                     spiderX = settings_inner.get('spiderX', '/')
+                     import urllib.parse
+                     spx_val = urllib.parse.quote(spiderX)
+                 except: pass
+
+            flow_part = f"&flow={client_flow}" if client_flow else ""
+            
+            vless_link = f"vless://{u_uuid}@{IP}:{PORT}?type=tcp&encryption=none&security=reality&pbk={PUBLIC_KEY}&fp=chrome&sni={SNI}&sid={SID}&spx={spx_val}{flow_part}#{client_email}"
+            
+            # Subscription URL
+            conn_set = sqlite3.connect(DB_PATH)
+            cursor_set = conn_set.cursor()
+            cursor_set.execute("SELECT key, value FROM settings WHERE key IN ('subEnable', 'subPort', 'subPath', 'webPort', 'webBasePath', 'webCertFile', 'subCertFile')")
+            rows_set = cursor_set.fetchall()
+            conn_set.close()
+            
+            settings_map = {k: v for k, v in rows_set}
+            
+            sub_enable = settings_map.get('subEnable', 'false') == 'true'
+            sub_port = settings_map.get('subPort', '2096')
+            sub_path = settings_map.get('subPath', '/sub/')
+            web_port = settings_map.get('webPort', '2053')
+            web_base_path = settings_map.get('webBasePath', '/')
+            web_cert = settings_map.get('webCertFile', '')
+            sub_cert = settings_map.get('subCertFile', '')
+            
+            protocol = "http"
+            port = web_port
+            path = sub_path
+            
+            if sub_enable:
+                port = sub_port
+                path = sub_path
+                if sub_cert: protocol = "https"
+            else:
+                # Fallback to web port
+                port = web_port
+                # Ensure web_base_path ends with / if not empty
+                if web_base_path and not web_base_path.endswith('/'):
+                    web_base_path += '/'
+                if not web_base_path.startswith('/'):
+                     web_base_path = '/' + web_base_path
+                     
+                # path = web_base_path + sub_path (without leading slash if web_base_path has it)
+                if sub_path.startswith('/'):
+                    path = web_base_path + sub_path[1:]
+                else:
+                    path = web_base_path + sub_path
+                    
+                if web_cert: protocol = "https"
+
+            sub_id = user_client.get('subId')
+            if sub_id:
+                sub_link = f"{protocol}://{IP}:{port}{path}{sub_id}"
+            else:
+                sub_link = f"{protocol}://{IP}:{port}{path}{u_uuid}"
             
             if expiry_ms == 0:
-                expiry_str = "Unlimited"
+                if lang == 'ru':
+                    expiry_str = "Безлимит"
+                else:
+                    expiry_str = "Unlimited"
             else:
                 expiry_str = datetime.datetime.fromtimestamp(expiry_ms / 1000, tz=TIMEZONE).strftime('%d.%m.%Y %H:%M')
                 
-            await query.edit_message_text(
-                t("sub_active", lang).format(expiry=expiry_str, link=link),
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
-                    [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
-                ])
-            )
+            msg_text = f"✅ <b>Ваша подписка активна</b>\n\n📅 Истекает: {expiry_str}\n\n👇 <b>Рекомендуется использовать подписку</b>\n        (Нажмите на ссылку для копирования)\n\n📋 <b>Ссылка подписки:</b>\n<code>{html.escape(sub_link)}</code>\n\n🔑 <b>Ключ доступа:</b> (Нажмите чтобы развернуть)\n<tg-spoiler><code>{html.escape(vless_link)}</code></tg-spoiler>"
+            
+            try:
+                await query.edit_message_text(
+                    msg_text,
+                    parse_mode='HTML',
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
+                        [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
+                    ])
+                )
+            except Exception:
+                try:
+                    await query.message.delete()
+                except:
+                    pass
+                await context.bot.send_message(
+                    chat_id=tg_id,
+                    text=msg_text,
+                    parse_mode='HTML',
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
+                        [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
+                    ])
+                )
         else:
-            await query.edit_message_text(
-                t("sub_not_found", lang),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
-                    [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
-                ]),
-                parse_mode='Markdown'
-            )
+            try:
+                await query.edit_message_text(
+                    t("sub_not_found", lang),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+                        [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
+                    ]),
+                    parse_mode='Markdown'
+                )
+            except Exception:
+                try:
+                    await query.message.delete()
+                except:
+                    pass
+                await context.bot.send_message(
+                    chat_id=tg_id,
+                    text=t("sub_not_found", lang),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+                        [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
+                    ]),
+                    parse_mode='Markdown'
+                )
         
     except Exception as e:
         logging.error(f"Error: {e}")
-        await query.edit_message_text(
-            t("error_generic", lang),
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
-        )
+        try:
+            await query.edit_message_text(
+                t("error_generic", lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+            )
+        except Exception:
+             try:
+                 await query.message.delete()
+             except:
+                 pass
+             await context.bot.send_message(
+                 chat_id=tg_id,
+                 text=t("error_generic", lang),
+                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+             )
 
 def format_bytes(size):
     power = 2**10
@@ -2169,7 +2965,20 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if row_inbound:
                 settings = json.loads(row_inbound[0])
                 clients = settings.get('clients', [])
-                user_client = next((c for c in clients if c.get('email') == email), None)
+                
+                # Search by tg_id (as integer) or email
+                user_client = None
+                for c in clients:
+                     # Check tgId as integer or string
+                     if str(c.get('tgId', '')) == tg_id:
+                         user_client = c
+                         # Update email to match found client
+                         email = c.get('email')
+                         break
+                     elif c.get('email') == email:
+                         user_client = c
+                         break
+                
                 if user_client:
                     current_up = user_client.get('up', 0)
                     current_down = user_client.get('down', 0)
@@ -2282,24 +3091,24 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             expiry_dt = datetime.datetime.fromtimestamp(expiry_time / 1000, tz=TIMEZONE)
             expiry_str = expiry_dt.strftime("%d.%m.%Y %H:%M")
             
-        text = f"""📊 **Ваша статистика**
+        text = f"""📊 *Ваша статистика*
 
 {t("stats_sub_type", lang).format(plan=sub_plan)}
 
-📅 **За сегодня:**
+📅 *За сегодня:*
 ⬇️ {format_bytes(day_down)}  ⬆️ {format_bytes(day_up)}
 
-📅 **За неделю:**
+📅 *За неделю:*
 ⬇️ {format_bytes(week_down)}  ⬆️ {format_bytes(week_up)}
 
-📅 **За месяц:**
+📅 *За месяц:*
 ⬇️ {format_bytes(month_down)}  ⬆️ {format_bytes(month_up)}
 
-📦 **Всего:**
+📦 *Всего:*
 ⬇️ {format_bytes(current_down)}  ⬆️ {format_bytes(current_up)}
 ∑ {format_bytes(current_total)}
 
-⏳ **Истекает:** {expiry_str}"""
+⏳ *Истекает:* {expiry_str}"""
 
         try:
             await query.edit_message_text(
@@ -2500,12 +3309,95 @@ async def post_init(application):
     except Exception as e:
         logging.error(f"Failed to set description: {e}")
 
+async def admin_delete_client_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # admin_del_client_ask_UUID
+    try:
+        uid = query.data.split('_', 4)[4]
+    except:
+        return
+
+    keyboard = [
+        [InlineKeyboardButton("✅ Да, удалить", callback_data=f'admin_del_client_confirm_{uid}')],
+        [InlineKeyboardButton("❌ Нет, отмена", callback_data=f'admin_u_{uid}')]
+    ]
+    
+    await query.edit_message_text(
+        f"⚠️ **Вы уверены, что хотите удалить этого пользователя из X-UI?**\nUUID: `{uid}`\n\nЭто действие необратимо!",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def admin_delete_client_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # admin_del_client_confirm_UUID
+    try:
+        uid = query.data.split('_', 4)[4]
+    except:
+        return
+        
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+    row = cursor.fetchone()
+    
+    if not row:
+        conn.close()
+        await query.edit_message_text("❌ Входящее соединение не найдено.")
+        return
+        
+    settings = json.loads(row[0])
+    clients = settings.get('clients', [])
+    
+    # Find email for cleanup
+    email = None
+    for c in clients:
+        if c.get('id') == uid:
+            email = c.get('email')
+            break
+
+    # Filter out the client
+    initial_len = len(clients)
+    clients = [c for c in clients if c.get('id') != uid]
+    
+    if len(clients) == initial_len:
+        conn.close()
+        await query.edit_message_text("❌ Клиент не найден или уже удален.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 К списку", callback_data='admin_users_0')]]))
+        return
+        
+    # Save back
+    settings['clients'] = clients
+    new_settings = json.dumps(settings, indent=2)
+    cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (new_settings, INBOUND_ID))
+    
+    # Clean up client_traffics if email found
+    if email:
+        try:
+             cursor.execute("DELETE FROM client_traffics WHERE email=?", (email,))
+        except: pass
+        
+    conn.commit()
+    conn.close()
+    
+    # Restart X-UI
+    subprocess.run(["systemctl", "restart", "x-ui"])
+    
+    await query.edit_message_text(
+        f"✅ Клиент успешно удален из X-UI.\nX-UI перезапущен.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 К списку", callback_data='admin_users_0')]])
+    )
+
 if __name__ == '__main__':
     init_db()
     application = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(set_language, pattern='^set_lang_'))
+    application.add_handler(CallbackQueryHandler(change_lang, pattern='^change_lang$'))
     application.add_handler(CallbackQueryHandler(shop, pattern='^shop$'))
     application.add_handler(CallbackQueryHandler(back_to_main, pattern='^back_to_main$'))
     application.add_handler(CallbackQueryHandler(initiate_payment, pattern='^buy_'))
@@ -2520,6 +3412,7 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler('admin', admin_panel))
     application.add_handler(CallbackQueryHandler(admin_panel, pattern='^admin_panel$'))
     application.add_handler(CallbackQueryHandler(admin_stats, pattern='^admin_stats$'))
+    application.add_handler(CallbackQueryHandler(admin_sync_nicknames, pattern='^admin_sync_nicks$'))
     application.add_handler(CallbackQueryHandler(admin_server, pattern='^admin_server$'))
     application.add_handler(CallbackQueryHandler(admin_rebind_user, pattern='^admin_rebind_'))
     application.add_handler(CallbackQueryHandler(admin_users_list, pattern='^admin_users_'))
@@ -2529,12 +3422,15 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_edit_price, pattern='^admin_edit_price_'))
     application.add_handler(CallbackQueryHandler(admin_new_promo, pattern='^admin_new_promo$'))
     application.add_handler(CallbackQueryHandler(admin_broadcast, pattern='^admin_broadcast$'))
+    application.add_handler(CallbackQueryHandler(admin_broadcast_target, pattern='^admin_broadcast_(all|en|ru|individual|toggle|page|confirm).*'))
     application.add_handler(CallbackQueryHandler(admin_sales_log, pattern='^admin_sales_log$'))
     
     application.add_handler(CallbackQueryHandler(admin_search_user, pattern='^admin_search_user$'))
     application.add_handler(CallbackQueryHandler(admin_db_detail_callback, pattern='^admin_db_detail_'))
     application.add_handler(CallbackQueryHandler(admin_reset_trial_db, pattern='^admin_rt_db_'))
     application.add_handler(CallbackQueryHandler(admin_delete_user_db, pattern='^admin_del_db_'))
+    application.add_handler(CallbackQueryHandler(admin_delete_client_ask, pattern='^admin_del_client_ask_'))
+    application.add_handler(CallbackQueryHandler(admin_delete_client_confirm, pattern='^admin_del_client_confirm_'))
     
     application.add_handler(MessageHandler(~filters.COMMAND, handle_message))
     
