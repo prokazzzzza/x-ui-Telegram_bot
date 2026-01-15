@@ -10,6 +10,8 @@ import os
 import asyncio
 import math
 import html
+import qrcode
+from io import BytesIO
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
 
@@ -67,6 +69,7 @@ PORT = int(os.getenv("HOST_PORT", 17343))
 SNI = os.getenv("SNI", "google.com")
 SID = os.getenv("SID", "b2")
 TIMEZONE = ZoneInfo("Europe/Moscow")
+LOG_FILE = "/usr/local/x-ui/bot/bot.log"
 
 def load_config_from_db():
     global PUBLIC_KEY, PORT, SNI, SID
@@ -847,6 +850,90 @@ async def enter_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
              )
     context.user_data['awaiting_promo'] = True
 
+async def backup_db(context: ContextTypes.DEFAULT_TYPE = None):
+    try:
+        backup_dir = "/usr/local/x-ui/bot/backups"
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+            
+        timestamp = datetime.datetime.now(TIMEZONE).strftime("%Y-%m-%d_%H-%M-%S")
+        
+        # Backup Bot DB
+        if os.path.exists(BOT_DB_PATH):
+            shutil.copy2(BOT_DB_PATH, f"{backup_dir}/bot_data_{timestamp}.db")
+            
+        # Backup X-UI DB
+        if os.path.exists(DB_PATH):
+            shutil.copy2(DB_PATH, f"{backup_dir}/x-ui_{timestamp}.db")
+            
+        # Cleanup old backups (keep last 20 files)
+        files = sorted([os.path.join(backup_dir, f) for f in os.listdir(backup_dir)], key=os.path.getmtime)
+        if len(files) > 20: 
+            for f in files[:-20]:
+                os.remove(f)
+                
+        logging.info(f"Backup completed: {timestamp}")
+        return True
+    except Exception as e:
+        logging.error(f"Backup failed: {e}")
+        return False
+
+async def admin_view_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        if os.path.exists(LOG_FILE):
+            with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                # Read first 3000 chars (latest logs)
+                content = f.read(3000)
+                if len(content) == 3000:
+                    content += "\n...(далее обрезано)"
+        else:
+            content = "Лог файл пуст или не найден."
+            
+        text = f"📜 *Последние логи бота:*\n\n```\n{content}\n```"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Обновить", callback_data='admin_logs')],
+            [InlineKeyboardButton("🧹 Очистить логи", callback_data='admin_clear_logs')],
+            [InlineKeyboardButton("🔙 В админ панель", callback_data='admin_panel')]
+        ]
+        
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                 await query.message.delete()
+                 await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+                 
+    except Exception as e:
+        logging.error(f"Error reading logs: {e}")
+        await query.message.reply_text("Ошибка при чтении логов.")
+
+async def admin_clear_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Очистка логов...")
+    
+    try:
+        with open(LOG_FILE, 'w', encoding='utf-8') as f:
+            f.write("")
+        
+        await admin_view_logs(update, context)
+    except Exception as e:
+        logging.error(f"Error clearing logs: {e}")
+
+async def admin_create_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Создание резервной копии...")
+    
+    success = await backup_db()
+    
+    if success:
+        await context.bot.send_message(chat_id=query.from_user.id, text="✅ Резервная копия успешно создана в папке backups/")
+    else:
+        await context.bot.send_message(chat_id=query.from_user.id, text="❌ Ошибка при создании резервной копии. См. логи.")
+
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query:
@@ -867,6 +954,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🎁 Промокоды", callback_data='admin_promos_menu')],
         [InlineKeyboardButton("📢 Рассылка", callback_data='admin_broadcast')],
         [InlineKeyboardButton("📜 Журнал продаж", callback_data='admin_sales_log')],
+        [InlineKeyboardButton("💾 Бэкап", callback_data='admin_create_backup')],
+        [InlineKeyboardButton("📜 Логи", callback_data='admin_logs')],
         [InlineKeyboardButton("🔙 Главное меню", callback_data='back_to_main')]
     ]
     
@@ -3531,6 +3620,9 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_broadcast, pattern='^admin_broadcast$'))
     application.add_handler(CallbackQueryHandler(admin_broadcast_target, pattern='^admin_broadcast_(all|en|ru|individual|toggle|page|confirm).*'))
     application.add_handler(CallbackQueryHandler(admin_sales_log, pattern='^admin_sales_log$'))
+    application.add_handler(CallbackQueryHandler(admin_create_backup, pattern='^admin_create_backup$'))
+    application.add_handler(CallbackQueryHandler(admin_view_logs, pattern='^admin_logs$'))
+    application.add_handler(CallbackQueryHandler(admin_clear_logs, pattern='^admin_clear_logs$'))
     
     application.add_handler(CallbackQueryHandler(admin_search_user, pattern='^admin_search_user$'))
     application.add_handler(CallbackQueryHandler(admin_db_detail_callback, pattern='^admin_db_detail_'))
