@@ -331,6 +331,18 @@ def init_db():
     else:
         # Ensure 6_months exists
         cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("6_months", 450, 180))
+
+    # Flash Messages Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS flash_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id TEXT,
+            message_id INTEGER,
+            delete_at INTEGER
+        )
+    ''')
+    # Index for fast lookup
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_flash_delete ON flash_messages(delete_at)")
     
     conn.commit()
     conn.close()
@@ -1890,6 +1902,8 @@ async def admin_promos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("➕ Создать новый", callback_data='admin_new_promo')],
         [InlineKeyboardButton("📜 Список активных", callback_data='admin_promo_list')],
+        [InlineKeyboardButton("⚡ Flash Промо", callback_data='admin_flash_menu')],
+        [InlineKeyboardButton("👥 Использования", callback_data='admin_promo_uses_0')],
         [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
     ]
     
@@ -1935,6 +1949,139 @@ async def admin_promo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+async def admin_promo_uses(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        page = int(query.data.split('_')[3])
+    except:
+        page = 0
+        
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get distinct users who used promos, ordered by most recent use
+    cursor.execute("""
+        SELECT DISTINCT tg_id 
+        FROM user_promos 
+        ORDER BY used_at DESC
+    """)
+    all_users = [row[0] for row in cursor.fetchall()]
+    
+    users_per_page = 10
+    total_pages = math.ceil(len(all_users) / users_per_page)
+    if total_pages == 0: total_pages = 1
+    
+    if page >= total_pages: page = total_pages - 1
+    if page < 0: page = 0
+    
+    start = page * users_per_page
+    end = start + users_per_page
+    current_users_ids = all_users[start:end]
+    
+    keyboard = []
+    
+    for uid in current_users_ids:
+        # Get user info
+        cursor.execute("SELECT first_name, username FROM user_prefs WHERE tg_id=?", (uid,))
+        u_row = cursor.fetchone()
+        name = uid
+        if u_row:
+            f_name = u_row[0] or ""
+            u_name = f"@{u_row[1]}" if u_row[1] else ""
+            display = f"{f_name} {u_name}".strip()
+            if display:
+                name = display
+        
+        # Truncate name if too long
+        if len(name) > 30: name = name[:27] + "..."
+        
+        # Get count of promos
+        cursor.execute("SELECT COUNT(*) FROM user_promos WHERE tg_id=?", (uid,))
+        count = cursor.fetchone()[0]
+        
+        label = f"{name} ({count} шт.)"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f'admin_promo_u_{uid}')])
+        
+    conn.close()
+    
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f'admin_promo_uses_{page-1}'))
+    
+    nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data='noop'))
+    
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("➡️", callback_data=f'admin_promo_uses_{page+1}'))
+        
+    if nav_row:
+        keyboard.append(nav_row)
+        
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data='admin_promos_menu')])
+    
+    await query.edit_message_text(
+        "👥 *Пользователи промокодов*\n\nВыберите пользователя для просмотра деталей:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def admin_promo_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        tg_id = query.data.split('_')[3]
+    except:
+        return
+        
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get user info
+    cursor.execute("SELECT first_name, username FROM user_prefs WHERE tg_id=?", (tg_id,))
+    u_row = cursor.fetchone()
+    name = tg_id
+    if u_row:
+        f_name = u_row[0] or ""
+        u_name = f"@{u_row[1]}" if u_row[1] else ""
+        display = f"{f_name} {u_name}".strip()
+        if display:
+            name = display
+            
+    # Get promos
+    cursor.execute("""
+        SELECT u.code, u.used_at, p.days 
+        FROM user_promos u 
+        LEFT JOIN promo_codes p ON u.code = p.code 
+        WHERE u.tg_id=? 
+        ORDER BY u.used_at DESC
+    """, (tg_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # Use HTML for safety with names
+    safe_name = html.escape(name)
+    text = f"👤 <b>Промокоды пользователя</b>\n{safe_name}\n<code>{tg_id}</code>\n\n"
+    
+    if not rows:
+        text += "Нет использованных промокодов."
+    else:
+        for row in rows:
+            code, used_at, days = row
+            date_str = datetime.datetime.fromtimestamp(used_at, tz=TIMEZONE).strftime("%d.%m.%Y %H:%M")
+            days_str = f"{days} дн." if days else "N/A"
+            safe_code = html.escape(code)
+            text += f"🏷 <code>{safe_code}</code>\n⏳ {days_str} | 📅 {date_str}\n\n"
+            
+    keyboard = [[InlineKeyboardButton("🔙 К списку", callback_data='admin_promo_uses_0')]]
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='HTML'
+    )
+
 async def admin_new_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1945,6 +2092,114 @@ async def admin_new_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
     context.user_data['admin_action'] = 'awaiting_promo_data'
+
+async def admin_flash_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    # Get active promos
+    cursor.execute("SELECT code, days, max_uses, used_count FROM promo_codes WHERE max_uses <= 0 OR used_count < max_uses")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    keyboard = []
+    for r in rows:
+        code, days, max_uses, used_count = r
+        remaining = "♾️"
+        if max_uses > 0:
+            remaining = max_uses - used_count
+            
+        keyboard.append([InlineKeyboardButton(f"{code} ({days} дн. | ост: {remaining})", callback_data=f'admin_flash_sel_{code}')])
+        
+    keyboard.append([InlineKeyboardButton("🧨 Удалить все Flash", callback_data='admin_flash_delete_all')])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data='admin_promos_menu')])
+    
+    await query.edit_message_text(
+        "⚡ *Flash Промокод*\n\nВыберите промокод, который хотите отправить во временной рассылке:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def admin_flash_delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Удаление...")
+    
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, chat_id, message_id FROM flash_messages")
+        rows = cursor.fetchall()
+        
+        deleted_count = 0
+        for row in rows:
+            db_id, chat_id, msg_id = row
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except:
+                pass
+            deleted_count += 1
+            
+        cursor.execute("DELETE FROM flash_messages")
+        conn.commit()
+        conn.close()
+        
+        await query.message.reply_text(f"✅ Принудительно удалено {deleted_count} сообщений.")
+        # Return to menu
+        await admin_flash_menu(update, context)
+        
+    except Exception as e:
+        logging.error(f"Error in delete all flash: {e}")
+        await query.message.reply_text("❌ Ошибка при удалении.")
+
+async def admin_flash_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    code = query.data.split('_')[3]
+    context.user_data['flash_code'] = code
+    context.user_data['admin_action'] = 'awaiting_flash_duration'
+    
+    await query.edit_message_text(
+        f"⚡ Выбран промокод: `{code}`\n\nВведите время жизни сообщения в минутах (например: 60).\nПо истечении этого времени сообщение будет удалено у всех пользователей.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_flash_menu')]]),
+        parse_mode='Markdown'
+    )
+
+async def cleanup_flash_messages(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        current_ts = int(time.time())
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT id, chat_id, message_id FROM flash_messages WHERE delete_at <= ?", (current_ts,))
+        rows = cursor.fetchall()
+        
+        if not rows:
+            conn.close()
+            return
+            
+        deleted_count = 0
+        for row in rows:
+            db_id, chat_id, msg_id = row
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except Exception as e:
+                # Message might be already deleted or user blocked bot
+                pass
+            
+            # Remove from DB regardless of success (we tried)
+            cursor.execute("DELETE FROM flash_messages WHERE id=?", (db_id,))
+            deleted_count += 1
+            
+        conn.commit()
+        conn.close()
+        if deleted_count > 0:
+            logging.info(f"Cleaned up {deleted_count} flash messages.")
+            
+    except Exception as e:
+        logging.error(f"Error in cleanup_flash_messages: {e}")
 
 async def admin_search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2409,17 +2664,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 conn.commit()
                 conn.close()
                 
-                await update.message.reply_text(f"✅ Promo `{code}` created for {days} days ({limit} uses).")
+                await update.message.reply_text(f"✅ Промокод `{code}` создан на {days} дн. ({limit} активаций).")
                 # Show menu again
                 keyboard = [
                     [InlineKeyboardButton("➕ Создать новый", callback_data='admin_new_promo')],
                     [InlineKeyboardButton("📜 Список активных", callback_data='admin_promo_list')],
+                    [InlineKeyboardButton("👥 Использования", callback_data='admin_promo_uses_0')],
                     [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
                 ]
                 await update.message.reply_text("🎁 *Управление промокодами*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
                 context.user_data['admin_action'] = None
             except:
-                await update.message.reply_text("❌ Invalid format. Use: `CODE DAYS LIMIT`")
+                await update.message.reply_text("❌ Неверный формат. Используйте: `КОД ДНИ ЛИМИТ`")
             return
 
 
@@ -2460,6 +2716,93 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.user_data['edit_price_key'] = None
             except:
                 await update.message.reply_text("❌ Ошибка. Введите целое положительное число.")
+            return
+
+        elif action == 'awaiting_flash_duration':
+            if not text: return
+            try:
+                duration = int(text)
+                if duration <= 0: raise ValueError
+                
+                code = context.user_data.get('flash_code')
+                
+                # Start broadcasting
+                status_msg = await update.message.reply_text("⏳ Запуск Flash-рассылки (ВСЕМ)...")
+                
+                # Fetch all users
+                conn = sqlite3.connect(BOT_DB_PATH)
+                cursor = conn.cursor()
+                
+                users = []
+                # Sync X-UI
+                try:
+                    conn_xui = sqlite3.connect(DB_PATH)
+                    cursor_xui = conn_xui.cursor()
+                    cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+                    row = cursor_xui.fetchone()
+                    conn_xui.close()
+                    if row:
+                        settings = json.loads(row[0])
+                        clients = settings.get('clients', [])
+                        for client in clients:
+                            tid = client.get('tgId')
+                            if tid: users.append((str(tid),))
+                except: pass
+                
+                cursor.execute("SELECT tg_id FROM user_prefs")
+                bot_users = cursor.fetchall()
+                
+                # Merge
+                user_ids = set([u[0] for u in users])
+                for u in bot_users:
+                    if u[0] not in user_ids:
+                        users.append(u)
+                        user_ids.add(u[0])
+                
+                conn.close()
+                
+                sent = 0
+                blocked = 0
+                delete_at = int(time.time()) + (duration * 60)
+                
+                # Format end time
+                end_time_str = datetime.datetime.fromtimestamp(delete_at, tz=TIMEZONE).strftime("%H:%M")
+                
+                # Make code copyable by clicking on it inside spoiler (using monospaced font)
+                msg_text = f"🔥 <b>УСПЕЙ ПОЙМАТЬ ПРОМОКОД!</b> 🔥\n\nУспей активировать секретный промокод!\n\n👇 Нажми, чтобы увидеть:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ <b>Предложение сгорит в {end_time_str}</b>\n(через {duration} мин)"
+                
+                conn = sqlite3.connect(BOT_DB_PATH)
+                cursor = conn.cursor()
+                
+                for user in users:
+                    user_id = user[0]
+                    # Skip sender if needed, but let's send to all for test
+                    
+                    try:
+                        sent_msg = await context.bot.send_message(chat_id=user_id, text=msg_text, parse_mode='HTML')
+                        sent += 1
+                        
+                        # Save for deletion
+                        cursor.execute("INSERT INTO flash_messages (chat_id, message_id, delete_at) VALUES (?, ?, ?)", 
+                                       (str(user_id), sent_msg.message_id, delete_at))
+                        
+                        await asyncio.sleep(0.05)
+                    except Exception as e:
+                         if "Forbidden" in str(e) or "blocked" in str(e):
+                             blocked += 1
+                         pass
+                
+                conn.commit()
+                conn.close()
+                
+                await status_msg.edit_text(f"✅ Flash-рассылка завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}\n⏱ Время жизни: {duration} мин.")
+                
+                context.user_data['admin_action'] = None
+                context.user_data['flash_code'] = None
+                
+            except Exception as e:
+                logging.error(f"Flash broadcast error: {e}")
+                await update.message.reply_text("❌ Ошибка. Введите число минут.")
             return
 
         elif action == 'awaiting_broadcast_users_input':
@@ -2927,6 +3270,14 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                 VALUES (?, ?, ?, 0, 0, ?, 0, 0, 0, 0)
             """, (INBOUND_ID, 1, new_email, new_expiry))
             
+        # Also update client_traffics with new expiry
+        if user_client:
+             email = user_client.get('email')
+             if email:
+                 try:
+                     conn.execute("UPDATE client_traffics SET expiry_time=? WHERE email=?", (new_expiry, email))
+                 except: pass
+
         cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(settings), INBOUND_ID))
         conn.commit()
         conn.close()
@@ -3721,6 +4072,8 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_new_promo, pattern='^admin_new_promo$'))
     application.add_handler(CallbackQueryHandler(admin_promos_menu, pattern='^admin_promos_menu$'))
     application.add_handler(CallbackQueryHandler(admin_promo_list, pattern='^admin_promo_list$'))
+    application.add_handler(CallbackQueryHandler(admin_promo_uses, pattern='^admin_promo_uses_'))
+    application.add_handler(CallbackQueryHandler(admin_promo_user_detail, pattern='^admin_promo_u_'))
     application.add_handler(CallbackQueryHandler(admin_broadcast, pattern='^admin_broadcast$'))
     application.add_handler(CallbackQueryHandler(admin_broadcast_target, pattern='^admin_broadcast_(all|en|ru|individual|toggle|page|confirm).*'))
     application.add_handler(CallbackQueryHandler(admin_sales_log, pattern='^admin_sales_log$'))
@@ -3735,6 +4088,9 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_delete_client_ask, pattern='^admin_del_client_ask_'))
     application.add_handler(CallbackQueryHandler(admin_delete_client_confirm, pattern='^admin_del_client_confirm_'))
     
+    application.add_handler(CallbackQueryHandler(admin_flash_menu, pattern='^admin_flash_menu$'))
+    application.add_handler(CallbackQueryHandler(admin_flash_select, pattern='^admin_flash_sel_'))
+    
     application.add_handler(MessageHandler(~filters.COMMAND, handle_message))
     
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
@@ -3743,6 +4099,7 @@ if __name__ == '__main__':
     job_queue = application.job_queue
     job_queue.run_repeating(check_expiring_subscriptions, interval=86400, first=10)
     job_queue.run_repeating(log_traffic_stats, interval=3600, first=5) # Every hour
+    job_queue.run_repeating(cleanup_flash_messages, interval=60, first=10) # Every minute
     
     print("Bot started...")
     application.run_polling()
