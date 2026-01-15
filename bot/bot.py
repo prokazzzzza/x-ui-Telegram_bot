@@ -1175,8 +1175,8 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if stopped
         if not context.user_data.get('live_monitoring_active', False):
             break
-             
-         try:
+            
+        try:
             stats = await get_system_stats() # Takes ~1 second due to sleep(1.0) inside
             
             # Re-check after sleep
