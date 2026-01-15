@@ -1169,15 +1169,18 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data['live_monitoring_active'] = True
     
+    # Run in background task to not block updates
+    asyncio.create_task(run_live_monitor(update, context))
+
+async def run_live_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Run for 30 iterations * ~1 seconds = 30 seconds
-    # Each iteration takes ~1s for get_system_stats (sleep 1.0 inside) + negligible sleep
     for i in range(30):
         # Check if stopped
         if not context.user_data.get('live_monitoring_active', False):
             break
             
         try:
-            stats = await get_system_stats() # Takes ~1 second due to sleep(1.0) inside
+            stats = await get_system_stats() # Takes ~1 second
             
             # Re-check after sleep
             if not context.user_data.get('live_monitoring_active', False):
@@ -1209,31 +1212,29 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
             ]
             
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            # Use bot.edit_message_text because we are in background task
+            # query might be stale, but message_id/chat_id are same
+            chat_id = update.effective_chat.id
+            message_id = update.effective_message.message_id
             
-            # Removed extra sleep to update every ~1s (since get_system_stats takes 1s)
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text, 
+                reply_markup=InlineKeyboardMarkup(keyboard), 
+                parse_mode='Markdown'
+            )
             
         except Exception as e:
             # If message deleted or other error, stop loop
             if "Message is not modified" not in str(e):
                 logging.error(f"Live monitor error: {e}")
                 break
-            # If "Message is not modified", just continue (maybe stats didn't change much, though timestamp did)
             pass
 
-    # After loop finishes, show standard static view
-    # Only if we finished naturally, not if stopped by button (because button calls admin_server anyway)
-    # But if we break, we exit loop.
-    # If we stopped via button, 'admin_server' is called by the button click event handler in PARALLEL or sequential?
-    # Actually, the button click triggers a NEW update.
-    # The new update calls 'admin_server'.
-    # 'admin_server' sets flag to False and edits message.
-    # This loop sees flag is False and breaks.
-    # Then it falls through here.
-    # We should NOT call admin_server again if we stopped explicitly, because admin_server was already called by the click.
-    # However, if we finished naturally (i==29), we SHOULD call admin_server to revert to static view.
-    
+    # After loop finishes naturally (not stopped by flag), revert to static view
     if context.user_data.get('live_monitoring_active', False):
+         context.user_data['live_monitoring_active'] = False
          try:
              await admin_server(update, context)
          except: pass
