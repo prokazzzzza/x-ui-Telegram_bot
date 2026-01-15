@@ -16,13 +16,30 @@ from zoneinfo import ZoneInfo
 # Load environment variables
 load_dotenv()
 
-# Setup logging to file and console
-LOG_FILE = "/usr/local/x-ui/bot/bot.log"
+# Custom Logging to write new logs at the beginning of the file
+def log_action(message):
+    try:
+        timestamp = datetime.datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+        entry = f"{timestamp} - {message}\n"
+        
+        content = ""
+        if os.path.exists(LOG_FILE):
+            with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+        with open(LOG_FILE, 'w', encoding='utf-8') as f:
+            f.write(entry + content)
+            
+        # Also print to console for debugging/journalctl
+        print(f"LOG: {message}")
+    except Exception as e:
+        print(f"Logging failed: {e}")
+
+# Disable root logger file handler to avoid noise
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
+    level=logging.WARNING, # Only warnings/errors in console
     handlers=[
-        logging.FileHandler(LOG_FILE),
         logging.StreamHandler()
     ]
 )
@@ -769,7 +786,7 @@ async def try_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Activate 3 days
-    logging.info(f"ACTION: User {tg_id} (@{query.from_user.username}) activated TRIAL subscription.")
+    log_action(f"ACTION: User {tg_id} (@{query.from_user.username}) activated TRIAL subscription.")
     await process_subscription(tg_id, 3, update, context, lang, is_callback=True)
     mark_trial_used(tg_id)
     
@@ -2382,7 +2399,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              await update.message.reply_text(t("promo_invalid", lang))
         else:
              username = update.message.from_user.username or update.message.from_user.first_name
-             logging.info(f"ACTION: User {tg_id} (@{username}) redeemed promo code: {code} ({days} days).")
+             log_action(f"ACTION: User {tg_id} (@{username}) redeemed promo code: {code} ({days} days).")
              redeem_promo_db(code, tg_id)
              await process_subscription(tg_id, days, update, context, lang)
              
@@ -2462,7 +2479,7 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     conn.commit()
     conn.close()
     
-    logging.info(f"ACTION: User {tg_id} (@{update.message.from_user.username}) purchased subscription: {payload} ({plan['amount']} XTR).")
+    log_action(f"ACTION: User {tg_id} (@{update.message.from_user.username}) purchased subscription: {payload} ({plan['amount']} XTR).")
     
     # Celebration animation for Payment
     import asyncio
