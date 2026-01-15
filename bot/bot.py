@@ -16,6 +16,17 @@ from zoneinfo import ZoneInfo
 # Load environment variables
 load_dotenv()
 
+# Setup logging to file and console
+LOG_FILE = "/usr/local/x-ui/bot/bot.log"
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButtonRequestUsers
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, PreCheckoutQueryHandler, MessageHandler, filters
 
@@ -208,11 +219,6 @@ TEXTS = {
         "rank_info": "\n\n🏆 Ваш статус в клубе:\nВы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!"
     }
 }
-
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
 
 def init_db():
     conn = sqlite3.connect(BOT_DB_PATH)
@@ -763,6 +769,7 @@ async def try_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Activate 3 days
+    logging.info(f"ACTION: User {tg_id} (@{query.from_user.username}) activated TRIAL subscription.")
     await process_subscription(tg_id, 3, update, context, lang, is_callback=True)
     mark_trial_used(tg_id)
     
@@ -2315,6 +2322,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif days is None:
              await update.message.reply_text(t("promo_invalid", lang))
         else:
+             logging.info(f"ACTION: User {tg_id} redeemed promo code: {code} ({days} days).")
              redeem_promo_db(code, tg_id)
              await process_subscription(tg_id, days, update, context, lang)
              
@@ -2393,6 +2401,8 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
                    (tg_id, plan['amount'], int(time.time()), payload))
     conn.commit()
     conn.close()
+    
+    logging.info(f"ACTION: User {tg_id} (@{update.message.from_user.username}) purchased subscription: {payload} ({plan['amount']} XTR).")
     
     # Celebration animation for Payment
     import asyncio

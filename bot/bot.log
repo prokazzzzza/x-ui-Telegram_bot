@@ -1,0 +1,21 @@
+2026-01-15 15:40:23,292 - root - INFO - Loaded PORT from DB: 17343
+2026-01-15 15:40:23,295 - root - INFO - Loaded PUBLIC_KEY from DB: T6c3nRb47HsltG6ojFbNImgouFB5ii6UrYYIs9xPf1A
+2026-01-15 15:40:23,295 - root - INFO - Loaded SNI from DB: google.com
+2026-01-15 15:40:23,296 - root - INFO - Loaded SID from DB: b2
+2026-01-15 15:40:23,819 - apscheduler.scheduler - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-01-15 15:40:23,820 - apscheduler.scheduler - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-01-15 15:40:23,900 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7278544362:AAGBc_Aep_V53Hz6vw2GLVTNFJF4uLnkhmY/getMe "HTTP/1.1 200 OK"
+2026-01-15 15:40:23,933 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7278544362:AAGBc_Aep_V53Hz6vw2GLVTNFJF4uLnkhmY/setMyCommands "HTTP/1.1 200 OK"
+2026-01-15 15:40:23,966 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7278544362:AAGBc_Aep_V53Hz6vw2GLVTNFJF4uLnkhmY/setMyDescription "HTTP/1.1 200 OK"
+2026-01-15 15:40:24,001 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7278544362:AAGBc_Aep_V53Hz6vw2GLVTNFJF4uLnkhmY/setMyShortDescription "HTTP/1.1 200 OK"
+2026-01-15 15:40:24,009 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7278544362:AAGBc_Aep_V53Hz6vw2GLVTNFJF4uLnkhmY/deleteWebhook "HTTP/1.1 200 OK"
+2026-01-15 15:40:24,019 - apscheduler.scheduler - INFO - Added job "check_expiring_subscriptions" to job store "default"
+2026-01-15 15:40:24,020 - apscheduler.scheduler - INFO - Added job "log_traffic_stats" to job store "default"
+2026-01-15 15:40:24,021 - apscheduler.scheduler - INFO - Scheduler started
+2026-01-15 15:40:24,021 - telegram.ext.Application - INFO - Application started
+2026-01-15 15:40:28,825 - apscheduler.executors.default - INFO - Running job "log_traffic_stats (trigger: interval[1:00:00], next run at: 2026-01-15 15:40:28 UTC)" (scheduled at 2026-01-15 14:40:28.820014+00:00)
+2026-01-15 15:40:28,845 - apscheduler.executors.default - INFO - Job "log_traffic_stats (trigger: interval[1:00:00], next run at: 2026-01-15 15:40:28 UTC)" executed successfully
+2026-01-15 15:40:33,821 - apscheduler.executors.default - INFO - Running job "check_expiring_subscriptions (trigger: interval[1 day, 0:00:00], next run at: 2026-01-16 14:40:33 UTC)" (scheduled at 2026-01-15 14:40:33.815259+00:00)
+2026-01-15 15:40:33,822 - root - INFO - Checking for expiring subscriptions...
+2026-01-15 15:40:33,824 - apscheduler.executors.default - INFO - Job "check_expiring_subscriptions (trigger: interval[1 day, 0:00:00], next run at: 2026-01-16 14:40:33 UTC)" executed successfully
+2026-01-15 15:40:34,055 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7278544362:AAGBc_Aep_V53Hz6vw2GLVTNFJF4uLnkhmY/getUpdates "HTTP/1.1 200 OK"
