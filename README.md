@@ -5,7 +5,7 @@
 ## 🚀 Features
 
 ### User Features
--   **Automated Purchases**: Buy subscriptions (1 Month, 3 Months, 1 Year) instantly using **Telegram Stars**.
+-   **Automated Purchases**: Buy subscriptions (1 Month, 3 Months, 6 Months, 1 Year) instantly using **Telegram Stars**.
 -   **Subscription Management**:
     -   View current subscription status (expiry date, traffic usage).
     -   Extend existing subscriptions.
