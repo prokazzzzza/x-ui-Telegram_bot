@@ -1114,6 +1114,9 @@ def get_system_stats():
     }
 
 async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Stop any running live monitor
+    context.user_data['live_monitoring_active'] = False
+    
     query = update.callback_query
     
     # If called from "Live" button, we might loop.
@@ -1164,11 +1167,21 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Запуск Live мониторинга...")
     
+    context.user_data['live_monitoring_active'] = True
+    
     # Run for 30 iterations * ~1 seconds = 30 seconds
     # Each iteration takes ~1s for get_system_stats (sleep 1.0 inside) + negligible sleep
     for i in range(30):
+        # Check if stopped
+        if not context.user_data.get('live_monitoring_active', False):
+            break
+            
         try:
             stats = get_system_stats() # Takes ~1 second due to sleep(1.0) inside
+            
+            # Re-check after sleep
+            if not context.user_data.get('live_monitoring_active', False):
+                break
             
             tx_speed_str = format_bytes(stats['tx_speed']) + "/s"
             rx_speed_str = format_bytes(stats['rx_speed']) + "/s"
@@ -1209,9 +1222,21 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     # After loop finishes, show standard static view
-    try:
-        await admin_server(update, context)
-    except: pass
+    # Only if we finished naturally, not if stopped by button (because button calls admin_server anyway)
+    # But if we break, we exit loop.
+    # If we stopped via button, 'admin_server' is called by the button click event handler in PARALLEL or sequential?
+    # Actually, the button click triggers a NEW update.
+    # The new update calls 'admin_server'.
+    # 'admin_server' sets flag to False and edits message.
+    # This loop sees flag is False and breaks.
+    # Then it falls through here.
+    # We should NOT call admin_server again if we stopped explicitly, because admin_server was already called by the click.
+    # However, if we finished naturally (i==29), we SHOULD call admin_server to revert to static view.
+    
+    if context.user_data.get('live_monitoring_active', False):
+         try:
+             await admin_server(update, context)
+         except: pass
 
 async def admin_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
