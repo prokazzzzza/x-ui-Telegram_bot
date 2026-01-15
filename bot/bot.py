@@ -1104,7 +1104,7 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔄 Обновлено: {datetime.datetime.now(TIMEZONE).strftime("%H:%M:%S")}"""
 
     keyboard = [
-        [InlineKeyboardButton("🔴 Live Мониторинг (1 мин)", callback_data='admin_server_live')],
+        [InlineKeyboardButton("🟢 Live Мониторинг (30 сек)", callback_data='admin_server_live')],
         [InlineKeyboardButton("🔄 Обновить", callback_data='admin_server')],
         [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
     ]
@@ -1120,15 +1120,16 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Запуск Live мониторинга...")
     
-    # Run for 20 iterations * ~3 seconds = 60 seconds
-    for i in range(20):
+    # Run for 15 iterations * ~2 seconds = 30 seconds
+    # Each iteration takes ~1s for get_system_stats + 1s sleep = 2s total
+    for i in range(15):
         try:
             stats = get_system_stats() # Takes ~1 second due to sleep(1.0) inside
             
             tx_speed_str = format_bytes(stats['tx_speed']) + "/s"
             rx_speed_str = format_bytes(stats['rx_speed']) + "/s"
             
-            text = f"""🖥 *Состояние сервера (LIVE 🔴)*
+            text = f"""🖥 *Состояние сервера (LIVE 🟢)*
     
 🧠 *CPU:* {stats['cpu']:.1f}%
 💾 *RAM:* {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)
@@ -1144,7 +1145,7 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {rx_speed_str}
 
 🔄 Обновлено: {datetime.datetime.now(TIMEZONE).strftime("%H:%M:%S")}
-⏳ Осталось: {60 - (i*3)} сек."""
+⏳ Осталось: {30 - (i*2)} сек."""
 
             keyboard = [
                 [InlineKeyboardButton("⏹ Стоп", callback_data='admin_server')],
@@ -1153,8 +1154,8 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
             
-            # Wait 2 seconds + 1 second measure = 3 seconds total interval
-            await asyncio.sleep(2)
+            # Wait 1 seconds + 1 second measure = 2 seconds total interval
+            await asyncio.sleep(1)
             
         except Exception as e:
             # If message deleted or other error, stop loop
@@ -1162,7 +1163,7 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.error(f"Live monitor error: {e}")
                 break
             # If "Message is not modified", just continue (maybe stats didn't change much, though timestamp did)
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
     # After loop finishes, show standard static view
     try:
