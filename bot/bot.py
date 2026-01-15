@@ -180,7 +180,17 @@ TEXTS = {
         "plan_unlimited": "Unlimited",
         "sub_type_unknown": "Unknown",
         "stats_sub_type": "💳 Plan: {plan}",
-        "rank_info": "\n🏆 *Your Rank:* #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)"
+        "rank_info": "\n🏆 *Your Rank:* #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)",
+        "btn_admin_stats": "📊 Statistics",
+        "btn_admin_server": "🖥 Server",
+        "btn_admin_prices": "💰 Pricing",
+        "btn_admin_promos": "🎁 Promo Codes",
+        "btn_admin_broadcast": "📢 Broadcast",
+        "btn_admin_sales": "📜 Sales Log",
+        "btn_admin_backup": "💾 Backup",
+        "btn_admin_logs": "📜 Logs",
+        "btn_main_menu_back": "🔙 Main Menu",
+        "admin_menu_text": "👮‍♂️ *Admin Panel*\n\nSelect an action:"
     },
     "ru": {
         "welcome": "Добро пожаловать в Maxi-VPN! 🛡️\n\nПожалуйста, выберите язык:",
@@ -236,7 +246,21 @@ TEXTS = {
         "stats_sub_type": "💳 Тариф: {plan}",
         "remaining_days": "⏳ Осталось: {days} дн.",
         "remaining_hours": "⏳ Осталось: {hours} ч.",
-        "rank_info": "\n\n🏆 Ваш статус в клубе:\nВы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!"
+        "rank_info": "\n\n🏆 Ваш статус в клубе:\nВы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
+        "btn_admin_stats": "📊 Статистика",
+        "btn_admin_server": "🖥 Сервер",
+        "btn_admin_prices": "💰 Настройка цен",
+        "btn_admin_promos": "🎁 Промокоды",
+        "btn_admin_broadcast": "📢 Рассылка",
+        "btn_admin_sales": "📜 Журнал продаж",
+        "btn_admin_backup": "💾 Бэкап",
+        "btn_admin_logs": "📜 Логи",
+        "btn_main_menu_back": "🔙 Главное меню",
+        "admin_menu_text": "👮‍♂️ *Админ панель*\n\nВыберите действие:",
+        "btn_admin_promo_new": "➕ Создать новый",
+        "btn_admin_promo_list": "📜 Список активных",
+        "btn_admin_flash": "⚡ Flash Промо",
+        "btn_admin_promo_history": "👥 Использования"
     }
 }
 
@@ -959,21 +983,24 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if tg_id != ADMIN_ID:
         return
     
+    lang = get_lang(tg_id)
+    
     keyboard = [
-        [InlineKeyboardButton("📊 Статистика", callback_data='admin_stats')],
-        [InlineKeyboardButton("🖥 Сервер", callback_data='admin_server')],
-        [InlineKeyboardButton("💰 Настройка цен", callback_data='admin_prices')],
-        [InlineKeyboardButton("🎁 Промокоды", callback_data='admin_promos_menu')],
-        [InlineKeyboardButton("📢 Рассылка", callback_data='admin_broadcast')],
-        [InlineKeyboardButton("📜 Журнал продаж", callback_data='admin_sales_log')],
-        [InlineKeyboardButton("💾 Бэкап", callback_data='admin_create_backup')],
-        [InlineKeyboardButton("📜 Логи", callback_data='admin_logs')],
-        [InlineKeyboardButton("🔙 Главное меню", callback_data='back_to_main')]
+        [InlineKeyboardButton(t("btn_admin_stats", lang), callback_data='admin_stats')],
+        [InlineKeyboardButton(t("btn_admin_server", lang), callback_data='admin_server')],
+        [InlineKeyboardButton(t("btn_admin_prices", lang), callback_data='admin_prices')],
+        [InlineKeyboardButton(t("btn_admin_promos", lang), callback_data='admin_promos_menu')],
+        [InlineKeyboardButton(t("btn_admin_broadcast", lang), callback_data='admin_broadcast')],
+        [InlineKeyboardButton(t("btn_admin_sales", lang), callback_data='admin_sales_log')],
+        [InlineKeyboardButton(t("btn_admin_backup", lang), callback_data='admin_create_backup')],
+        [InlineKeyboardButton(t("btn_admin_logs", lang), callback_data='admin_logs')],
+        [InlineKeyboardButton(t("btn_main_menu_back", lang), callback_data='back_to_main')]
     ]
+    
+    text = t("admin_menu_text", lang)
     
     # We use edit_message_text if callback, reply if command
     if query:
-        text = "👮‍♂️ *Админ панель*\n\nВыберите действие:"
         try:
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
         except Exception as e:
@@ -981,7 +1008,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  await query.message.delete()
                  await context.bot.send_message(chat_id=tg_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     else:
-        await update.message.reply_text("👮‍♂️ *Админ панель*\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 def get_net_io_counters():
     try:
@@ -1433,7 +1460,9 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
         cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (new_settings, INBOUND_ID))
         conn.commit()
         # Restart X-UI
-        subprocess.run(["systemctl", "restart", "x-ui"])
+        # subprocess.run(["systemctl", "restart", "x-ui"])
+        proc = await asyncio.create_subprocess_exec("systemctl", "restart", "x-ui")
+        await proc.wait()
         
     try:
         await progress_msg.edit_text(f"✅ Синхронизация завершена!\n\nОбновлено: {updated_count}\nОшибок: {failed_count}\n\n⚠️ X-UI был перезапущен для обновления имен в панели.")
@@ -1899,12 +1928,15 @@ async def admin_promos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
     keyboard = [
-        [InlineKeyboardButton("➕ Создать новый", callback_data='admin_new_promo')],
-        [InlineKeyboardButton("📜 Список активных", callback_data='admin_promo_list')],
-        [InlineKeyboardButton("⚡ Flash Промо", callback_data='admin_flash_menu')],
-        [InlineKeyboardButton("👥 Использования", callback_data='admin_promo_uses_0')],
-        [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
+        [InlineKeyboardButton(t("btn_admin_promo_new", lang), callback_data='admin_new_promo')],
+        [InlineKeyboardButton(t("btn_admin_promo_list", lang), callback_data='admin_promo_list')],
+        [InlineKeyboardButton(t("btn_admin_flash", lang), callback_data='admin_flash_menu')],
+        [InlineKeyboardButton(t("btn_admin_promo_history", lang), callback_data='admin_promo_uses_0')],
+        [InlineKeyboardButton(t("btn_back", lang), callback_data='admin_panel')]
     ]
     
     await query.edit_message_text(
@@ -2936,6 +2968,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              username = update.message.from_user.username or update.message.from_user.first_name
              log_action(f"ACTION: User {tg_id} (@{username}) redeemed promo code: {code} ({days} days).")
              redeem_promo_db(code, tg_id)
+             
+             # Send success message immediately
+             await update.message.reply_text(t("promo_success", lang).format(days=days), parse_mode='Markdown')
+             
              await process_subscription(tg_id, days, update, context, lang)
              
              # Celebration animation
@@ -2947,8 +2983,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              await msg.edit_text("🎆 🎇 ✨")
              await asyncio.sleep(0.5)
              await msg.edit_text("🎉 ПРОМОКОД АКТИВИРОВАН! 🎉")
-             
-             await update.message.reply_text(t("promo_success", lang).format(days=days), parse_mode='Markdown')
              
         context.user_data['awaiting_promo'] = False
         return

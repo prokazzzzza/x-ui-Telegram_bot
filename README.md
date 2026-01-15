@@ -25,7 +25,10 @@ Accessible only to the administrator, offering full control over the service:
 -   **📊 Statistics**: View server load (CPU, RAM, Disk).
 -   **💰 Price Management**: Adjust prices for all subscription tiers dynamically.
 -   **📜 Sales Log**: View the last 20 transactions (User, Plan, Amount, Time).
--   **🎁 Promo Codes**: Generate new promo codes with custom duration and usage limits.
+-   **🎁 Promo Codes**:
+    -   Generate standard promo codes with custom duration and usage limits.
+    -   **⚡ Flash Promo System**: Send self-destructing promo messages to all users to drive immediate engagement. Messages are automatically deleted after a set time.
+    -   **👥 Usage History**: Track who used which promo code and when.
 -   **📢 Broadcast**: Send messages to all bot users.
 -   **👥 User Management**:
     -   Search users by ID.
