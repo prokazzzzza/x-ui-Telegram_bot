@@ -44,7 +44,7 @@ Accessible only to the administrator, offering full control over the service:
 You can deploy the bot on any server with a single command. The script will check for X-UI, install it if missing, and configure the bot for you.
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/prokazzzzza/x-ui/main/bot/install_bot.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/prokazzzzza/x-ui-Telegram_bot/main/bot/install_bot.sh)
 ```
 
 During installation, you will be prompted to enter:
@@ -61,8 +61,8 @@ During installation, you will be prompted to enter:
 #### Configuration
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/prokazzzzza/x-ui.git
-    cd x-ui/bot
+    git clone https://github.com/prokazzzzza/x-ui-Telegram_bot.git
+    cd x-ui-Telegram_bot/bot
     ```
 2.  Create a `.env` file with your credentials:
     ```env

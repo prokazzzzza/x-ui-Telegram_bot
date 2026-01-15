@@ -1,0 +1,17 @@
+/access.log
+/bin
+/x-ui
+/x-ui.service.debian
+/x-ui.service.rhel
+/x-ui.sh
+.env
+welcome.jpg
+bot/.env
+bot/welcome.jpg
+.trae/rules
+.gitignore
+bot/venv/
+**/__pycache__/
+*.db
+.DS_Store
+*.log

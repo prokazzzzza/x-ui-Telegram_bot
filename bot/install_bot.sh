@@ -77,7 +77,7 @@ fi
 
 # 4. Prepare Bot Directory
 BOT_DIR="$XUI_PATH/bot"
-REPO_URL="https://github.com/prokazzzzza/x-ui.git"
+REPO_URL="https://github.com/prokazzzzza/x-ui-Telegram_bot.git"
 
 echo -e "\n${BLUE}--- Setting up Bot ---${NC}"
 
