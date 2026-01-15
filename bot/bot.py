@@ -459,7 +459,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("English 🇬🇧", callback_data='set_lang_en')],
             [InlineKeyboardButton("Русский 🇷🇺", callback_data='set_lang_ru')]
         ]
-        await update.message.reply_text("Please select your language / Пожалуйста, выберите язык:", reply_markup=InlineKeyboardMarkup(keyboard))
+        
+        # Check for welcome image
+        welcome_photo_path = "welcome.jpg"
+        text = "Please select your language / Пожалуйста, выберите язык:"
+        
+        if os.path.exists(welcome_photo_path):
+            try:
+                with open(welcome_photo_path, 'rb') as photo:
+                    await update.message.reply_photo(photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard))
+            except Exception as e:
+                 logging.error(f"Failed to send welcome photo (start): {e}")
+                 await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await show_main_menu(update, context, lang)
 
@@ -522,20 +535,20 @@ async def show_main_menu_query(query, context, lang):
     if rank:
         text += t("rank_info", lang).format(rank=rank, total=total, percent=percent)
         
-    # Check for welcome image
-    welcome_photo_path = "welcome.jpg"
-    if os.path.exists(welcome_photo_path):
-        try:
-            # For query, we can't easily edit text to photo.
-            # We delete previous message and send new photo.
-            await query.message.delete()
-            with open(welcome_photo_path, 'rb') as photo:
-                 await context.bot.send_photo(chat_id=query.from_user.id, photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        except Exception as e:
-             logging.error(f"Failed to send welcome photo (query): {e}")
-             await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    else:
-        await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    # Check for welcome image - DISABLED for query (text only to avoid issues)
+    # welcome_photo_path = "welcome.jpg"
+    # if os.path.exists(welcome_photo_path):
+    #     try:
+    #         # For query, we can't easily edit text to photo.
+    #         # We delete previous message and send new photo.
+    #         await query.message.delete()
+    #         with open(welcome_photo_path, 'rb') as photo:
+    #              await context.bot.send_photo(chat_id=query.from_user.id, photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    #     except Exception as e:
+    #          logging.error(f"Failed to send welcome photo (query): {e}")
+    #          await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    # else:
+    await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -595,31 +608,13 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if rank:
         text += t("rank_info", lang).format(rank=rank, total=total, percent=percent)
 
-    # Check for welcome image
-    welcome_photo_path = "welcome.jpg"
-    if os.path.exists(welcome_photo_path):
-        try:
-            # For query, we can't easily edit text to photo if previous was text.
-            # We delete previous message and send new photo.
-            await query.message.delete()
-            with open(welcome_photo_path, 'rb') as photo:
-                 await context.bot.send_photo(chat_id=query.from_user.id, photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        except Exception as e:
-             logging.error(f"Failed to send welcome photo (back): {e}")
-             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    else:
-        # If no image, try editing text as usual
-        try:
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        except Exception as e:
-            # Fallback if message type is different (e.g. photo -> text transition without delete?)
-            # But here we assume text -> text. 
-            # If we had a photo before, edit_message_text works? No, "message is not modified" or content mismatch.
-            # Actually, if we had a photo and want text, we need editMessageCaption or delete/send.
-            # Let's simplify: try edit, if fail, delete/send.
-            if "Message is not modified" not in str(e):
-                 await query.message.delete()
-                 await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    # Revert to text-only main menu
+    try:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+             await query.message.delete()
+             await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def try_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

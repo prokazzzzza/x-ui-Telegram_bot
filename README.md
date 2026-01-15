@@ -87,6 +87,8 @@ systemctl enable x-ui-bot
 -   `/etc/x-ui/x-ui.db`: External connection to X-UI database for client management.
 
 ## 📝 Recent Updates
+-   **Stability Improvements**: Optimized menu navigation to use text-based updates, preventing message editing errors.
+-   **Welcome Image**: Welcome image is now displayed only on bot start (`/start`) to ensure smoother user experience.
 -   **Deployment Script**: Added `install_bot.sh` for one-click installation and configuration.
 -   **Security**: Moved sensitive credentials (Token, Admin ID) to `.env` file.
 -   **Sales Log**: Added a dedicated menu to view recent sales history directly in the admin panel.
