@@ -847,7 +847,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📊 Статистика", callback_data='admin_stats')],
         [InlineKeyboardButton("🖥 Сервер", callback_data='admin_server')],
         [InlineKeyboardButton("💰 Настройка цен", callback_data='admin_prices')],
-        [InlineKeyboardButton("🎁 Создать промокод", callback_data='admin_new_promo')],
+        [InlineKeyboardButton("🎁 Промокоды", callback_data='admin_promos_menu')],
         [InlineKeyboardButton("📢 Рассылка", callback_data='admin_broadcast')],
         [InlineKeyboardButton("📜 Журнал продаж", callback_data='admin_sales_log')],
         [InlineKeyboardButton("🔙 Главное меню", callback_data='back_to_main')]
@@ -1674,13 +1674,65 @@ async def admin_rebind_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+async def admin_promos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("➕ Создать новый", callback_data='admin_new_promo')],
+        [InlineKeyboardButton("📜 Список активных", callback_data='admin_promo_list')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
+    ]
+    
+    await query.edit_message_text(
+        "🎁 *Управление промокодами*\n\nВыберите действие:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def admin_promo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    # Fetch active promos: max_uses=0 (unlimited) OR used_count < max_uses
+    # Also we don't track expiry date of the promo itself yet, only days it gives.
+    cursor.execute("SELECT code, days, max_uses, used_count FROM promo_codes WHERE max_uses <= 0 OR used_count < max_uses")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    if not rows:
+        await query.edit_message_text(
+            "📜 *Список промокодов*\n\nНет активных промокодов.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_promos_menu')]]),
+            parse_mode='Markdown'
+        )
+        return
+
+    text = "📜 *Активные промокоды*\n\n"
+    for r in rows:
+        code, days, max_uses, used_count = r
+        limit_str = "♾️" if max_uses <= 0 else f"{max_uses}"
+        text += f"🏷 `{code}`\n⏳ Срок: {days} дн.\n👥 Использовано: {used_count} / {limit_str}\n\n"
+        
+    # Split if too long (simple check)
+    if len(text) > 4000:
+        text = text[:4000] + "\n...(обрезано)"
+        
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_promos_menu')]]),
+        parse_mode='Markdown'
+    )
+
 async def admin_new_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     await query.edit_message_text(
-        "🎁 *Создать промокод*\n\nОтправьте детали промокода в формате:\n`CODE DAYS LIMIT`\n\nПример: `NEWYEAR 30 100`",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]]),
+        "🎁 *Создать промокод*\n\nОтправьте детали промокода в формате:\n`CODE DAYS LIMIT`\n\nПример: `NEWYEAR 30 100`\n(LIMIT 0 = безлимит)",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_promos_menu')]]),
         parse_mode='Markdown'
     )
     context.user_data['admin_action'] = 'awaiting_promo_data'
@@ -2149,6 +2201,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 conn.close()
                 
                 await update.message.reply_text(f"✅ Promo `{code}` created for {days} days ({limit} uses).")
+                # Show menu again
+                keyboard = [
+                    [InlineKeyboardButton("➕ Создать новый", callback_data='admin_new_promo')],
+                    [InlineKeyboardButton("📜 Список активных", callback_data='admin_promo_list')],
+                    [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
+                ]
+                await update.message.reply_text("🎁 *Управление промокодами*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
                 context.user_data['admin_action'] = None
             except:
                 await update.message.reply_text("❌ Invalid format. Use: `CODE DAYS LIMIT`")
@@ -2322,7 +2381,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif days is None:
              await update.message.reply_text(t("promo_invalid", lang))
         else:
-             logging.info(f"ACTION: User {tg_id} redeemed promo code: {code} ({days} days).")
+             username = update.message.from_user.username or update.message.from_user.first_name
+             logging.info(f"ACTION: User {tg_id} (@{username}) redeemed promo code: {code} ({days} days).")
              redeem_promo_db(code, tg_id)
              await process_subscription(tg_id, days, update, context, lang)
              
@@ -3449,6 +3509,8 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_prices, pattern='^admin_prices$'))
     application.add_handler(CallbackQueryHandler(admin_edit_price, pattern='^admin_edit_price_'))
     application.add_handler(CallbackQueryHandler(admin_new_promo, pattern='^admin_new_promo$'))
+    application.add_handler(CallbackQueryHandler(admin_promos_menu, pattern='^admin_promos_menu$'))
+    application.add_handler(CallbackQueryHandler(admin_promo_list, pattern='^admin_promo_list$'))
     application.add_handler(CallbackQueryHandler(admin_broadcast, pattern='^admin_broadcast$'))
     application.add_handler(CallbackQueryHandler(admin_broadcast_target, pattern='^admin_broadcast_(all|en|ru|individual|toggle|page|confirm).*'))
     application.add_handler(CallbackQueryHandler(admin_sales_log, pattern='^admin_sales_log$'))
