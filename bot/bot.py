@@ -558,11 +558,22 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')])
     
-    await query.edit_message_text(
-        t("shop_title", lang),
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    try:
+        await query.edit_message_text(
+            t("shop_title", lang),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+             # Likely a photo message, delete and send new
+             await query.message.delete()
+             await context.bot.send_message(
+                 chat_id=tg_id,
+                 text=t("shop_title", lang),
+                 reply_markup=InlineKeyboardMarkup(keyboard),
+                 parse_mode='Markdown'
+             )
 
 async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -622,11 +633,22 @@ async def try_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_data.get('trial_activated_at'):
             date_str = datetime.datetime.fromtimestamp(user_data['trial_activated_at'], tz=TIMEZONE).strftime("%d.%m.%Y %H:%M")
             
-        await query.edit_message_text(
-            t("trial_used", lang).format(date=date_str),
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
-            parse_mode='Markdown'
-        )
+        text = t("trial_used", lang).format(date=date_str)
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                 await query.message.delete()
+                 await context.bot.send_message(
+                     chat_id=tg_id,
+                     text=text,
+                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                     parse_mode='Markdown'
+                 )
         return
 
     # Activate 3 days
@@ -649,11 +671,22 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = f"https://t.me/{bot_username}?start={tg_id}"
     count = count_referrals(tg_id)
     
-    await query.edit_message_text(
-        t("ref_title", lang).format(link=link, count=count),
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
-        parse_mode='Markdown'
-    )
+    text = t("ref_title", lang).format(link=link, count=count)
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+             await query.message.delete()
+             await context.bot.send_message(
+                 chat_id=tg_id,
+                 text=text,
+                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                 parse_mode='Markdown'
+             )
 
 async def enter_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -661,11 +694,22 @@ async def enter_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
     
-    await query.edit_message_text(
-        t("promo_prompt", lang),
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
-        parse_mode='Markdown'
-    )
+    text = t("promo_prompt", lang)
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+             await query.message.delete()
+             await context.bot.send_message(
+                 chat_id=tg_id,
+                 text=text,
+                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                 parse_mode='Markdown'
+             )
     context.user_data['awaiting_promo'] = True
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -693,7 +737,13 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # We use edit_message_text if callback, reply if command
     if query:
-        await query.edit_message_text("👮‍♂️ **Админ панель**\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        text = "👮‍♂️ **Админ панель**\n\nВыберите действие:"
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                 await query.message.delete()
+                 await context.bot.send_message(chat_id=tg_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     else:
         await update.message.reply_text("👮‍♂️ **Админ панель**\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -1872,7 +1922,12 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
         
         if not row:
             if is_callback:
-                await update.callback_query.edit_message_text("Error: Inbound not found.")
+                try:
+                    await update.callback_query.edit_message_text("Error: Inbound not found.")
+                except Exception as e:
+                    if "Message is not modified" not in str(e):
+                         await update.callback_query.message.delete()
+                         await context.bot.send_message(chat_id=tg_id, text="Error: Inbound not found.")
             else:
                 await update.message.reply_text("Error: Inbound not found.")
             conn.close()
@@ -1968,14 +2023,24 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
         
         if is_callback:
             # If called from callback (Trial), we edit message
-             await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+             try:
+                 await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+             except Exception as e:
+                 if "Message is not modified" not in str(e):
+                      await update.callback_query.message.delete()
+                      await context.bot.send_message(chat_id=tg_id, text=text, parse_mode='Markdown', reply_markup=reply_markup)
         else:
              await update.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
         
     except Exception as e:
         logging.error(f"Error processing subscription: {e}")
         if is_callback:
-             await update.callback_query.edit_message_text(t("error_generic", lang))
+             try:
+                 await update.callback_query.edit_message_text(t("error_generic", lang))
+             except Exception as ex:
+                 if "Message is not modified" not in str(ex):
+                      await update.callback_query.message.delete()
+                      await context.bot.send_message(chat_id=tg_id, text=t("error_generic", lang))
         else:
              await update.message.reply_text(t("error_generic", lang))
 
@@ -1994,12 +2059,21 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = cursor.fetchone()
         
         if not row:
+        try:
             await query.edit_message_text(
                 "Error: Inbound not found.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
             )
-            conn.close()
-            return
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                 await query.message.delete()
+                 await context.bot.send_message(
+                     chat_id=tg_id,
+                     text="Error: Inbound not found.",
+                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+                 )
+        conn.close()
+        return
             
         settings = json.loads(row[0])
         clients = settings.get('clients', [])
@@ -2110,12 +2184,23 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         
         if not found:
+         text = t("stats_no_sub", lang)
+         try:
              await query.edit_message_text(
-                 t("stats_no_sub", lang), 
+                 text, 
                  parse_mode='Markdown',
                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
              )
-             return
+         except Exception as e:
+             if "Message is not modified" not in str(e):
+                  await query.message.delete()
+                  await context.bot.send_message(
+                      chat_id=tg_id,
+                      text=text,
+                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                      parse_mode='Markdown'
+                  )
+         return
              
         current_total = current_up + current_down
         
@@ -2221,18 +2306,37 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ⏳ **Истекает:** {expiry_str}"""
 
-        await query.edit_message_text(
-            text, 
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
-        )
+        try:
+            await query.edit_message_text(
+                text, 
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+            )
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                 await query.message.delete()
+                 await context.bot.send_message(
+                     chat_id=tg_id,
+                     text=text,
+                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                     parse_mode='Markdown'
+                 )
 
     except Exception as e:
         logging.error(e)
-        await query.edit_message_text(
-            t("error_generic", lang),
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
-        )
+        try:
+            await query.edit_message_text(
+                t("error_generic", lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+            )
+        except Exception as ex:
+            if "Message is not modified" not in str(ex):
+                 await query.message.delete()
+                 await context.bot.send_message(
+                     chat_id=tg_id,
+                     text=t("error_generic", lang),
+                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+                 )
 
 async def instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2247,11 +2351,21 @@ async def instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
     ]
     
-    await query.edit_message_text(
-        t("instr_menu", lang),
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    try:
+        await query.edit_message_text(
+            t("instr_menu", lang),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+             await query.message.delete()
+             await context.bot.send_message(
+                 chat_id=tg_id,
+                 text=t("instr_menu", lang),
+                 reply_markup=InlineKeyboardMarkup(keyboard),
+                 parse_mode='Markdown'
+             )
 
 async def show_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2264,11 +2378,21 @@ async def show_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data='instructions')]]
     
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+             await query.message.delete()
+             await context.bot.send_message(
+                 chat_id=tg_id,
+                 text=text,
+                 reply_markup=InlineKeyboardMarkup(keyboard),
+                 parse_mode='Markdown'
+             )
 
 async def log_traffic_stats(context: ContextTypes.DEFAULT_TYPE):
     try:
