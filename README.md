@@ -29,6 +29,7 @@ Accessible only to the administrator, offering full control over the service:
     -   Generate standard promo codes with custom duration and usage limits.
     -   **⚡ Flash Promo System**: Send self-destructing promo messages to all users to drive immediate engagement. Messages are automatically deleted after a set time.
     -   **👥 Usage History**: Track who used which promo code and when.
+    -   **🗑 Revoke & Manage**: Ability to revoke active promo codes from users (deducting days from their subscription) and visual indicators for expired codes.
 -   **📢 Broadcast**: Send messages to all bot users.
 -   **👥 User Management**:
     -   Search users by ID.
@@ -96,6 +97,10 @@ systemctl enable x-ui-bot
 -   **Security**: Moved sensitive credentials (Token, Admin ID) to `.env` file.
 -   **Sales Log**: Added a dedicated menu to view recent sales history directly in the admin panel.
 -   **Admin Notifications**: Real-time notifications to the admin for every new purchase.
+-   **Flash Promo**: Implemented a new marketing tool for time-limited promotions with self-destructing messages.
+-   **Promo Management**: Added ability to revoke promo codes and view their expiration status.
+-   **Live Monitoring**: Improved server live monitoring with non-blocking updates and instant stop functionality.
+-   **Localization**: Improved multi-language support for the Admin Panel.
 
 
 ## 📜 License
