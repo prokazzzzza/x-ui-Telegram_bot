@@ -1030,7 +1030,7 @@ def get_net_io_counters():
     except:
         return 0, 0
 
-def get_system_stats():
+async def get_system_stats():
     # Network (Start)
     rx1, tx1 = get_net_io_counters()
 
@@ -1042,7 +1042,7 @@ def get_system_stats():
             total_1 = sum(int(x) for x in parts[1:])
             idle_1 = int(parts[4])
         
-        time.sleep(1.0) # Wait 1 sec for better accuracy
+        await asyncio.sleep(1.0) # Wait 1 sec for better accuracy (Async)
         
         with open('/proc/stat', 'r') as f:
             line = f.readline()
@@ -1128,7 +1128,7 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass # Ignore if already answered
     
-    stats = get_system_stats()
+    stats = await get_system_stats()
     
     tx_speed_str = format_bytes(stats['tx_speed']) + "/s"
     rx_speed_str = format_bytes(stats['rx_speed']) + "/s"
@@ -1175,9 +1175,9 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if stopped
         if not context.user_data.get('live_monitoring_active', False):
             break
-            
-        try:
-            stats = get_system_stats() # Takes ~1 second due to sleep(1.0) inside
+             
+         try:
+            stats = await get_system_stats() # Takes ~1 second due to sleep(1.0) inside
             
             # Re-check after sleep
             if not context.user_data.get('live_monitoring_active', False):
