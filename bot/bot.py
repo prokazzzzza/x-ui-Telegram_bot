@@ -1079,7 +1079,10 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # But usually we separate the loop handler.
     # Let's check if this is a refresh or initial load.
     
-    await query.answer("Обновление данных...")
+    try:
+        await query.answer("Обновление данных...")
+    except:
+        pass # Ignore if already answered
     
     stats = get_system_stats()
     
@@ -1120,9 +1123,9 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Запуск Live мониторинга...")
     
-    # Run for 15 iterations * ~2 seconds = 30 seconds
-    # Each iteration takes ~1s for get_system_stats + 1s sleep = 2s total
-    for i in range(15):
+    # Run for 30 iterations * ~1 seconds = 30 seconds
+    # Each iteration takes ~1s for get_system_stats (sleep 1.0 inside) + negligible sleep
+    for i in range(30):
         try:
             stats = get_system_stats() # Takes ~1 second due to sleep(1.0) inside
             
@@ -1145,7 +1148,7 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {rx_speed_str}
 
 🔄 Обновлено: {datetime.datetime.now(TIMEZONE).strftime("%H:%M:%S")}
-⏳ Осталось: {30 - (i*2)} сек."""
+⏳ Осталось: {30 - (i*1)} сек."""
 
             keyboard = [
                 [InlineKeyboardButton("⏹ Стоп", callback_data='admin_server')],
@@ -1154,8 +1157,7 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
             
-            # Wait 1 seconds + 1 second measure = 2 seconds total interval
-            await asyncio.sleep(1)
+            # Removed extra sleep to update every ~1s (since get_system_stats takes 1s)
             
         except Exception as e:
             # If message deleted or other error, stop loop
@@ -1163,7 +1165,7 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.error(f"Live monitor error: {e}")
                 break
             # If "Message is not modified", just continue (maybe stats didn't change much, though timestamp did)
-            await asyncio.sleep(1)
+            pass
 
     # After loop finishes, show standard static view
     try:
