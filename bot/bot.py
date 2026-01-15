@@ -63,11 +63,16 @@ if not ADMIN_ID:
 DB_PATH = "/etc/x-ui/x-ui.db"
 BOT_DB_PATH = "/usr/local/x-ui/bot/bot_data.db"
 INBOUND_ID = 1
-PUBLIC_KEY = os.getenv("PUBLIC_KEY", "T6c3nRb47HsltG6ojFbNImgouFB5ii6UrYYIs9xPf1A")
-IP = os.getenv("HOST_IP", "93.88.205.120")
-PORT = int(os.getenv("HOST_PORT", 17343))
-SNI = os.getenv("SNI", "google.com")
-SID = os.getenv("SID", "b2")
+PUBLIC_KEY = os.getenv("PUBLIC_KEY")
+IP = os.getenv("HOST_IP")
+PORT = os.getenv("HOST_PORT")
+if PORT:
+    PORT = int(PORT)
+else:
+    PORT = None
+    
+SNI = os.getenv("SNI")
+SID = os.getenv("SID")
 TIMEZONE = ZoneInfo("Europe/Moscow")
 LOG_FILE = "/usr/local/x-ui/bot/bot.log"
 

@@ -68,6 +68,13 @@ while [[ -z "$INPUT_ADMIN_ID" ]]; do
     read -p "Enter Admin Telegram ID: " INPUT_ADMIN_ID
 done
 
+# Try to detect IP
+DETECTED_IP=$(curl -s4 ifconfig.me)
+read -p "Enter Server IP [$DETECTED_IP]: " INPUT_IP
+if [[ -z "$INPUT_IP" ]]; then
+    INPUT_IP="$DETECTED_IP"
+fi
+
 # 4. Prepare Bot Directory
 BOT_DIR="$XUI_PATH/bot"
 REPO_URL="https://github.com/prokazzzzza/x-ui.git"
@@ -128,6 +135,7 @@ echo -e "Writing configuration..."
 cat > "$BOT_DIR/.env" <<EOL
 BOT_TOKEN=$INPUT_TOKEN
 ADMIN_ID=$INPUT_ADMIN_ID
+HOST_IP=$INPUT_IP
 EOL
 
 # 6. Setup Python Environment
