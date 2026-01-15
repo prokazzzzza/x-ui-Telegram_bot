@@ -971,7 +971,28 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("👮‍♂️ *Админ панель*\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+def get_net_io_counters():
+    try:
+        with open('/proc/net/dev', 'r') as f:
+            lines = f.readlines()
+        
+        rx_total = 0
+        tx_total = 0
+        
+        for line in lines[2:]:
+            if ':' in line:
+                data = line.split(':')[1].split()
+                if len(data) >= 9:
+                    rx_total += int(data[0])
+                    tx_total += int(data[8])
+        return rx_total, tx_total
+    except:
+        return 0, 0
+
 def get_system_stats():
+    # Network (Start)
+    rx1, tx1 = get_net_io_counters()
+
     # CPU
     try:
         with open('/proc/stat', 'r') as f:
@@ -980,7 +1001,7 @@ def get_system_stats():
             total_1 = sum(int(x) for x in parts[1:])
             idle_1 = int(parts[4])
         
-        time.sleep(0.5)
+        time.sleep(1.0) # Wait 1 sec for better accuracy
         
         with open('/proc/stat', 'r') as f:
             line = f.readline()
@@ -993,6 +1014,15 @@ def get_system_stats():
         cpu_usage = (1 - diff_idle / diff_total) * 100
     except:
         cpu_usage = 0
+
+    # Network (End)
+    rx2, tx2 = get_net_io_counters()
+    
+    # Speed in Bytes per second (since we slept 1s)
+    # If sleep was 0.5, we would multiply by 2.
+    # We changed sleep to 1.0 for easier calc and better sample.
+    rx_speed = rx2 - rx1
+    tx_speed = tx2 - tx1
 
     # RAM
     try:
@@ -1037,7 +1067,9 @@ def get_system_stats():
         'disk_usage': disk_usage,
         'disk_total': disk_total_gb,
         'disk_used': disk_used_gb,
-        'disk_free': disk_free_gb
+        'disk_free': disk_free_gb,
+        'rx_speed': rx_speed,
+        'tx_speed': tx_speed
     }
 
 async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1045,6 +1077,9 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer("Обновление данных...")
     
     stats = get_system_stats()
+    
+    tx_speed_str = format_bytes(stats['tx_speed']) + "/s"
+    rx_speed_str = format_bytes(stats['rx_speed']) + "/s"
     
     text = f"""🖥 *Состояние сервера*
     
@@ -1054,6 +1089,12 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ├ Использовано: {stats['disk_used']:.2f} GB
 ├ Свободно: {stats['disk_free']:.2f} GB
 └ Всего: {stats['disk_total']:.2f} GB
+
+📊 *Общая скорость передачи трафика в реальном времени*
+⬆️ *Отправка:*
+{tx_speed_str}
+⬇️ *Загрузка:*
+{rx_speed_str}
 
 🔄 Обновлено: {datetime.datetime.now(TIMEZONE).strftime("%H:%M:%S")}"""
 
