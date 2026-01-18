@@ -143,28 +143,28 @@ TEXTS = {
         "btn_trial": "🆓 Free Trial (3 Days)",
         "btn_ref": "👥 Referrals",
         "btn_promo": "🎁 Redeem Promo",
-        "shop_title": "🛒 *Select a Plan:*\n\nPay safely with Telegram Stars.",
+        "shop_title": "🛒 Select a Plan:\n\nPay safely with Telegram Stars.",
         "btn_back": "🔙 Back",
         "label_1_month": "1 Month Subscription",
         "label_3_months": "3 Months Subscription",
         "label_6_months": "6 Months Subscription",
         "label_1_year": "1 Year Subscription",
         "invoice_title": "Maxi_VPN Subscription",
-        "success_created": "✅ *Success!* Subscription created.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
-        "success_extended": "✅ *Success!* Subscription extended.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
-        "success_updated": "✅ *Success!* Subscription updated.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
+        "success_created": "✅ Success! Subscription created.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
+        "success_extended": "✅ Success! Subscription extended.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
+        "success_updated": "✅ Success! Subscription updated.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
         "error_generic": "An error occurred. Please contact support.",
-        "sub_expired": "⚠️ *Subscription Expired*\n\nYour subscription has expired. Please buy a new plan to restore access.",
-        "sub_active": "✅ *Your Subscription is Active*\n\n📅 Expires: {expiry}\n\nKey:\n`{link}`",
-        "sub_not_found": "❌ *No Subscription Found*\n\nYou don't have an active subscription. Please visit the shop.",
-        "stats_title": "📊 *Your Stats*\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
+        "sub_expired": "⚠️ Subscription Expired\n\nYour subscription has expired. Please buy a new plan to restore access.",
+        "sub_active": "✅ Your Subscription is Active\n\n📅 Expires: {expiry}\n\nKey:\n`{link}`",
+        "sub_not_found": "❌ No Subscription Found\n\nYou don't have an active subscription. Please visit the shop.",
+        "stats_title": "📊 Your Stats\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
         "stats_no_sub": "No stats found. Subscription required.",
-        "expiry_warning": "⚠️ *Subscription Expiring Soon!*\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
+        "expiry_warning": "⚠️ Subscription Expiring Soon!\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
         "btn_renew": "💎 Renew Now",
         "btn_instructions": "📚 Setup Instructions",
         "lang_sel": "Language selected: English 🇬🇧",
-        "trial_used": "⚠️ *Trial Already Used*\n\nYou have already used your trial period.\nActivated: {date}",
-        "trial_activated": "🎉 *Trial Activated!*\n\nYou have received 3 days of free access.\nCheck '🚀 My Config' to connect.",
+        "trial_used": "⚠️ Trial Already Used\n\nYou have already used your trial period.\nActivated: {date}",
+        "trial_activated": "🎉 Trial Activated!\n\nYou have received 3 days of free access.\nCheck '🚀 My Config' to connect.",
         "ref_title": "👥 *Referral Program*\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n`{link}`\n\n🎁 You have invited: {count} users.",
         "promo_prompt": "🎁 *Redeem Promo Code*\n\nPlease enter your promo code:",
         "promo_success": "✅ *Promo Code Redeemed!*\n\nAdded {days} days to your subscription.",
@@ -174,9 +174,9 @@ TEXTS = {
         "btn_android": "📱 Android (v2RayTun)",
         "btn_ios": "🍎 iOS (V2Box)",
         "btn_pc": "💻 PC (Amnezia/Hiddify)",
-        "instr_android": "📱 *Android Setup*\n\n1. Install *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* from Google Play.\n2. Copy your key from '🚀 My Config'.\n3. Open v2RayTun -> Tap 'Import' -> 'Import from Clipboard'.\n4. Tap the connection button.",
-        "instr_ios": "🍎 *iOS Setup*\n\n1. Install *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* from App Store.\n2. Copy your key from '🚀 My Config'.\n3. Open V2Box, it should detect the key automatically.\n4. Tap 'Import' and then swipe to connect.",
-        "instr_pc": "💻 *PC Setup*\n\n1. Install *[AmneziaVPN](https://amnezia.org/)* or *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Copy your key from '🚀 My Config'.\n3. Open the app and paste the key (Import from Clipboard).\n4. Connect.",
+        "instr_android": "📱 *Android setup*\n\n1. Install *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* from Google Play.\n2. Copy your key from '🚀 My Config'.\n3. Open v2RayTun -> Tap 'Import' -> 'Import from Clipboard'.\n4. Tap the connection button.",
+        "instr_ios": "🍎 *iOS setup*\n\n1. Install *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* from App Store.\n2. Copy your key from '🚀 My Config'.\n3. Open V2Box, it should detect the key automatically.\n4. Tap 'Import' and then swipe to connect.",
+        "instr_pc": "💻 *PC setup*\n\n1. Install *[AmneziaVPN](https://amnezia.org/)* or *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Copy your key from '🚀 My Config'.\n3. Open the app and paste the key (Import from Clipboard).\n4. Connect.",
         "plan_1_month": "1 Month",
         "plan_3_months": "3 Months",
         "plan_6_months": "6 Months",
@@ -186,7 +186,7 @@ TEXTS = {
         "plan_unlimited": "Unlimited",
         "sub_type_unknown": "Unknown",
         "stats_sub_type": "💳 Plan: {plan}",
-        "rank_info": "\n🏆 *Your Rank:* #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)",
+        "rank_info": "\n🏆 Your rank: #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
         "btn_admin_prices": "💰 Pricing",
@@ -1460,8 +1460,16 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
                 clean_name = re.sub(r'[^a-zA-Z0-9]', '', base_name)
                 if not clean_name: clean_name = "User"
                 
-                new_email = f"tg_{tg_id}_{clean_name}"
+                # User requested email to be just tg_ID, and name in comment
+                new_email = f"tg_{tg_id}"
                 old_email = client.get('email')
+                
+                # Update comment if changed
+                old_comment = client.get('comment', '')
+                if old_comment != clean_name:
+                    client['comment'] = clean_name
+                    clients[i] = client
+                    changed = True
                 
                 if old_email != new_email:
                     # Check for duplicates? X-UI might complain if duplicate.
@@ -3457,7 +3465,8 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
             clean_name = re.sub(r'[^a-zA-Z0-9]', '', uname_val)
             if not clean_name: clean_name = "User"
             
-            new_email = f"tg_{tg_id}_{clean_name}"
+            # Use simple tg_ID for email, put nickname in comment
+            new_email = f"tg_{tg_id}"
             
             new_client = {
                 "id": u_uuid,
@@ -3471,7 +3480,7 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                 "flow": "xtls-rprx-vision",
                 "created_at": current_time_ms,
                 "updated_at": current_time_ms,
-                "comment": "",
+                "comment": clean_name,
                 "reset": 0
             }
             clients.append(new_client)
@@ -3842,8 +3851,20 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          break
                 
                 if user_client:
-                    current_up = user_client.get('up', 0)
-                    current_down = user_client.get('down', 0)
+                    # Try to get fresh stats from client_traffics using the found email
+                    found_email = user_client.get('email')
+                    if found_email:
+                        cursor.execute("SELECT up, down FROM client_traffics WHERE email=?", (found_email,))
+                        row_fresh = cursor.fetchone()
+                        if row_fresh:
+                            current_up, current_down = row_fresh
+                        else:
+                            current_up = user_client.get('up', 0)
+                            current_down = user_client.get('down', 0)
+                    else:
+                        current_up = user_client.get('up', 0)
+                        current_down = user_client.get('down', 0)
+                        
                     expiry_time = user_client.get('expiryTime', 0)
                     found = True
         
