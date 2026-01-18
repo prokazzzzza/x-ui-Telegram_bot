@@ -3423,6 +3423,26 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
             else:
                 new_expiry = current_expiry + ms_to_add
                 
+            # Update comment with latest nickname if available
+            try:
+                user = None
+                if update.callback_query:
+                    user = update.callback_query.from_user
+                elif update.message:
+                    user = update.message.from_user
+                
+                if user:
+                    import re
+                    uname = user.username
+                    fname = user.first_name
+                    base_name = uname if uname else fname
+                    if not base_name: base_name = "User"
+                    clean_name = re.sub(r'[^a-zA-Z0-9]', '', base_name)
+                    if not clean_name: clean_name = "User"
+                    
+                    user_client['comment'] = clean_name
+            except: pass
+                
             user_client['expiryTime'] = new_expiry
             user_client['enable'] = True
             user_client['updated_at'] = current_time_ms
