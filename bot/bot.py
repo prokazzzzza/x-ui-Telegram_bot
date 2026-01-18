@@ -267,7 +267,13 @@ TEXTS = {
         "btn_admin_promo_new": "➕ Создать новый",
         "btn_admin_promo_list": "📜 Список активных",
         "btn_admin_flash": "⚡ Flash Промо",
-        "btn_admin_promo_history": "👥 Использования"
+        "btn_admin_promo_history": "👥 Использования",
+        "btn_admin_poll": "📊 Опросы",
+        "btn_admin_poll_new": "➕ Создать опрос",
+        "poll_ask_question": "Введите *вопрос* для голосования (или нажмите Отмена):",
+        "poll_ask_options": "Отправьте *варианты ответов*, каждый с новой строки (минимум 2).\n\nПример:\nДа\nНет\nВозможно",
+        "poll_preview": "📊 *Предпросмотр опроса:*\n\n❓ Вопрос: {question}\n\n🔢 Варианты:\n{options}\n\nОтправить этот опрос всем пользователям?",
+        "btn_send_poll": "✅ Отправить всем"
     }
 }
 
@@ -997,6 +1003,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_admin_server", lang), callback_data='admin_server')],
         [InlineKeyboardButton(t("btn_admin_prices", lang), callback_data='admin_prices')],
         [InlineKeyboardButton(t("btn_admin_promos", lang), callback_data='admin_promos_menu')],
+        [InlineKeyboardButton(t("btn_admin_poll", lang), callback_data='admin_poll_menu')],
         [InlineKeyboardButton(t("btn_admin_broadcast", lang), callback_data='admin_broadcast')],
         [InlineKeyboardButton(t("btn_admin_sales", lang), callback_data='admin_sales_log')],
         [InlineKeyboardButton(t("btn_admin_backup", lang), callback_data='admin_create_backup')],
@@ -3078,6 +3085,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['admin_action'] = None
             return
 
+        elif action == 'awaiting_poll_question':
+            if not text: return
+            context.user_data['poll_question'] = text.strip()
+            context.user_data['admin_action'] = 'awaiting_poll_options'
+            
+            await update.message.reply_text(t("poll_ask_options", lang))
+            return
+            
+        elif action == 'awaiting_poll_options':
+            if not text: return
+            options = [opt.strip() for opt in text.split('\n') if opt.strip()]
+            
+            if len(options) < 2:
+                await update.message.reply_text("❌ Ошибка: Должно быть минимум 2 варианта ответа.")
+                return
+            
+            if len(options) > 10:
+                 await update.message.reply_text("❌ Ошибка: Максимум 10 вариантов ответа.")
+                 return
+                 
+            context.user_data['poll_options'] = options
+            question = context.user_data.get('poll_question')
+            
+            # Preview by sending poll to admin
+            await context.bot.send_poll(
+                chat_id=tg_id,
+                question=question,
+                options=options,
+                is_anonymous=True,
+                allows_multiple_answers=False
+            )
+            
+            keyboard = [
+                [InlineKeyboardButton(t("btn_send_poll", lang), callback_data='admin_poll_send')],
+                [InlineKeyboardButton("🔙 Отмена", callback_data='admin_poll_menu')]
+            ]
+            
+            await update.message.reply_text(
+                t("poll_preview", lang).format(question=question, options="\n".join(f"{i+1}. {o}" for i, o in enumerate(options))),
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+            context.user_data['admin_action'] = None
+            return
+
     if context.user_data.get('awaiting_promo'):
         if not text: return
         tg_id = str(update.message.from_user.id)
@@ -4201,6 +4253,106 @@ async def admin_delete_client_confirm(update: Update, context: ContextTypes.DEFA
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 К списку", callback_data='admin_users_0')]])
     )
 
+async def admin_poll_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    keyboard = [
+        [InlineKeyboardButton(t("btn_admin_poll_new", lang), callback_data='admin_poll_new')],
+        [InlineKeyboardButton("🔙 В админ панель", callback_data='admin_panel')]
+    ]
+    
+    text = "📊 *Меню опросов*\n\nСоздавайте и рассылайте опросы всем пользователям."
+    
+    try:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+             await query.message.delete()
+             await context.bot.send_message(chat_id=tg_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_poll_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    context.user_data['admin_action'] = 'awaiting_poll_question'
+    
+    keyboard = [[InlineKeyboardButton("🔙 Отмена", callback_data='admin_poll_menu')]]
+    
+    await query.edit_message_text(
+        t("poll_ask_question", lang),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    
+    question = context.user_data.get('poll_question')
+    options = context.user_data.get('poll_options')
+    
+    if not question or not options:
+        await query.edit_message_text("❌ Ошибка: Опрос не найден. Создайте его заново.")
+        return
+        
+    # Get all users
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT tg_id FROM user_prefs")
+    users = cursor.fetchall()
+    conn.close()
+    
+    # Also sync from X-UI
+    xui_users = []
+    try:
+        conn_xui = sqlite3.connect(DB_PATH)
+        cursor_xui = conn_xui.cursor()
+        cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor_xui.fetchone()
+        conn_xui.close()
+        if row:
+            settings = json.loads(row[0])
+            clients = settings.get('clients', [])
+            for client in clients:
+                cid = client.get('tgId')
+                if cid:
+                    xui_users.append(str(cid))
+    except: pass
+    
+    all_users = set([u[0] for u in users] + xui_users)
+    
+    sent = 0
+    blocked = 0
+    
+    status_msg = await query.edit_message_text(f"⏳ Рассылка опроса запущена ({len(all_users)} пользователей)...")
+    
+    for user_id in all_users:
+        try:
+            await context.bot.send_poll(
+                chat_id=user_id,
+                question=question,
+                options=options,
+                is_anonymous=True,
+                allows_multiple_answers=False
+            )
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            if "Forbidden" in str(e) or "blocked" in str(e):
+                blocked += 1
+            pass
+            
+    await status_msg.edit_text(
+        f"✅ Рассылка опроса завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В меню опросов", callback_data='admin_poll_menu')]])
+    )
+
 if __name__ == '__main__':
     init_db()
     application = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
@@ -4241,6 +4393,9 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_revoke_promo_action, pattern='^admin_revoke_act_'))
     application.add_handler(CallbackQueryHandler(admin_broadcast, pattern='^admin_broadcast$'))
     application.add_handler(CallbackQueryHandler(admin_broadcast_target, pattern='^admin_broadcast_(all|en|ru|individual|toggle|page|confirm).*'))
+    application.add_handler(CallbackQueryHandler(admin_poll_menu, pattern='^admin_poll_menu$'))
+    application.add_handler(CallbackQueryHandler(admin_poll_new, pattern='^admin_poll_new$'))
+    application.add_handler(CallbackQueryHandler(admin_poll_send, pattern='^admin_poll_send$'))
     application.add_handler(CallbackQueryHandler(admin_sales_log, pattern='^admin_sales_log$'))
     application.add_handler(CallbackQueryHandler(admin_create_backup, pattern='^admin_create_backup$'))
     application.add_handler(CallbackQueryHandler(admin_view_logs, pattern='^admin_logs$'))
