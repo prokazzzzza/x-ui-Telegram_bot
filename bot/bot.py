@@ -76,6 +76,8 @@ SID = os.getenv("SID")
 TIMEZONE = ZoneInfo("Europe/Moscow")
 LOG_FILE = "/usr/local/x-ui/bot/bot.log"
 
+ACCESS_LOG_PATH = "/usr/local/x-ui/access.log"
+
 def load_config_from_db():
     global PUBLIC_KEY, PORT, SNI, SID
     try:
@@ -505,6 +507,14 @@ TEXTS = {
         "limit_ip_success": "✅ Лимит устройств обновлен: {limit}",
         "limit_ip_error": "❌ Ошибка при обновлении лимита.",
         "limit_ip_invalid": "❌ Неверное число. Введите целое число.",
+        "btn_ip_history": "📜 История IP",
+        "ip_history_title": "📜 *История IP подключений*\n\nПользователь: `{email}`\n\n",
+        "ip_history_empty": "История подключений не найдена.",
+        "ip_history_entry": "{flag} `{ip}` ({country})\n🕒 {time}\n",
+        "btn_suspicious": "⚠️ Мульти-IP",
+        "suspicious_title": "⚠️ *Пользователи с мульти-подключениями*\n(>1 IP за последние 10 мин)\n\n",
+        "suspicious_empty": "✅ Подозрительных активностей не обнаружено.",
+        "suspicious_entry": "📧 `{email}`\n🔌 IP: {count}\n{ips}\n\n",
         "status_yes": "✅ Да",
         "status_no": "❌ Нет",
         "status_online": "🟢 Онлайн",
@@ -702,6 +712,24 @@ def init_db():
         )
     ''')
     
+    # Connection Logs
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS connection_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            ip TEXT,
+            timestamp INTEGER,
+            country_code TEXT,
+            UNIQUE(email, ip)
+        )
+    ''')
+    
+    # Migration: Check if country_code column exists, if not add it
+    try:
+        cursor.execute("SELECT country_code FROM connection_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE connection_logs ADD COLUMN country_code TEXT")
+    
     conn.commit()
     conn.close()
 
@@ -732,6 +760,14 @@ def update_user_info(tg_id, username, first_name, last_name):
         conn.close()
     except Exception as e:
         logging.error(f"Error updating user info: {e}")
+
+def get_flag_emoji(country_code):
+    if not country_code: return "🏳️"
+    try:
+        # Offset for Regional Indicator Symbols
+        return chr(ord(country_code[0]) + 127397) + chr(ord(country_code[1]) + 127397)
+    except:
+        return "🏳️"
 
 def get_lang(tg_id):
     try:
@@ -1330,6 +1366,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_admin_server", lang), callback_data='admin_server')],
         [InlineKeyboardButton(t("btn_admin_prices", lang), callback_data='admin_prices')],
         [InlineKeyboardButton(t("btn_admin_promos", lang), callback_data='admin_promos_menu')],
+        [InlineKeyboardButton(t("btn_suspicious", lang), callback_data='admin_suspicious')],
         [InlineKeyboardButton(t("btn_admin_poll", lang), callback_data='admin_poll_menu')],
         [InlineKeyboardButton(t("btn_admin_broadcast", lang), callback_data='admin_broadcast')],
         [InlineKeyboardButton(t("btn_admin_sales", lang), callback_data='admin_sales_log')],
@@ -2278,6 +2315,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton(t("btn_reset_trial", lang), callback_data=f'admin_reset_trial_{uid}')])
         
     keyboard.append([InlineKeyboardButton(t("btn_edit_limit_ip", lang), callback_data=f'admin_edit_limit_ip_{uid}')])
+    keyboard.append([InlineKeyboardButton(t("btn_ip_history", lang), callback_data=f'admin_ip_history_{uid}')])
     keyboard.append([InlineKeyboardButton(t("btn_rebind", lang), callback_data=f'admin_rebind_{uid}')])
     keyboard.append([InlineKeyboardButton(t("btn_delete_user", lang), callback_data=f'admin_del_client_ask_{uid}')])
     keyboard.append([InlineKeyboardButton(t("btn_back_list", lang), callback_data='admin_users_0')])
@@ -2316,6 +2354,96 @@ async def admin_edit_limit_ip(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode='Markdown'
     )
 
+async def admin_ip_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    uid = query.data.split('_', 3)[3] # admin_ip_history_UUID
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row: return
+    
+    settings = json.loads(row[0])
+    clients = settings.get('clients', [])
+    client = next((c for c in clients if c.get('id') == uid), None)
+    
+    if not client: return
+    
+    email = client.get('email')
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT ip, timestamp, country_code FROM connection_logs WHERE email=? ORDER BY timestamp DESC LIMIT 20", (email,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    text = t("ip_history_title", lang).format(email=email)
+    
+    if not rows:
+        text += t("ip_history_empty", lang)
+    else:
+        for row in rows:
+            ip, ts, cc = row
+            time_str = datetime.datetime.fromtimestamp(ts, tz=TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+            flag = get_flag_emoji(cc)
+            country = cc if cc else "Unknown"
+            text += t("ip_history_entry", lang).format(flag=flag, ip=ip, country=country, time=time_str)
+            
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_list", lang), callback_data=f'admin_u_{uid}')]]),
+        parse_mode='Markdown'
+    )
+
+async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    # Threshold: active in last 10 minutes (600 seconds)
+    threshold = int(time.time()) - 600
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT email, ip 
+        FROM connection_logs 
+        WHERE timestamp > ?
+    """, (threshold,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    # Process grouping in python
+    usage = {}
+    for email, ip in rows:
+        if email not in usage:
+            usage[email] = set()
+        usage[email].add(ip)
+    
+    # Filter for > 1 unique IP
+    suspicious_list = {k: v for k, v in usage.items() if len(v) > 1}
+    
+    text = t("suspicious_title", lang)
+    
+    if not suspicious_list:
+        text += t("suspicious_empty", lang)
+    else:
+        for email, ips in suspicious_list.items():
+            ip_str = ", ".join(list(ips))
+            text += t("suspicious_entry", lang).format(email=email, count=len(ips), ips=ip_str)
+            
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]]),
+        parse_mode='Markdown'
+    )
 
 async def admin_rebind_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2361,6 +2489,7 @@ async def admin_promos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_admin_promo_list", lang), callback_data='admin_promo_list')],
         [InlineKeyboardButton(t("btn_admin_flash", lang), callback_data='admin_flash_menu')],
         [InlineKeyboardButton(t("btn_admin_promo_history", lang), callback_data='admin_promo_uses_0')],
+        [InlineKeyboardButton(t("btn_suspicious", lang), callback_data='admin_suspicious')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
     
@@ -4614,6 +4743,91 @@ async def check_expiring_subscriptions(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Error in check_expiring_subscriptions: {e}")
 
+async def watch_access_log(app):
+    """
+    Background task to monitor access.log and record unique connections.
+    """
+    import re
+    # Updated regex to handle microseconds and 'from' keyword
+    # Example: 2026/01/19 13:11:31.193164 from 31.29.179.60:43924 accepted tcp:d0.mradx.net:443 [inbound-17343 >> direct] email: tg_824606348
+    log_pattern = re.compile(r'^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? from (?:tcp:|udp:)?(\d{1,3}(?:\.\d{1,3}){3}):\d+ accepted .*?email:\s*(\S+)')
+    
+    if not os.path.exists(ACCESS_LOG_PATH):
+        logging.warning(f"Access log not found at {ACCESS_LOG_PATH}")
+        return
+
+    logging.info(f"Starting to watch access log at {ACCESS_LOG_PATH}")
+    
+    try:
+        # Open file and seek to end
+        file = open(ACCESS_LOG_PATH, 'r', encoding='utf-8')
+        file.seek(0, os.SEEK_END)
+        
+        while True:
+            line = file.readline()
+            if not line:
+                await asyncio.sleep(1)
+                continue
+                
+            match = log_pattern.search(line)
+            if match:
+                ip = match.group(1)
+                email = match.group(2)
+                timestamp = int(time.time())
+                
+                # Store in DB
+                try:
+                    # Resolve GeoIP
+                    import requests
+                    country_code = None
+                    try:
+                        # Use ip-api.com (free, no key, limited to 45 req/min)
+                        # We should cache this or only do it if not in DB.
+                        # But here we are in a loop.
+                        # Optimization: check if IP exists in DB first to avoid API call
+                        
+                        def _check_ip():
+                            c = sqlite3.connect(BOT_DB_PATH)
+                            cur = c.cursor()
+                            cur.execute("SELECT country_code FROM connection_logs WHERE ip=?", (ip,))
+                            res = cur.fetchone()
+                            c.close()
+                            return res[0] if res else None
+                            
+                        cached_cc = await asyncio.get_running_loop().run_in_executor(None, _check_ip)
+                        
+                        if cached_cc:
+                            country_code = cached_cc
+                        else:
+                             # Fetch from API
+                             # timeout 2 sec
+                             resp = requests.get(f"http://ip-api.com/json/{ip}?fields=countryCode", timeout=2)
+                             if resp.status_code == 200:
+                                 data = resp.json()
+                                 country_code = data.get('countryCode')
+                                 
+                    except Exception as ex:
+                        logging.warning(f"GeoIP failed for {ip}: {ex}")
+
+                    def _update_db():
+                        conn = sqlite3.connect(BOT_DB_PATH)
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO connection_logs (email, ip, timestamp, country_code) 
+                            VALUES (?, ?, ?, ?)
+                            ON CONFLICT(email, ip) DO UPDATE SET timestamp=excluded.timestamp, country_code=coalesce(excluded.country_code, connection_logs.country_code)
+                        """, (email, ip, timestamp, country_code))
+                        conn.commit()
+                        conn.close()
+                    
+                    await asyncio.get_running_loop().run_in_executor(None, _update_db)
+                    
+                except Exception as e:
+                    logging.error(f"Error updating connection logs: {e}")
+                    
+    except Exception as e:
+        logging.error(f"Error in watch_access_log: {e}")
+
 async def post_init(application):
     # Set bot commands
     await application.bot.set_my_commands([
@@ -4643,6 +4857,9 @@ async def post_init(application):
         await application.bot.set_my_short_description("Maxi_VPN — быстрый и защищённый VPN", language_code='ru')
     except Exception as e:
         logging.error(f"Failed to set description: {e}")
+        
+    # Start log watcher
+    asyncio.create_task(watch_access_log(application))
 
 async def admin_delete_client_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4946,10 +5163,7 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_poll_menu')]])
     )
 
-if __name__ == '__main__':
-    init_db()
-    application = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
-    
+def register_handlers(application):
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(set_language, pattern='^set_lang_'))
     application.add_handler(CallbackQueryHandler(change_lang, pattern='^change_lang$'))
@@ -5003,6 +5217,8 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_delete_client_ask, pattern='^admin_del_client_ask_'))
     application.add_handler(CallbackQueryHandler(admin_delete_client_confirm, pattern='^admin_del_client_confirm_'))
     application.add_handler(CallbackQueryHandler(admin_edit_limit_ip, pattern='^admin_edit_limit_ip_'))
+    application.add_handler(CallbackQueryHandler(admin_ip_history, pattern='^admin_ip_history_'))
+    application.add_handler(CallbackQueryHandler(admin_suspicious_users, pattern='^admin_suspicious$'))
     
     application.add_handler(CallbackQueryHandler(admin_flash_menu, pattern='^admin_flash_menu$'))
     application.add_handler(CallbackQueryHandler(admin_flash_select, pattern='^admin_flash_sel_'))
@@ -5011,6 +5227,12 @@ if __name__ == '__main__':
     
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
+
+if __name__ == '__main__':
+    init_db()
+    application = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    
+    register_handlers(application)
     
     job_queue = application.job_queue
     job_queue.run_repeating(check_expiring_subscriptions, interval=86400, first=10)

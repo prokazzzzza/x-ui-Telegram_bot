@@ -16,3 +16,4 @@ bot/venv/
 .DS_Store
 *.log
 .husky
+/tests

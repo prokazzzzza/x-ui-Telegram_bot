@@ -19,7 +19,8 @@ def test_handler_functions_exist():
         'admin_user_detail',
         'admin_edit_limit_ip', # The one we just fixed
         'admin_poll_menu',
-        'handle_poll_vote'
+        'handle_poll_vote',
+        'admin_ip_history'
     ]
     
     for handler_name in handlers:
