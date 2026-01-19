@@ -190,17 +190,17 @@ TEXTS = {
         "plan_unlimited": "Unlimited",
         "sub_type_unknown": "Unknown",
         "stats_sub_type": "💳 Plan: {plan}",
-        "rank_info": "\n🏆 Your Rank: #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)",
+        "rank_info_traffic": "\n🏆 Your Rank (Traffic): #{rank} of {total}\n({traffic} used this month)",
+        "rank_info_sub": "\n🏆 Your Rank (Subscription): #{rank} of {total}\n(Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
         "btn_admin_prices": "💰 Pricing",
         "btn_admin_promos": "🎁 Promo Codes",
         "btn_suspicious": "⚠️ Multi-IP",
         "btn_leaderboard": "🏆 Leaderboard",
-        "leaderboard_title": "🏆 *Traffic Leaderboard*\n\nRanking by total traffic usage:",
+        "leaderboard_title_traffic": "🏆 *Traffic Leaderboard (Month)* (Page {page}/{total})\n\nRanking by traffic usage this month:",
+        "leaderboard_title_sub": "🏆 *Subscription Leaderboard* (Page {page}/{total})\n\nRanking by remaining days:",
         "leaderboard_empty": "No data available.",
-        "leaderboard_rank": "#{rank} {label}: {traffic}",
-        "leaderboard_header": "🏆 *Traffic Leaderboard* (Page {page}/{total})\n\n",
         "btn_admin_poll": "📊 Polls",
         "btn_admin_broadcast": "📢 Broadcast",
         "btn_admin_sales": "📜 Sales Log",
@@ -429,7 +429,8 @@ TEXTS = {
         "stats_sub_type": "💳 Тариф: {plan}",
         "remaining_days": "⏳ Осталось: {days} дн.",
         "remaining_hours": "⏳ Осталось: {hours} ч.",
-        "rank_info": "\n\n🏆 Ваш статус в клубе:\nВы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
+        "rank_info_traffic": "\n🏆 Ваш статус в клубе:\nВы занимаете {rank}-е место в рейтинге по трафику из {total} ({traffic}).",
+        "rank_info_sub": "\n🏆 Вы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
         "btn_admin_prices": "💰 Настройка цен",
@@ -523,10 +524,9 @@ TEXTS = {
         "ip_history_entry": "{flag} `{ip}` ({country})\n🕒 {time}\n",
         "btn_suspicious": "⚠️ Мульти-IP",
         "btn_leaderboard": "🏆 Топ пользователей",
-        "leaderboard_title": "🏆 *Рейтинг по трафику*\n\nТоп пользователей по потреблению:",
+        "leaderboard_title_traffic": "🏆 *Рейтинг по трафику (Месяц)* (Стр. {page}/{total})\n\nТоп пользователей по потреблению в этом месяце:",
+        "leaderboard_title_sub": "🏆 *Рейтинг подписок* (Стр. {page}/{total})\n\nТоп пользователей по длительности подписки:",
         "leaderboard_empty": "Нет данных.",
-        "leaderboard_rank": "№{rank} {label}: {traffic}",
-        "leaderboard_header": "🏆 *Рейтинг по трафику* (Стр. {page}/{total})\n\n",
         "suspicious_title": "⚠️ *Пользователи с мульти-подключениями*\n(>1 IP за последние 10 мин)\n\n",
         "suspicious_empty": "✅ Подозрительных активностей не обнаружено.",
         "suspicious_entry": "📧 `{email}`\n🔌 IP: {count}\n{ips}\n\n",
@@ -967,6 +967,41 @@ def get_user_rank(tg_id):
         logging.error(f"Error calculating rank: {e}")
         return None, 0, 0
 
+def format_traffic(bytes_val):
+    if bytes_val is None: bytes_val = 0
+    
+    # If > 1000 GB, use TB
+    # 1000 GB = 1000 * 1024^3 bytes
+    tb_threshold = 1000 * (1024**3)
+    
+    if bytes_val >= tb_threshold:
+        val = bytes_val / (1024**4)
+        return f"{val:.2f} TB"
+    else:
+        val = bytes_val / (1024**3)
+        return f"{val:.2f} GB"
+
+def get_monthly_traffic(email):
+    """
+    Get traffic for current month from traffic_history table.
+    """
+    try:
+        now = datetime.datetime.now(TIMEZONE)
+        month_prefix = now.strftime("%Y-%m")
+        
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        
+        # Select sum of up+down where date starts with YYYY-MM
+        cursor.execute("SELECT SUM(up + down) FROM traffic_history WHERE email=? AND date LIKE ?", (email, f"{month_prefix}%"))
+        row = cursor.fetchone()
+        conn.close()
+        
+        return row[0] if row and row[0] else 0
+    except Exception as e:
+        logging.error(f"Error getting monthly traffic: {e}")
+        return 0
+
 def get_user_rank_traffic(target_email):
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -982,25 +1017,21 @@ def get_user_rank_traffic(target_email):
             
         settings = json.loads(row[0])
         clients = settings.get('clients', [])
-        
-        # 2. Get traffic for all clients
-        cursor.execute("SELECT email, up, down FROM client_traffics")
-        traffic_rows = cursor.fetchall()
-        traffic_map = {row[0]: (row[1] or 0) + (row[2] or 0) for row in traffic_rows}
         conn.close()
         
-        # 3. Build list with traffic
+        # 2. Build list with monthly traffic
         leaderboard = []
         user_traffic = 0
         
         for c in clients:
             email = c.get('email', '')
-            traffic = traffic_map.get(email, 0)
+            traffic = get_monthly_traffic(email)
             
-            # Fallback to settings if not in map
-            if traffic == 0:
-                traffic = c.get('up', 0) + c.get('down', 0)
-                
+            # If no history (new user or no logs yet), maybe use current traffic if it's small?
+            # Or just 0. Let's stick to history as requested "current month".
+            # If 0, maybe user has traffic in X-UI but bot didn't log it yet?
+            # For "Current Month", history is the source of truth.
+            
             leaderboard.append({
                 'email': email,
                 'traffic': traffic
@@ -1024,6 +1055,64 @@ def get_user_rank_traffic(target_email):
         
     except Exception as e:
         logging.error(f"Error calculating rank: {e}")
+        return None, 0, 0
+
+def get_user_rank_subscription(target_email):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            return None, 0, 0
+            
+        settings = json.loads(row[0])
+        clients = settings.get('clients', [])
+        
+        valid_clients = []
+        user_days = 0
+        current_time_ms = int(time.time() * 1000)
+        
+        for c in clients:
+            expiry = c.get('expiryTime', 0)
+            email = c.get('email', '')
+            
+            # Exclude unlimited (0)
+            if expiry == 0:
+                continue
+                
+            # Calculate remaining days
+            if expiry > current_time_ms:
+                remaining_ms = expiry - current_time_ms
+                days = remaining_ms / (1000 * 3600 * 24)
+            else:
+                # Expired or negative
+                days = -1 # Treat as 0/bottom for ranking
+                
+            valid_clients.append({
+                'email': email,
+                'days': days
+            })
+            
+            if email == target_email:
+                user_days = days if days > 0 else 0
+        
+        # Sort descending
+        valid_clients.sort(key=lambda x: x['days'], reverse=True)
+        
+        rank = -1
+        for idx, item in enumerate(valid_clients):
+            if item['email'] == target_email:
+                rank = idx + 1
+                break
+                
+        total = len(valid_clients)
+        return rank, total, user_days
+        
+    except Exception as e:
+        logging.error(f"Error calculating sub rank: {e}")
         return None, 0, 0
 
 def t(key, lang="en"):
@@ -1118,10 +1207,36 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
         keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
         
     text = t("main_menu", lang)
-    rank, total, percent = get_user_rank(tg_id)
+    
+    # 1. Traffic Rank (Month)
+    email = f"tg_{tg_id}"
+    rank, total, traffic_val = get_user_rank_traffic(email)
+    
+    # Check for legacy email (manual)
+    if not rank:
+         # Try finding by tg_id in clients
+         conn = sqlite3.connect(DB_PATH)
+         cursor = conn.cursor()
+         cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+         row = cursor.fetchone()
+         conn.close()
+         if row:
+             settings = json.loads(row[0])
+             clients = settings.get('clients', [])
+             for c in clients:
+                 if str(c.get('tgId', '')) == tg_id:
+                     email = c.get('email', '')
+                     rank, total, traffic_val = get_user_rank_traffic(email)
+                     break
+    
     if rank:
-        text += t("rank_info", lang).format(rank=rank, total=total, percent=percent)
+        text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_val))
         
+    # 2. Subscription Rank
+    rank_sub, total_sub, days_left = get_user_rank_subscription(email)
+    if rank_sub:
+        text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
+
     # Check for welcome image
     welcome_photo_path = "welcome.jpg"
     if os.path.exists(welcome_photo_path):
@@ -1146,9 +1261,35 @@ async def show_main_menu_query(query, context, lang):
         keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
         
     text = t("main_menu", lang)
-    rank, total, percent = get_user_rank(tg_id)
+    
+    # 1. Traffic Rank (Month)
+    email = f"tg_{tg_id}"
+    rank, total, traffic_val = get_user_rank_traffic(email)
+    
+    # Check for legacy email (manual)
+    if not rank:
+         # Try finding by tg_id in clients
+         conn = sqlite3.connect(DB_PATH)
+         cursor = conn.cursor()
+         cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+         row = cursor.fetchone()
+         conn.close()
+         if row:
+             settings = json.loads(row[0])
+             clients = settings.get('clients', [])
+             for c in clients:
+                 if str(c.get('tgId', '')) == tg_id:
+                     email = c.get('email', '')
+                     rank, total, traffic_val = get_user_rank_traffic(email)
+                     break
+    
     if rank:
-        text += t("rank_info", lang).format(rank=rank, total=total, percent=percent)
+        text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_val))
+        
+    # 2. Subscription Rank
+    rank_sub, total_sub, days_left = get_user_rank_subscription(email)
+    if rank_sub:
+        text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
         
     # Check for welcome image - DISABLED for query (text only to avoid issues)
     # welcome_photo_path = "welcome.jpg"
@@ -1248,9 +1389,35 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
 
     text = t("main_menu", lang)
-    rank, total, percent = get_user_rank(tg_id)
+    
+    # 1. Traffic Rank (Month)
+    email = f"tg_{tg_id}"
+    rank, total, traffic_val = get_user_rank_traffic(email)
+    
+    # Check for legacy email (manual)
+    if not rank:
+         # Try finding by tg_id in clients
+         conn = sqlite3.connect(DB_PATH)
+         cursor = conn.cursor()
+         cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+         row = cursor.fetchone()
+         conn.close()
+         if row:
+             settings = json.loads(row[0])
+             clients = settings.get('clients', [])
+             for c in clients:
+                 if str(c.get('tgId', '')) == tg_id:
+                     email = c.get('email', '')
+                     rank, total, traffic_val = get_user_rank_traffic(email)
+                     break
+    
     if rank:
-        text += t("rank_info", lang).format(rank=rank, total=total, percent=percent)
+        text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_val))
+        
+    # 2. Subscription Rank
+    rank_sub, total_sub, days_left = get_user_rank_subscription(email)
+    if rank_sub:
+        text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
 
     # Revert to text-only main menu
     try:
@@ -2254,14 +2421,26 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
     
-    # format: admin_leaderboard_{page}
+    # format: admin_leaderboard_{sort_type}_{page}
+    # sort_type: traffic (default), sub
     parts = query.data.split('_')
+    # parts: admin, leaderboard, [sort_type], [page]
+    
+    sort_type = 'traffic'
     page = 0
-    if len(parts) == 3:
-        try:
-            page = int(parts[2])
-        except: pass
-        
+    
+    if len(parts) >= 3:
+        # Check if parts[2] is sort type or page
+        if parts[2] in ['traffic', 'sub']:
+            sort_type = parts[2]
+            if len(parts) >= 4:
+                try: page = int(parts[3])
+                except: pass
+        else:
+            # Legacy format or just page
+            try: page = int(parts[2])
+            except: pass
+            
     ITEMS_PER_PAGE = 10
     
     conn = sqlite3.connect(DB_PATH)
@@ -2275,64 +2454,96 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     settings = json.loads(row[0])
     clients = settings.get('clients', [])
-    
-    cursor.execute("SELECT email, up, down FROM client_traffics")
-    traffic_rows = cursor.fetchall()
-    traffic_map = {row[0]: (row[1] or 0) + (row[2] or 0) for row in traffic_rows}
     conn.close()
     
     leaderboard = []
     
+    # Prepare data based on sort type
+    current_time_ms = int(time.time() * 1000)
+    
     for c in clients:
         email = c.get('email', '')
-        traffic = traffic_map.get(email, 0)
-        if traffic == 0:
-            traffic = c.get('up', 0) + c.get('down', 0)
-            
-        leaderboard.append({
+        uid = c.get('id')
+        enable = c.get('enable')
+        comment = c.get('comment') or c.get('_comment') or c.get('remark') or email
+        
+        item = {
             'email': email,
-            'traffic': traffic,
-            'uid': c.get('id'),
-            'enable': c.get('enable')
-        })
+            'label': comment,
+            'uid': uid,
+            'enable': enable,
+            'sort_val': 0,
+            'display_val': ""
+        }
+        
+        if sort_type == 'traffic':
+            traffic = get_monthly_traffic(email)
+            item['sort_val'] = traffic
+            item['display_val'] = format_traffic(traffic)
+        elif sort_type == 'sub':
+            expiry = c.get('expiryTime', 0)
+            if expiry == 0:
+                item['sort_val'] = -1 # Unlimited at bottom? Or exclude? User said "exclude unlimited"
+                # But we might want to show them separately? 
+                # User said: "учавствуют только пользователи, у которых не стоит неограниченное"
+                continue 
+            elif expiry > current_time_ms:
+                remaining_ms = expiry - current_time_ms
+                days = remaining_ms / (1000 * 3600 * 24)
+                item['sort_val'] = days
+                item['display_val'] = f"{int(days)}d"
+            else:
+                item['sort_val'] = -1
+                item['display_val'] = "Expired"
+                
+        leaderboard.append(item)
         
     # Sort descending
-    leaderboard.sort(key=lambda x: x['traffic'], reverse=True)
+    leaderboard.sort(key=lambda x: x['sort_val'], reverse=True)
     
     total_items = len(leaderboard)
     total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
     if total_pages == 0: total_pages = 1
     
     if page >= total_pages: page = total_pages - 1
+    if page < 0: page = 0
     
     start = page * ITEMS_PER_PAGE
     end = start + ITEMS_PER_PAGE
     current_items = leaderboard[start:end]
     
-    text = t("leaderboard_header", lang).format(page=page+1, total=total_pages)
+    title_key = "leaderboard_title_traffic" if sort_type == 'traffic' else "leaderboard_title_sub"
+    text = t(title_key, lang).format(page=page+1, total=total_pages)
     if not current_items:
         text += t("leaderboard_empty", lang)
             
     # Keyboard construction
     keyboard = []
+    
+    # Toggle Button
+    toggle_sort = 'sub' if sort_type == 'traffic' else 'traffic'
+    toggle_label = "🔄 Sort by Subscription" if sort_type == 'traffic' else "🔄 Sort by Traffic"
+    keyboard.append([InlineKeyboardButton(toggle_label, callback_data=f'admin_leaderboard_{toggle_sort}_0')])
+    
     for i, item in enumerate(current_items):
         rank = start + i + 1
         status = "🟢" if item['enable'] else "🔴"
-        email = item['email']
-        traffic_gb = item['traffic'] / (1024**3)
-        label = f"#{rank} {status} {email} ({traffic_gb:.2f} GB)"
+        label_text = item['label']
+        # Truncate label
+        if len(label_text) > 20: label_text = label_text[:17] + "..."
         
-        keyboard.append([InlineKeyboardButton(label, callback_data=f"admin_u_{item['uid']}")])
+        btn_label = f"#{rank} {status} {label_text} ({item['display_val']})"
+        keyboard.append([InlineKeyboardButton(btn_label, callback_data=f"admin_u_{item['uid']}")])
         
     # Navigation
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f'admin_leaderboard_{page-1}'))
+        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f'admin_leaderboard_{sort_type}_{page-1}'))
         
     nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data='noop'))
     
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("➡️", callback_data=f'admin_leaderboard_{page+1}'))
+        nav_row.append(InlineKeyboardButton("➡️", callback_data=f'admin_leaderboard_{sort_type}_{page+1}'))
         
     keyboard.append(nav_row)
     keyboard.append([InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')])
