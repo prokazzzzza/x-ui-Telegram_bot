@@ -147,6 +147,8 @@ TEXTS = {
         "btn_promo": "🎁 Redeem Promo",
         "shop_title": "🛒 Select a Plan:\n\nPay safely with Telegram Stars.",
         "btn_back": "🔙 Back",
+        "btn_how_to_buy_stars": "⭐️ How to buy Stars?",
+        "how_to_buy_stars_text": "⭐️ **How to buy Telegram Stars?**\n\nTelegram Stars is a digital currency for payments.\n\n1. **Via @PremiumBot:** The best way. Just start the bot and choose a stars package.\n2. **In-app:** Purchase via Apple/Google (might be more expensive).\n3. **Fragment:** Buy with TON on Fragment.\n\nAfter buying stars, come back here and select a plan!",
         "label_1_month": "1 Month Subscription",
         "label_3_months": "3 Months Subscription",
         "label_6_months": "6 Months Subscription",
@@ -375,6 +377,8 @@ TEXTS = {
         "btn_promo": "🎁 Промокод",
         "shop_title": "🛒 *Выберите план:*\n\nБезопасная оплата через Telegram Stars.",
         "btn_back": "🔙 Назад",
+        "btn_how_to_buy_stars": "⭐️ Как купить Звезды?",
+        "how_to_buy_stars_text": "⭐️ **Как купить Telegram Stars?**\n\nTelegram Stars — это внутренняя валюта для оплаты цифровых товаров.\n\n1. **Через @PremiumBot:** Самый выгодный способ. Просто запустите бота и выберите пакет звезд.\n2. **В приложении:** При оплате выберите покупку звезд через Apple/Google (может быть дороже).\n3. **Fragment:** Можно купить звезды за TON на платформе Fragment.\n\nПосле покупки звезд вернитесь сюда и выберите тариф!",
         "label_1_month": "Подписка на 1 месяц",
         "label_3_months": "Подписка на 3 месяца",
         "label_6_months": "Подписка на 6 месяцев",
@@ -1117,6 +1121,7 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = t(label_key, lang)
             keyboard.append([InlineKeyboardButton(f"{label} - {data['amount']} ⭐️", callback_data=f'buy_{key}')])
     
+    keyboard.append([InlineKeyboardButton(t("btn_how_to_buy_stars", lang), callback_data='how_to_buy_stars')])
     keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')])
     
     try:
@@ -1132,6 +1137,34 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
              await context.bot.send_message(
                  chat_id=tg_id,
                  text=t("shop_title", lang),
+                 reply_markup=InlineKeyboardMarkup(keyboard),
+                 parse_mode='Markdown'
+             )
+
+async def how_to_buy_stars(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    text = t("how_to_buy_stars_text", lang)
+    
+    keyboard = [
+        [InlineKeyboardButton(t("btn_back", lang), callback_data='shop')]
+    ]
+    
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+             await query.message.delete()
+             await context.bot.send_message(
+                 chat_id=tg_id,
+                 text=text,
                  reply_markup=InlineKeyboardMarkup(keyboard),
                  parse_mode='Markdown'
              )
@@ -5267,6 +5300,7 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(set_language, pattern='^set_lang_'))
     application.add_handler(CallbackQueryHandler(change_lang, pattern='^change_lang$'))
     application.add_handler(CallbackQueryHandler(shop, pattern='^shop$'))
+    application.add_handler(CallbackQueryHandler(how_to_buy_stars, pattern='^how_to_buy_stars$'))
     application.add_handler(CallbackQueryHandler(back_to_main, pattern='^back_to_main$'))
     application.add_handler(CallbackQueryHandler(initiate_payment, pattern='^buy_'))
     application.add_handler(CallbackQueryHandler(get_config, pattern='^get_config$'))
