@@ -190,7 +190,7 @@ TEXTS = {
         "plan_unlimited": "Unlimited",
         "sub_type_unknown": "Unknown",
         "stats_sub_type": "💳 Plan: {plan}",
-        "rank_info_traffic": "\n🏆 You downloaded {traffic} via VPN this month.\nYour rank: #{rank} of {total}.",
+        "rank_info_traffic": "\n🏆 You downloaded {traffic} via VPN.\nYour rank: #{rank} of {total}.",
         "rank_info_sub": "\n🏆 Your Rank (Subscription): #{rank} of {total}\n(Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
@@ -385,10 +385,10 @@ TEXTS = {
         "btn_back": "🔙 Назад",
         "btn_how_to_buy_stars": "⭐️ Как купить Звезды?",
         "how_to_buy_stars_text": "⭐️ **Как купить Telegram Stars?**\n\nTelegram Stars — это внутренняя валюта для оплаты цифровых товаров.\n\n1. **Через @PremiumBot:** Самый выгодный способ. Просто запустите бота и выберите пакет звезд.\n2. **В приложении:** При оплате выберите покупку звезд через Apple/Google (может быть дороже).\n3. **Fragment:** Можно купить звезды за TON на платформе Fragment.\n\nПосле покупки звезд вернитесь сюда и выберите тариф!",
-        "label_1_month": "Подписка на 1 месяц",
-        "label_3_months": "Подписка на 3 месяца",
-        "label_6_months": "Подписка на 6 месяцев",
-        "label_1_year": "Подписка на 1 год",
+        "label_1_month": "Подписка на <b>1</b> месяц",
+        "label_3_months": "Подписка на <b>3</b> месяца",
+        "label_6_months": "Подписка на <b>6</b> месяцев",
+        "label_1_year": "Подписка на <b>1</b> год",
         "invoice_title": "Maxi_VPN Подписка",
         "success_created": "✅ *Успешно!* Подписка создана.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
         "success_extended": "✅ *Успешно!* Подписка продлена.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
@@ -397,18 +397,19 @@ TEXTS = {
         "sub_expired": "⚠️ *Подписка истекла*\n\nВаша подписка закончилась. Пожалуйста, купите новый план для восстановления доступа.",
         "sub_active": "✅ *Ваша подписка активна*\n\n📅 Истекает: {expiry}\n\nКлюч:\n`{link}`",
         "sub_not_found": "❌ *Подписка не найдена*\n\nУ вас нет активной подписки. Пожалуйста, перейдите в магазин.",
-        "stats_title": "📊 *Ваша статистика*\n\n⬇️ Скачано: {down:.2f} GB\n⬆️ Загружено: {up:.2f} GB\n📦 Всего: {total:.2f} GB",
+        "stats_title": "📊 *Ваша статистика*\n\n⬇️ Скачано: <b>{down:.2f} GB</b>\n⬆️ Загружено: <b>{up:.2f} GB</b>\n📦 Всего: <b>{total:.2f} GB</b>",
         "stats_no_sub": "Статистика не найдена. Требуется подписка.",
-        "expiry_warning": "⚠️ *Подписка скоро истекает!*\n\nВаша VPN подписка истечет менее чем через 24 часа.\nПожалуйста, продлите её, чтобы избежать отключения.",
+        "expiry_warning": "⚠️ *Подписка скоро истекает!*\n\nВаша VPN подписка истечет менее чем через <b>24</b> часа.\nПожалуйста, продлите её, чтобы избежать отключения.",
         "btn_renew": "💎 Продлить сейчас",
         "btn_instructions": "📚 Инструкция по настройке",
+        "btn_qrcode": "📱 QR код",
         "btn_lang": "🌐 Язык",
         "lang_sel": "Выбран язык: Русский 🇷🇺",
-        "trial_used": "⚠️ *Пробный период уже использован*\n\nВы уже активировали свои 3 дня бесплатно.\nДата активации: {date}",
-        "trial_activated": "🎉 *Пробный период активирован!*\n\nВам начислено 3 дня доступа.\nНажмите '🚀 Мой конфиг' для подключения.",
-        "ref_title": "👥 *Реферальная программа*\n\nПриглашайте друзей и получайте бонусы!\n\n🔗 Ваша ссылка:\n`{link}`\n\n🎁 Вы пригласили: {count} пользователей.",
+        "trial_used": "⚠️ *Пробный период уже использован*\n\nВы уже активировали свои 3 дня бесплатно.\nДата активации: <b>{date}</b>",
+        "trial_activated": "🎉 *Пробный период активирован!*\n\nВам начислено <b>3</b> дня доступа.\nНажмите '🚀 Мой конфиг' для подключения.",
+        "ref_title": "👥 *Реферальная программа*\n\nПриглашайте друзей и получайте бонусы!\n\n🔗 Ваша ссылка:\n`{link}`\n\n🎁 Вы пригласили: <b>{count}</b> пользователей.",
         "promo_prompt": "🎁 *Активация промокода*\n\nПожалуйста, отправьте боту ваш промокод:",
-        "promo_success": "✅ *Промокод активирован!*\n\nДобавлено {days} дней к вашей подписке.",
+        "promo_success": "✅ *Промокод активирован!*\n\nДобавлено <b>{days}</b> дней к вашей подписке.",
         "promo_invalid": "❌ *Неверный или истекший код*",
         "promo_used": "⚠️ *Код уже использован вами*",
         "instr_menu": "📚 *Инструкция по настройке*\n\nВыберите ваше устройство:",
@@ -418,19 +419,19 @@ TEXTS = {
         "instr_android": "📱 *Настройка Android*\n\n1. Скачайте *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* из Google Play.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте v2RayTun -> нажмите 'Import' -> 'Import from Clipboard'.\n4. Нажмите кнопку подключения.",
         "instr_ios": "🍎 *Настройка iOS*\n\n1. Скачайте *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* из App Store.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте V2Box, он должен автоматически предложить добавить ключ.\n4. Нажмите 'Import', выберите сервер и сдвиньте переключатель для подключения.",
         "instr_pc": "💻 *Настройка PC*\n\n1. Установите *[AmneziaVPN](https://amnezia.org/)* или *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте приложение и вставьте ключ (Import from Clipboard).\n4. Подключитесь.",
-        "plan_1_month": "1 Месяц",
-        "plan_3_months": "3 Месяца",
-        "plan_6_months": "6 Месяцев",
-        "plan_1_year": "1 Год",
-        "plan_trial": "Пробный (3 дня)",
+        "plan_1_month": "<b>1</b> Месяц",
+        "plan_3_months": "<b>3</b> Месяца",
+        "plan_6_months": "<b>6</b> Месяцев",
+        "plan_1_year": "<b>1</b> Год",
+        "plan_trial": "Пробный (<b>3</b> дня)",
         "plan_manual": "Ручная",
         "plan_unlimited": "Безлимит",
         "sub_type_unknown": "Неизвестно",
-        "stats_sub_type": "💳 Тариф: {plan}",
-        "remaining_days": "⏳ Осталось: {days} дн.",
-        "remaining_hours": "⏳ Осталось: {hours} ч.",
-        "rank_info_traffic": "\n🏆 Вы загрузили данных через VPN в этом месяце: {traffic}\nВы занимаете {rank}-е место в рейтинге по трафику из {total}.",
-        "rank_info_sub": "\n🏆 Вы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
+        "stats_sub_type": "💳 Тариф: <b>{plan}</b>",
+        "remaining_days": "⏳ Осталось: <b>{days}</b> дн.",
+        "remaining_hours": "⏳ Осталось: <b>{hours}</b> ч.",
+        "rank_info_traffic": "\n🏆 Вы загрузили данных через VPN: <code>{traffic}</code>\nВы занимаете <b>{rank}</b>-е место в рейтинге по трафику из <b>{total}</b>.",
+        "rank_info_sub": "\n🏆 Вы занимаете <b>{rank}</b>-е место в рейтинге подписок из <b>{total}</b>.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
         "btn_admin_prices": "💰 Настройка цен",
@@ -553,10 +554,10 @@ TEXTS = {
         "promos_menu_title": "🎁 *Управление промокодами*\n\nВыберите действие:",
         "promo_list_empty": "📜 *Список промокодов*\n\nНет активных промокодов.",
         "promo_list_title": "📜 *Активные промокоды*\n\n",
-        "promo_item_days": "⏳ Срок: {days} дн.",
-        "promo_item_used": "👥 Использовано: {used} / {limit}",
+        "promo_item_days": "⏳ Срок: <b>{days}</b> дн.",
+        "promo_item_used": "👥 Использовано: <b>{used}</b> / <b>{limit}</b>",
         "promo_create_prompt": "🎁 *Создать промокод*\n\nОтправьте детали промокода в формате:\n`CODE DAYS LIMIT`\n\nПример: `NEWYEAR 30 100`\n(LIMIT 0 = безлимит)",
-        "promo_created": "✅ Промокод `{code}` создан на {days} дн. ({limit} активаций).",
+        "promo_created": "✅ Промокод <code>{code}</code> создан на <b>{days}</b> дн. (<b>{limit}</b> активаций).",
         "promo_format_error": "❌ Неверный формат. Используйте: `КОД ДНИ ЛИМИТ`",
         "flash_menu_title": "⚡ *Flash Промокод*\n\nВыберите промокод, который хотите отправить во временной рассылке:",
         "btn_flash_delete_all": "🧨 Удалить все Flash",
@@ -984,20 +985,40 @@ def format_traffic(bytes_val):
 def get_monthly_traffic(email):
     """
     Get traffic for current month from traffic_history table.
+    Calculates usage as (Max - Min) for the month to show delta.
     """
     try:
         now = datetime.datetime.now(TIMEZONE)
         month_prefix = now.strftime("%Y-%m")
+        prev_month = (now.replace(day=1) - datetime.timedelta(days=1)).strftime("%Y-%m")
         
         conn = sqlite3.connect(BOT_DB_PATH)
         cursor = conn.cursor()
         
-        # Select sum of down only (as requested)
-        cursor.execute("SELECT SUM(down) FROM traffic_history WHERE email=? AND date LIKE ?", (email, f"{month_prefix}%"))
+        # 1. Get Max and Min for this month (Max is effectively current snapshot)
+        cursor.execute("SELECT MIN(down), MAX(down) FROM traffic_history WHERE email=? AND date LIKE ?", (email, f"{month_prefix}%"))
         row = cursor.fetchone()
+        
+        min_val = row[0] if row and row[0] is not None else 0
+        max_val = row[1] if row and row[1] is not None else 0
+        
+        # 2. Get Last record of previous month (Baseline)
+        cursor.execute("SELECT down FROM traffic_history WHERE email=? AND date LIKE ? ORDER BY date DESC LIMIT 1", (email, f"{prev_month}%"))
+        prev_row = cursor.fetchone()
+        
         conn.close()
         
-        return row[0] if row and row[0] else 0
+        baseline = 0
+        if prev_row:
+            baseline = prev_row[0]
+        else:
+            # If no history for prev month, use first record of this month as baseline
+            # This avoids counting historical traffic as "this month's usage"
+            baseline = min_val
+            
+        usage = max_val - baseline
+        return max(0, usage)
+        
     except Exception as e:
         logging.error(f"Error getting monthly traffic: {e}")
         return 0
@@ -1007,43 +1028,33 @@ def get_user_rank_traffic(target_email):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # 1. Get all clients from settings
-        cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
-        row = cursor.fetchone()
-        
-        if not row:
-            conn.close()
-            return None, 0, 0
-            
-        settings = json.loads(row[0])
-        clients = settings.get('clients', [])
+        # Get all clients from client_traffics to match Panel stats
+        cursor.execute("SELECT email, down FROM client_traffics WHERE inbound_id=?", (INBOUND_ID,))
+        rows = cursor.fetchall()
         conn.close()
         
-        # 2. Build list with monthly traffic
+        if not rows:
+            return None, 0, 0
+            
         leaderboard = []
         user_traffic = 0
         
-        for c in clients:
-            email = c.get('email', '')
-            traffic = get_monthly_traffic(email)
-            
-            # If no history (new user or no logs yet), maybe use current traffic if it's small?
-            # Or just 0. Let's stick to history as requested "current month".
-            # If 0, maybe user has traffic in X-UI but bot didn't log it yet?
-            # For "Current Month", history is the source of truth.
+        for r in rows:
+            email, down = r
+            if down is None: down = 0
             
             leaderboard.append({
                 'email': email,
-                'traffic': traffic
+                'traffic': down
             })
             
             if email == target_email:
-                user_traffic = traffic
+                user_traffic = down
                 
-        # 4. Sort descending
+        # Sort descending
         leaderboard.sort(key=lambda x: x['traffic'], reverse=True)
         
-        # 5. Find rank
+        # Find rank
         rank = -1
         for idx, item in enumerate(leaderboard):
             if item['email'] == target_email:
@@ -1242,12 +1253,12 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
     if os.path.exists(welcome_photo_path):
         try:
             with open(welcome_photo_path, 'rb') as photo:
-                await update.message.reply_photo(photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard))
+                await update.message.reply_photo(photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
         except Exception as e:
              logging.error(f"Failed to send welcome photo: {e}")
-             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
     else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
 async def show_main_menu_query(query, context, lang):
     tg_id = str(query.from_user.id)
@@ -1299,12 +1310,12 @@ async def show_main_menu_query(query, context, lang):
     #         # We delete previous message and send new photo.
     #         await query.message.delete()
     #         with open(welcome_photo_path, 'rb') as photo:
-    #              await context.bot.send_photo(chat_id=query.from_user.id, photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    #              await context.bot.send_photo(chat_id=query.from_user.id, photo=photo, caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
     #     except Exception as e:
     #          logging.error(f"Failed to send welcome photo (query): {e}")
-    #          await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    #          await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
     # else:
-    await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
+    await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1421,11 +1432,11 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Revert to text-only main menu
     try:
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
     except Exception as e:
         if "Message is not modified" not in str(e):
              await query.message.delete()
-             await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
+             await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
 async def try_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1474,26 +1485,37 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
     
-    bot_username = context.bot.username
-    link = f"https://t.me/{bot_username}?start={tg_id}"
-    count = count_referrals(tg_id)
-    
-    text = t("ref_title", lang).format(link=link, count=count)
     try:
+        bot_username = context.bot.username
+        # Fallback if username not cached
+        if not bot_username:
+             me = await context.bot.get_me()
+             bot_username = me.username
+             
+        link = f"https://t.me/{bot_username}?start={tg_id}"
+        count = count_referrals(tg_id)
+        
+        text = t("ref_title", lang).format(link=link, count=count)
+        
         await query.edit_message_text(
             text,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
             parse_mode='Markdown'
         )
     except Exception as e:
-        if "Message is not modified" not in str(e):
-             await query.message.delete()
-             await context.bot.send_message(
+        logging.error(f"Referral error for {tg_id}: {e}")
+        # Try sending without markdown if that was the issue
+        try:
+            # Fallback text without markdown formatting if possible, or just raw
+            # But here we just try HTML or plain text
+            await query.message.delete()
+            await context.bot.send_message(
                  chat_id=tg_id,
-                 text=text,
-                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
-                 parse_mode='Markdown'
-             )
+                 text=text.replace('`', ''), # Remove code blocks for safety in fallback
+                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
+            )
+        except Exception as e2:
+            logging.error(f"Referral fallback error: {e2}")
 
 async def enter_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1518,6 +1540,91 @@ async def enter_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  parse_mode='Markdown'
              )
     context.user_data['awaiting_promo'] = True
+
+async def show_qrcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    username = query.from_user.username or "User"
+    
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        
+        if not row:
+             conn.close()
+             await query.message.reply_text("Error: Inbound not found.")
+             return
+            
+        settings = json.loads(row[0])
+        clients = settings.get('clients', [])
+        
+        user_client = None
+        for client in clients:
+            if str(client.get('tgId', '')) == tg_id or client.get('email') == f"tg_{tg_id}":
+                user_client = client
+                break
+        
+        conn.close()
+
+        if user_client:
+            u_uuid = user_client['id']
+            client_email = user_client.get('email', f"VPN_{username}")
+            client_flow = user_client.get('flow', '')
+            
+            conn2 = sqlite3.connect(DB_PATH)
+            cursor2 = conn2.cursor()
+            cursor2.execute("SELECT stream_settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+            row_ss = cursor2.fetchone()
+            conn2.close()
+            
+            spx_val = "%2F"
+            if row_ss:
+                 try:
+                     ss = json.loads(row_ss[0])
+                     reality = ss.get('realitySettings', {})
+                     settings_inner = reality.get('settings', {})
+                     spiderX = settings_inner.get('spiderX', '/')
+                     import urllib.parse
+                     spx_val = urllib.parse.quote(spiderX)
+                 except: pass
+
+            flow_part = f"&flow={client_flow}" if client_flow else ""
+            vless_link = f"vless://{u_uuid}@{IP}:{PORT}?type=tcp&encryption=none&security=reality&pbk={PUBLIC_KEY}&fp=chrome&sni={SNI}&sid={SID}&spx={spx_val}{flow_part}#{client_email}"
+            
+            # Generate QR
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(vless_link)
+            qr.make(fit=True)
+
+            img = qr.make_image(fill_color="black", back_color="white")
+            bio = BytesIO()
+            bio.name = 'qrcode.png'
+            img.save(bio, 'PNG')
+            bio.seek(0)
+            
+            await context.bot.send_photo(
+                chat_id=tg_id,
+                photo=bio,
+                caption=f"QR Code for: <code>{client_email}</code>",
+                parse_mode='HTML',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='get_config')]])
+            )
+        else:
+            await query.message.reply_text(t("sub_not_found", lang))
+            
+    except Exception as e:
+        logging.error(f"Error showing QR: {e}")
+        await query.message.reply_text("Error generating QR code.")
 
 async def backup_db(context: ContextTypes.DEFAULT_TYPE = None):
     try:
@@ -2461,6 +2568,17 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Prepare data based on sort type
     current_time_ms = int(time.time() * 1000)
     
+    # Pre-fetch traffic stats for efficiency if sorting by traffic
+    traffic_map = {}
+    if sort_type == 'traffic':
+        conn_stats = sqlite3.connect(DB_PATH)
+        cursor_stats = conn_stats.cursor()
+        cursor_stats.execute("SELECT email, down FROM client_traffics WHERE inbound_id=?", (INBOUND_ID,))
+        rows = cursor_stats.fetchall()
+        conn_stats.close()
+        for r in rows:
+            if r[0]: traffic_map[r[0]] = r[1] or 0
+
     for c in clients:
         email = c.get('email', '')
         uid = c.get('id')
@@ -2477,7 +2595,7 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         
         if sort_type == 'traffic':
-            traffic = get_monthly_traffic(email)
+            traffic = traffic_map.get(email, 0)
             item['sort_val'] = traffic
             item['display_val'] = format_traffic(traffic)
         elif sort_type == 'sub':
@@ -4789,6 +4907,7 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     msg_text,
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t("btn_qrcode", lang), callback_data='show_qrcode')],
                         [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
                         [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
                     ])
@@ -4803,6 +4922,7 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=msg_text,
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(t("btn_qrcode", lang), callback_data='show_qrcode')],
                         [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
                         [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
                     ])
@@ -5758,6 +5878,7 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(try_trial, pattern='^try_trial$'))
     application.add_handler(CallbackQueryHandler(enter_promo, pattern='^enter_promo$'))
     application.add_handler(CallbackQueryHandler(referral, pattern='^referral$'))
+    application.add_handler(CallbackQueryHandler(show_qrcode, pattern='^show_qrcode$'))
     application.add_handler(CallbackQueryHandler(instructions, pattern='^instructions$'))
     application.add_handler(CallbackQueryHandler(show_instruction, pattern='^instr_'))
     
