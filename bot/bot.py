@@ -190,7 +190,7 @@ TEXTS = {
         "plan_unlimited": "Unlimited",
         "sub_type_unknown": "Unknown",
         "stats_sub_type": "💳 Plan: {plan}",
-        "rank_info_traffic": "\n🏆 Your Rank (Traffic): #{rank} of {total}\n({traffic} used this month)",
+        "rank_info_traffic": "\n🏆 You downloaded {traffic} via VPN this month.\nYour rank: #{rank} of {total}.",
         "rank_info_sub": "\n🏆 Your Rank (Subscription): #{rank} of {total}\n(Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
@@ -429,7 +429,7 @@ TEXTS = {
         "stats_sub_type": "💳 Тариф: {plan}",
         "remaining_days": "⏳ Осталось: {days} дн.",
         "remaining_hours": "⏳ Осталось: {hours} ч.",
-        "rank_info_traffic": "\n🏆 Ваш статус в клубе:\nВы занимаете {rank}-е место в рейтинге по трафику из {total} ({traffic}).",
+        "rank_info_traffic": "\n🏆 Вы загрузили данных через VPN в этом месяце: {traffic}\nВы занимаете {rank}-е место в рейтинге по трафику из {total}.",
         "rank_info_sub": "\n🏆 Вы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
@@ -992,8 +992,8 @@ def get_monthly_traffic(email):
         conn = sqlite3.connect(BOT_DB_PATH)
         cursor = conn.cursor()
         
-        # Select sum of up+down where date starts with YYYY-MM
-        cursor.execute("SELECT SUM(up + down) FROM traffic_history WHERE email=? AND date LIKE ?", (email, f"{month_prefix}%"))
+        # Select sum of down only (as requested)
+        cursor.execute("SELECT SUM(down) FROM traffic_history WHERE email=? AND date LIKE ?", (email, f"{month_prefix}%"))
         row = cursor.fetchone()
         conn.close()
         
@@ -1229,12 +1229,12 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
                      rank, total, traffic_val = get_user_rank_traffic(email)
                      break
     
-    if rank:
+    if rank and rank > 0:
         text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_val))
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
-    if rank_sub:
+    if rank_sub and rank_sub > 0:
         text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
 
     # Check for welcome image
@@ -1283,12 +1283,12 @@ async def show_main_menu_query(query, context, lang):
                      rank, total, traffic_val = get_user_rank_traffic(email)
                      break
     
-    if rank:
+    if rank and rank > 0:
         text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_val))
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
-    if rank_sub:
+    if rank_sub and rank_sub > 0:
         text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
         
     # Check for welcome image - DISABLED for query (text only to avoid issues)
@@ -1411,12 +1411,12 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      rank, total, traffic_val = get_user_rank_traffic(email)
                      break
     
-    if rank:
+    if rank and rank > 0:
         text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_val))
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
-    if rank_sub:
+    if rank_sub and rank_sub > 0:
         text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
 
     # Revert to text-only main menu
