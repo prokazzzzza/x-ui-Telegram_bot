@@ -174,9 +174,9 @@ TEXTS = {
         "btn_android": "📱 Android (v2RayTun)",
         "btn_ios": "🍎 iOS (V2Box)",
         "btn_pc": "💻 PC (Amnezia/Hiddify)",
-        "instr_android": "📱 *Android setup*\n\n1. Install *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* from Google Play.\n2. Copy your key from '🚀 My Config'.\n3. Open v2RayTun -> Tap 'Import' -> 'Import from Clipboard'.\n4. Tap the connection button.",
-        "instr_ios": "🍎 *iOS setup*\n\n1. Install *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* from App Store.\n2. Copy your key from '🚀 My Config'.\n3. Open V2Box, it should detect the key automatically.\n4. Tap 'Import' and then swipe to connect.",
-        "instr_pc": "💻 *PC setup*\n\n1. Install *[AmneziaVPN](https://amnezia.org/)* or *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Copy your key from '🚀 My Config'.\n3. Open the app and paste the key (Import from Clipboard).\n4. Connect.",
+        "instr_android": "📱 *Android Setup*\n\n1. Install *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* from Google Play.\n2. Copy your key from '🚀 My Config'.\n3. Open v2RayTun -> Tap 'Import' -> 'Import from Clipboard'.\n4. Tap the connection button.",
+        "instr_ios": "🍎 *iOS Setup*\n\n1. Install *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* from App Store.\n2. Copy your key from '🚀 My Config'.\n3. Open V2Box, it should detect the key automatically.\n4. Tap 'Import' and then swipe to connect.",
+        "instr_pc": "💻 *PC Setup*\n\n1. Install *[AmneziaVPN](https://amnezia.org/)* or *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Copy your key from '🚀 My Config'.\n3. Open the app and paste the key (Import from Clipboard).\n4. Connect.",
         "plan_1_month": "1 Month",
         "plan_3_months": "3 Months",
         "plan_6_months": "6 Months",
@@ -186,19 +186,183 @@ TEXTS = {
         "plan_unlimited": "Unlimited",
         "sub_type_unknown": "Unknown",
         "stats_sub_type": "💳 Plan: {plan}",
-        "rank_info": "\n🏆 Your rank: #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)",
+        "rank_info": "\n🏆 Your Rank: #{rank} of {total}\n(Top {percent}% - Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
         "btn_admin_prices": "💰 Pricing",
         "btn_admin_promos": "🎁 Promo Codes",
+        "btn_admin_poll": "📊 Polls",
         "btn_admin_broadcast": "📢 Broadcast",
         "btn_admin_sales": "📜 Sales Log",
         "btn_admin_backup": "💾 Backup",
         "btn_admin_logs": "📜 Logs",
         "btn_main_menu_back": "🔙 Main Menu",
-        "admin_menu_text": "👮‍♂️ *Admin Panel*\n\nSelect an action:"
+        "admin_menu_text": "👮‍♂️ *Admin Panel*\n\nSelect an action:",
+        "btn_admin_promo_new": "➕ Create New",
+        "btn_admin_promo_list": "📜 Active List",
+        "btn_admin_flash": "⚡ Flash Promo",
+        "btn_admin_promo_history": "👥 Usage History",
+        "btn_admin_poll_new": "➕ Create Poll",
+        "poll_ask_question": "Enter *poll question* (or click Cancel):",
+        "poll_ask_options": "Send *poll options*, each on a new line (min 2).\n\nExample:\nYes\nNo\nMaybe",
+        "poll_preview": "📊 *Poll Preview:*\n\n❓ Question: {question}\n\n🔢 Options:\n{options}\n\nSend this poll to all users?",
+        "btn_send_poll": "✅ Send to All",
+        "admin_server_title": "🖥 *Server Status*",
+        "admin_server_live_title": "🖥 *Server Status (LIVE 🟢)*",
+        "cpu_label": "🧠 *CPU:*",
+        "ram_label": "💾 *RAM:*",
+        "disk_label": "💿 *Disk:*",
+        "disk_used": "├ Used:",
+        "disk_free": "├ Free:",
+        "disk_total": "└ Total:",
+        "traffic_speed_title": "📊 *Real-time Traffic Speed*",
+        "upload_label": "⬆️ *Upload:*",
+        "download_label": "⬇️ *Download:*",
+        "updated_label": "🔄 Updated:",
+        "live_remaining": "⏳ Remaining: {sec} sec.",
+        "btn_live_monitor": "🟢 Live Monitor (30s)",
+        "btn_refresh": "🔄 Refresh",
+        "btn_stop": "⏹ Stop",
+        "admin_prices_title": "💰 *Pricing Settings*\n\nSelect a plan to edit:",
+        "price_change_prompt": "✏️ *Edit Price: {label}*\n\n Enter new price in Telegram Stars (integer):",
+        "btn_cancel": "🔙 Cancel",
+        "btn_change": "(Edit)",
+        "stats_header": "📊 *Statistics*",
+        "stats_users": "👥 *Bot Users:*",
+        "stats_online": "⚡ *Online Users:*",
+        "stats_clients": "🔌 *Total Clients:*",
+        "stats_active": "✅ *Active Clients:*",
+        "stats_trials": "🆓 *Trial Subs:*",
+        "stats_expired_trials": "❌ *Expired Trials:*",
+        "stats_revenue": "💰 *Revenue:*",
+        "stats_sales": "🛒 *Sales:*",
+        "btn_users_all": "👥 All",
+        "btn_users_active": "🟢 Active",
+        "btn_users_expiring": "⏳ Expiring Soon",
+        "btn_users_online": "⚡ Online",
+        "btn_users_trial": "🆓 Trials",
+        "btn_sync_nicks": "🔄 Sync Nicknames",
+        "sync_start": "Syncing...",
+        "sync_error_inbound": "❌ X-UI Inbound not found.",
+        "sync_progress": "🔄 Syncing: {current}/{total}",
+        "sync_complete": "✅ Sync complete!\n\nUpdated: {updated}\nFailed: {failed}\n\n⚠️ X-UI restarted to update names.",
+        "users_list_title": "📋 *{title}*",
+        "title_all": "All Clients",
+        "title_active": "Active Clients",
+        "title_expiring": "Expiring Soon (<7d)",
+        "title_online": "Online Clients",
+        "title_trial": "Used Trial (All)",
+        "btn_back_stats": "🔙 Back to Stats",
+        "user_detail_email": "📧 Email:",
+        "user_detail_tgid": "🆔 TG ID:",
+        "user_detail_nick": "👤 Nickname:",
+        "user_detail_enabled": "🔌 Enabled:",
+        "user_detail_online": "📶 Connection:",
+        "user_detail_sub": "📅 Subscription:",
+        "user_detail_trial": "🆓 Trial:",
+        "user_detail_expires": "⏳ Expires in:",
+        "user_detail_up": "🔼 Upload:",
+        "user_detail_down": "🔽 Download:",
+        "user_detail_total": "📊 Total:",
+        "user_detail_from": "of",
+        "status_yes": "✅ Yes",
+        "status_no": "❌ No",
+        "status_online": "🟢 Online",
+        "status_offline": "🔴 Offline",
+        "trial_used_yes": "✅ Used",
+        "trial_used_no": "❌ Not Used",
+        "trial_unknown": "❓ Unknown",
+        "hours_left": "Hours",
+        "btn_reset_trial": "🔄 Reset Trial",
+        "btn_rebind": "🔄 Rebind User",
+        "btn_delete_user": "❌ Delete User",
+        "btn_back_list": "🔙 Back to List",
+        "msg_client_not_found": "❌ Client not found.",
+        "msg_reset_success": "✅ Trial reset for {email}.",
+        "msg_tgid_missing": "❌ Could not find User Telegram ID.",
+        "rebind_title": "👤 *Rebind User*\nUUID: `{uid}`\n\nPlease select a user via the button below or send a contact.",
+        "btn_select_user": "👤 Select User",
+        "msg_rebind_success": "✅ *Success!*\nClient `{email}` rebound to Telegram ID `{tg_id}`.\n\n🔄 *Note:* Client email auto-updated to `{email}` for correct stats.\n\nX-UI restarted.",
+        "msg_client_uuid_not_found": "❌ Client with UUID `{uid}` not found.",
+        "promos_menu_title": "🎁 *Promo Code Management*\n\nSelect action:",
+        "promo_list_empty": "📜 *Promo List*\n\nNo active promo codes.",
+        "promo_list_title": "📜 *Active Promo Codes*\n\n",
+        "promo_item_days": "⏳ Duration: {days} days",
+        "promo_item_used": "👥 Used: {used} / {limit}",
+        "promo_create_prompt": "🎁 *Create Promo Code*\n\nSend details in format:\n`CODE DAYS LIMIT`\n\nExample: `NEWYEAR 30 100`\n(LIMIT 0 = unlimited)",
+        "promo_created": "✅ Promo `{code}` created for {days} days ({limit} uses).",
+        "promo_format_error": "❌ Invalid format. Use: `CODE DAYS LIMIT`",
+        "flash_menu_title": "⚡ *Flash Promo*\n\nSelect a promo code to broadcast temporarily:",
+        "btn_flash_delete_all": "🧨 Delete All Flash",
+        "flash_select_prompt": "⚡ Selected Code: `{code}`\n\nEnter message lifetime in minutes (e.g., 60).\nMessage will be deleted for all users after this time.",
+        "flash_broadcast_start": "⏳ Starting Flash Broadcast (ALL)...",
+        "flash_msg_title": "🔥 <b>CATCH THE PROMO CODE!</b> 🔥",
+        "flash_msg_body": "Hurry to redeem the secret code!\n\n👇 Click to reveal:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ <b>Expires at {time}</b>\n(in {dur} min)",
+        "flash_complete": "✅ Flash broadcast complete.\n\n📤 Sent: {sent}\n🚫 Failed: {blocked}\n⏱ Lifetime: {dur} min.",
+        "flash_delete_success": "✅ Force deleted {count} messages.",
+        "search_prompt": "🔍 *Search User*\n\nSend *Telegram ID* to search in database.",
+        "search_error_digit": "❌ Error: ID must be digits.",
+        "sales_log_empty": "📜 *Sales Log*\n\nNo sales yet.",
+        "sales_log_title": "📜 *Sales Log (Last 20)*\n\n",
+        "db_detail_title": "👤 *User Info (DB)*",
+        "db_lang": "🌍 Language:",
+        "db_reg_date": "📅 Activation Date:",
+        "db_referrer": "👥 Referrer:",
+        "btn_reset_trial_db": "🔄 Reset Trial (DB)",
+        "btn_delete_db": "❌ Delete from DB",
+        "msg_delete_db_success": "✅ User `{tg_id}` deleted from bot DB.",
+        "action_cancelled": "🔙 Cancelled.",
+        "broadcast_select_error": "⚠️ Please select at least one user!",
+        "broadcast_menu": "📢 *Broadcast*\n\nSelect audience:",
+        "btn_broadcast_all": "📢 All",
+        "btn_broadcast_en": "🇮🇧 English (en)",
+        "btn_broadcast_ru": "🇷🇺 Russian (ru)",
+        "btn_broadcast_individual": "👥 Individual",
+        "broadcast_individual_title": "📢 *Individual Broadcast*\n\nSelect users from list:",
+        "btn_done_count": "✅ Done ({count})",
+        "broadcast_confirm_prompt": "✅ Selected {count} recipients.\n\nNow send the message (text, photo, video, sticker) you want to broadcast.",
+        "broadcast_general_prompt": "📢 *Broadcast ({target})*\n\nSend the message (text, photo, video, sticker) you want to broadcast.",
+        "broadcast_start": "⏳ Broadcast started ({target})...",
+        "broadcast_complete": "✅ Broadcast complete ({target}).\n\n📤 Sent: {sent}\n🚫 Failed (blocked): {blocked}",
+        "btn_admin_panel": "👮‍♂️ Admin Panel",
+        "btn_lang": "🌐 Language",
+        "btn_back_admin": "🔙 Back to Admin",
+        "logs_title": "📜 *Recent Bot Logs:*\n\n",
+        "btn_clear_logs": "🧹 Clear Logs",
+        "logs_cleared": "Logs cleared...",
+        "logs_read_error": "Error reading logs.",
+        "backup_starting": "Creating backup...",
+        "backup_success": "✅ Backup created successfully in backups/ folder.",
+        "backup_error": "❌ Error creating backup. Check logs.",
+        "live_monitor_starting": "Starting Live Monitor...",
+        "remaining_days": "⏳ Remaining: {days} days",
+        "remaining_hours": "⏳ Remaining: {hours} hours",
+        "error_invalid_id": "❌ Error: Invalid ID",
+        "status_unbound": "Unbound",
+        "sub_active_html": "✅ <b>Your subscription is active</b>\n\n📅 Expires: {expiry}",
+        "sub_recommendation": "\n\n👇 <b>Subscription recommended</b>\n        (Tap link to copy)\n\n📋 <b>Subscription Link:</b>\n<code>{link}</code>\n\n🔑 <b>Access Key:</b> (Tap to reveal)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
+        "expiry_unlimited": "Unlimited",
+        "stats_your_title": "📊 *Your Statistics*",
+        "stats_today": "📅 *Today:*",
+        "stats_week": "📅 *This Week:*",
+        "stats_month": "📅 *This Month:*",
+        "stats_total": "📦 *Total:*",
+        "stats_expires": "⏳ *Expires:*",
+        "unlimited_text": "♾️ Unlimited"
     },
     "ru": {
+        "error_invalid_id": "❌ Ошибка: Некорректный ID",
+        "status_unbound": "Не привязан",
+        "sub_active_html": "✅ <b>Ваша подписка активна</b>\n\n📅 Истекает: {expiry}",
+        "sub_recommendation": "\n\n👇 <b>Рекомендуется использовать подписку</b>\n        (Нажмите на ссылку для копирования)\n\n📋 <b>Ссылка подписки:</b>\n<code>{link}</code>\n\n🔑 <b>Ключ доступа:</b> (Нажмите чтобы развернуть)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
+        "expiry_unlimited": "Безлимит",
+        "stats_your_title": "📊 *Ваша статистика*",
+        "stats_today": "📅 *За сегодня:*",
+        "stats_week": "📅 *За неделю:*",
+        "stats_month": "📅 *За месяц:*",
+        "stats_total": "📦 *Всего:*",
+        "stats_expires": "⏳ *Истекает:*",
+        "unlimited_text": "♾️ Безлимит",
         "welcome": "Добро пожаловать в Maxi-VPN! 🛡️\n\nПожалуйста, выберите язык:",
         "main_menu": "🚀 Maxi-VPN — Твой пропуск в свободный интернет!\n\n⚡️ Высокая скорость, анонимность и доступ к любым сервисам.\n💎 Оплата в один клик через Telegram Stars.",
         "btn_buy": "💎 Купить подписку",
@@ -258,6 +422,7 @@ TEXTS = {
         "btn_admin_server": "🖥 Сервер",
         "btn_admin_prices": "💰 Настройка цен",
         "btn_admin_promos": "🎁 Промокоды",
+        "btn_admin_poll": "📊 Опросы",
         "btn_admin_broadcast": "📢 Рассылка",
         "btn_admin_sales": "📜 Журнал продаж",
         "btn_admin_backup": "💾 Бэкап",
@@ -268,12 +433,142 @@ TEXTS = {
         "btn_admin_promo_list": "📜 Список активных",
         "btn_admin_flash": "⚡ Flash Промо",
         "btn_admin_promo_history": "👥 Использования",
-        "btn_admin_poll": "📊 Опросы",
         "btn_admin_poll_new": "➕ Создать опрос",
         "poll_ask_question": "Введите *вопрос* для голосования (или нажмите Отмена):",
         "poll_ask_options": "Отправьте *варианты ответов*, каждый с новой строки (минимум 2).\n\nПример:\nДа\nНет\nВозможно",
         "poll_preview": "📊 *Предпросмотр опроса:*\n\n❓ Вопрос: {question}\n\n🔢 Варианты:\n{options}\n\nОтправить этот опрос всем пользователям?",
-        "btn_send_poll": "✅ Отправить всем"
+        "poll_title": "Опрос",
+        "poll_total_votes": "Всего голосов",
+        "poll_vote_registered": "✅ Ваш голос учтен!",
+        "btn_send_poll": "✅ Отправить всем",
+        "admin_server_title": "🖥 *Состояние сервера*",
+        "admin_server_live_title": "🖥 *Состояние сервера (LIVE 🟢)*",
+        "cpu_label": "🧠 *CPU:*",
+        "ram_label": "💾 *RAM:*",
+        "disk_label": "💿 *Disk:*",
+        "disk_used": "├ Использовано:",
+        "disk_free": "├ Свободно:",
+        "disk_total": "└ Всего:",
+        "traffic_speed_title": "📊 *Общая скорость передачи трафика в реальном времени*",
+        "upload_label": "⬆️ *Отправка:*",
+        "download_label": "⬇️ *Загрузка:*",
+        "updated_label": "🔄 Обновлено:",
+        "live_remaining": "⏳ Осталось: {sec} сек.",
+        "btn_live_monitor": "🟢 Live Мониторинг (30 сек)",
+        "btn_refresh": "🔄 Обновить",
+        "btn_stop": "⏹ Стоп",
+        "admin_prices_title": "💰 *Настройка цен*\n\nВыберите тариф для изменения стоимости:",
+        "price_change_prompt": "✏️ *Изменение цены: {label}*\n\n Введите новую стоимость в Telegram Stars (целое число):",
+        "btn_cancel": "🔙 Отмена",
+        "btn_change": "(Изменить)",
+        "stats_header": "📊 *Статистика*",
+        "stats_users": "👥 *Пользователи бота:*",
+        "stats_online": "⚡ *Пользователи онлайн:*",
+        "stats_clients": "🔌 *Всего клиентов:*",
+        "stats_active": "✅ *Активные клиенты:*",
+        "stats_trials": "🆓 *Пробные подписки:*",
+        "stats_expired_trials": "❌ *Истекшие пробные:*",
+        "stats_revenue": "💰 *Выручка:*",
+        "stats_sales": "🛒 *Продажи:*",
+        "btn_users_all": "👥 Все",
+        "btn_users_active": "🟢 Активные",
+        "btn_users_expiring": "⏳ Скоро истекают",
+        "btn_users_online": "⚡ Онлайн",
+        "btn_users_trial": "🆓 Пробный период",
+        "btn_sync_nicks": "🔄 Обновить ники",
+        "sync_start": "Синхронизация...",
+        "sync_error_inbound": "❌ X-UI Inbound not found.",
+        "sync_progress": "🔄 Синхронизация: {current}/{total}",
+        "sync_complete": "✅ Синхронизация завершена!\n\nОбновлено: {updated}\nОшибок: {failed}\n\n⚠️ X-UI был перезапущен для обновления имен в панели.",
+        "users_list_title": "📋 *{title}*",
+        "title_all": "Все клиенты",
+        "title_active": "Активные клиенты",
+        "title_expiring": "Скоро истекают (<7д)",
+        "title_online": "Онлайн клиенты",
+        "title_trial": "Использовали пробный (Все)",
+        "btn_back_stats": "🔙 Назад к статистике",
+        "user_detail_email": "📧 Email:",
+        "user_detail_tgid": "🆔 TG ID:",
+        "user_detail_nick": "👤 Никнейм:",
+        "user_detail_enabled": "🔌 Включен:",
+        "user_detail_online": "📶 Соединение:",
+        "user_detail_sub": "📅 Подписка:",
+        "user_detail_trial": "🆓 Пробный период:",
+        "user_detail_expires": "⏳ Истекает через:",
+        "user_detail_up": "🔼 Исходящий трафик:",
+        "user_detail_down": "🔽 Входящий трафик:",
+        "user_detail_total": "📊 Всего:",
+        "user_detail_from": "из",
+        "status_yes": "✅ Да",
+        "status_no": "❌ Нет",
+        "status_online": "🟢 Онлайн",
+        "status_offline": "🔴 Офлайн",
+        "trial_used_yes": "✅ Использован",
+        "trial_used_no": "❌ Не использован",
+        "trial_unknown": "❓ Неизвестно",
+        "hours_left": "Часов",
+        "sales_log_error": "❌ Ошибка при загрузке лога.",
+        "btn_reset_trial": "🔄 Сбросить пробный период",
+        "btn_rebind": "🔄 Перепривязать пользователя",
+        "btn_delete_user": "❌ Удалить пользователя",
+        "btn_back_list": "🔙 Назад к списку",
+        "msg_client_not_found": "❌ Клиент не найден.",
+        "msg_reset_success": "✅ Пробный период для {email} сброшен.",
+        "msg_tgid_missing": "❌ Не удалось найти Telegram ID пользователя.",
+        "rebind_title": "👤 *Перепривязка пользователя*\nUUID: `{uid}`\n\nПожалуйста, выберите пользователя через кнопку ниже или отправьте контакт.",
+        "btn_select_user": "👤 Выбрать пользователя",
+        "msg_rebind_success": "✅ *Успешно!*\nКлиент `{email}` перепривязан к Telegram ID `{tg_id}`.\n\n🔄 *Внимание:* Для корректного отображения статистики и работы подписки, бот автоматически обновил email клиента на `{email}`.\n\nX-UI перезапущен.",
+        "msg_client_uuid_not_found": "❌ Клиент с UUID `{uid}` не найден.",
+        "promos_menu_title": "🎁 *Управление промокодами*\n\nВыберите действие:",
+        "promo_list_empty": "📜 *Список промокодов*\n\nНет активных промокодов.",
+        "promo_list_title": "📜 *Активные промокоды*\n\n",
+        "promo_item_days": "⏳ Срок: {days} дн.",
+        "promo_item_used": "👥 Использовано: {used} / {limit}",
+        "promo_create_prompt": "🎁 *Создать промокод*\n\nОтправьте детали промокода в формате:\n`CODE DAYS LIMIT`\n\nПример: `NEWYEAR 30 100`\n(LIMIT 0 = безлимит)",
+        "promo_created": "✅ Промокод `{code}` создан на {days} дн. ({limit} активаций).",
+        "promo_format_error": "❌ Неверный формат. Используйте: `КОД ДНИ ЛИМИТ`",
+        "flash_menu_title": "⚡ *Flash Промокод*\n\nВыберите промокод, который хотите отправить во временной рассылке:",
+        "btn_flash_delete_all": "🧨 Удалить все Flash",
+        "flash_select_prompt": "⚡ Выбран промокод: `{code}`\n\nВведите время жизни сообщения в минутах (например: 60).\nПо истечении этого времени сообщение будет удалено у всех пользователей.",
+        "flash_broadcast_start": "⏳ Запуск Flash-рассылки (ВСЕМ)...",
+        "flash_msg_title": "🔥 <b>УСПЕЙ ПОЙМАТЬ ПРОМОКОД!</b> 🔥",
+        "flash_msg_body": "Успей активировать секретный промокод!\n\n👇 Нажми, чтобы увидеть:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ <b>Предложение сгорит в {time}</b>\n(через {dur} мин)",
+        "flash_complete": "✅ Flash-рассылка завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}\n⏱ Время жизни: {dur} мин.",
+        "flash_delete_success": "✅ Принудительно удалено {count} сообщений.",
+        "search_prompt": "🔍 *Поиск пользователя*\n\nОтправьте *Telegram ID* пользователя для поиска в базе данных.",
+        "search_error_digit": "❌ Ошибка: ID должен состоять из цифр.",
+        "sales_log_empty": "📜 *Журнал продаж*\n\nПродаж пока нет.",
+        "sales_log_title": "📜 *Журнал продаж (последние 20)*\n\n",
+        "db_detail_title": "👤 *Информация о пользователе (DB)*",
+        "db_lang": "🌍 Язык:",
+        "db_reg_date": "📅 Дата активации:",
+        "db_referrer": "👥 Реферер:",
+        "btn_reset_trial_db": "🔄 Сбросить пробный период (DB)",
+        "btn_delete_db": "❌ Удалить из базы",
+        "msg_delete_db_success": "✅ Пользователь `{tg_id}` удален из базы бота.",
+        "action_cancelled": "🔙 Отменено.",
+        "broadcast_select_error": "⚠️ Выберите хотя бы одного пользователя!",
+        "broadcast_menu": "📢 *Рассылка сообщений*\n\nВыберите аудиторию для рассылки:",
+        "btn_broadcast_all": "📢 Всем",
+        "btn_broadcast_en": "🇮🇧 Английский (en)",
+        "btn_broadcast_ru": "🇷🇺 Русский (ru)",
+        "btn_broadcast_individual": "👥 Индивидуально",
+        "broadcast_individual_title": "📢 *Индивидуальная рассылка*\n\nВыберите пользователей из списка:",
+        "btn_done_count": "✅ Готово ({count})",
+        "broadcast_confirm_prompt": "✅ Выбрано {count} получателей.\n\nТеперь отправьте сообщение (текст, фото, видео, стикер), которое хотите отправить.",
+        "broadcast_general_prompt": "📢 *Рассылка ({target})*\n\nОтправьте сообщение (текст, фото, видео, стикер), которое хотите отправить.",
+        "broadcast_start": "⏳ Рассылка запущена ({target})...",
+        "broadcast_complete": "✅ Рассылка завершена ({target}).\n\n📤 Отправлено: {sent}\n🚫 Не доставлено (бот заблокирован): {blocked}",
+        "btn_admin_panel": "👮‍♂️ Админ панель",
+        "btn_back_admin": "🔙 В админ панель",
+        "logs_title": "📜 *Последние логи бота:*\n\n",
+        "btn_clear_logs": "🧹 Очистить логи",
+        "logs_cleared": "Очистка логов...",
+        "logs_read_error": "Ошибка при чтении логов.",
+        "backup_starting": "Создание резервной копии...",
+        "backup_success": "✅ Резервная копия успешно создана в папке backups/",
+        "backup_error": "❌ Ошибка при создании резервной копии. См. логи.",
+        "live_monitor_starting": "Запуск Live мониторинга..."
     }
 }
 
@@ -380,6 +675,26 @@ def init_db():
     ''')
     # Index for fast lookup
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_flash_delete ON flash_messages(delete_at)")
+    
+    # Polls Tables
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS polls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT,
+            options TEXT, -- JSON
+            created_at INTEGER,
+            active INTEGER DEFAULT 1
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS poll_votes (
+            poll_id INTEGER,
+            tg_id TEXT,
+            option_index INTEGER,
+            PRIMARY KEY (poll_id, tg_id)
+        )
+    ''')
     
     conn.commit()
     conn.close()
@@ -691,7 +1006,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
         [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')]
     ]
     if tg_id == ADMIN_ID:
-        keyboard.append([InlineKeyboardButton("👮‍♂️ Админ панель", callback_data='admin_panel')])
+        keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
         
     text = t("main_menu", lang)
     rank, total, percent = get_user_rank(tg_id)
@@ -716,10 +1031,10 @@ async def show_main_menu_query(query, context, lang):
         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
-        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton("🌐 Language", callback_data='change_lang')]
+        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')]
     ]
     if tg_id == ADMIN_ID:
-        keyboard.append([InlineKeyboardButton("👮‍♂️ Админ панель", callback_data='admin_panel')])
+        keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
         
     text = t("main_menu", lang)
     rank, total, percent = get_user_rank(tg_id)
@@ -789,10 +1104,10 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
-        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton("🌐 Language", callback_data='change_lang')]
+        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')]
     ]
     if tg_id == ADMIN_ID:
-        keyboard.append([InlineKeyboardButton("👮‍♂️ Админ панель", callback_data='admin_panel')])
+        keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
 
     text = t("main_menu", lang)
     rank, total, percent = get_user_rank(tg_id)
@@ -930,6 +1245,8 @@ async def backup_db(context: ContextTypes.DEFAULT_TYPE = None):
 async def admin_view_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     
     try:
         if os.path.exists(LOG_FILE):
@@ -939,14 +1256,14 @@ async def admin_view_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if len(content) == 3000:
                     content += "\n...(далее обрезано)"
         else:
-            content = "Лог файл пуст или не найден."
+            content = "Log file empty or not found."
             
-        text = f"📜 *Последние логи бота:*\n\n```\n{content}\n```"
+        text = t("logs_title", lang) + f"```\n{content}\n```"
         
         keyboard = [
-            [InlineKeyboardButton("🔄 Обновить", callback_data='admin_logs')],
-            [InlineKeyboardButton("🧹 Очистить логи", callback_data='admin_clear_logs')],
-            [InlineKeyboardButton("🔙 В админ панель", callback_data='admin_panel')]
+            [InlineKeyboardButton(t("btn_refresh", lang), callback_data='admin_logs')],
+            [InlineKeyboardButton(t("btn_clear_logs", lang), callback_data='admin_clear_logs')],
+            [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
         ]
         
         try:
@@ -958,11 +1275,13 @@ async def admin_view_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  
     except Exception as e:
         logging.error(f"Error reading logs: {e}")
-        await query.message.reply_text("Ошибка при чтении логов.")
+        await query.message.reply_text(t("logs_read_error", lang))
 
 async def admin_clear_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Очистка логов...")
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    await query.answer(t("logs_cleared", lang))
     
     try:
         with open(LOG_FILE, 'w', encoding='utf-8') as f:
@@ -974,14 +1293,16 @@ async def admin_clear_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def admin_create_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Создание резервной копии...")
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    await query.answer(t("backup_starting", lang))
     
     success = await backup_db()
     
     if success:
-        await context.bot.send_message(chat_id=query.from_user.id, text="✅ Резервная копия успешно создана в папке backups/")
+        await context.bot.send_message(chat_id=query.from_user.id, text=t("backup_success", lang))
     else:
-        await context.bot.send_message(chat_id=query.from_user.id, text="❌ Ошибка при создании резервной копии. См. логи.")
+        await context.bot.send_message(chat_id=query.from_user.id, text=t("backup_error", lang))
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1141,31 +1462,28 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass # Ignore if already answered
     
     stats = await get_system_stats()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     
     tx_speed_str = format_bytes(stats['tx_speed']) + "/s"
     rx_speed_str = format_bytes(stats['rx_speed']) + "/s"
     
-    text = f"""🖥 *Состояние сервера*
-    
-🧠 *CPU:* {stats['cpu']:.1f}%
-💾 *RAM:* {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)
-💿 *Disk:* {stats['disk_usage']:.1f}%
-├ Использовано: {stats['disk_used']:.2f} GB
-├ Свободно: {stats['disk_free']:.2f} GB
-└ Всего: {stats['disk_total']:.2f} GB
-
-📊 *Общая скорость передачи трафика в реальном времени*
-⬆️ *Отправка:*
-{tx_speed_str}
-⬇️ *Загрузка:*
-{rx_speed_str}
-
-🔄 Обновлено: {datetime.datetime.now(TIMEZONE).strftime("%H:%M:%S")}"""
+    text = f"{t('admin_server_title', lang)}\n\n" \
+           f"{t('cpu_label', lang)} {stats['cpu']:.1f}%\n" \
+           f"{t('ram_label', lang)} {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)\n" \
+           f"{t('disk_label', lang)} {stats['disk_usage']:.1f}%\n" \
+           f"{t('disk_used', lang)} {stats['disk_used']:.2f} GB\n" \
+           f"{t('disk_free', lang)} {stats['disk_free']:.2f} GB\n" \
+           f"{t('disk_total', lang)} {stats['disk_total']:.2f} GB\n\n" \
+           f"{t('traffic_speed_title', lang)}\n" \
+           f"{t('upload_label', lang)}\n{tx_speed_str}\n" \
+           f"{t('download_label', lang)}\n{rx_speed_str}\n\n" \
+           f"{t('updated_label', lang)} {datetime.datetime.now(TIMEZONE).strftime('%H:%M:%S')}"
 
     keyboard = [
-        [InlineKeyboardButton("🟢 Live Мониторинг (30 сек)", callback_data='admin_server_live')],
-        [InlineKeyboardButton("🔄 Обновить", callback_data='admin_server')],
-        [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
+        [InlineKeyboardButton(t("btn_live_monitor", lang), callback_data='admin_server_live')],
+        [InlineKeyboardButton(t("btn_refresh", lang), callback_data='admin_server')],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
     
     try:
@@ -1177,7 +1495,9 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Запуск Live мониторинга...")
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    await query.answer(t("live_monitor_starting", lang))
     
     context.user_data['live_monitoring_active'] = True
     
@@ -1185,6 +1505,9 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asyncio.create_task(run_live_monitor(update, context))
 
 async def run_live_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_id = str(update.effective_user.id)
+    lang = get_lang(tg_id)
+    
     # Run for 30 iterations * ~1 seconds = 30 seconds
     for i in range(30):
         # Check if stopped
@@ -1201,27 +1524,22 @@ async def run_live_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tx_speed_str = format_bytes(stats['tx_speed']) + "/s"
             rx_speed_str = format_bytes(stats['rx_speed']) + "/s"
             
-            text = f"""🖥 *Состояние сервера (LIVE 🟢)*
-    
-🧠 *CPU:* {stats['cpu']:.1f}%
-💾 *RAM:* {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)
-💿 *Disk:* {stats['disk_usage']:.1f}%
-├ Использовано: {stats['disk_used']:.2f} GB
-├ Свободно: {stats['disk_free']:.2f} GB
-└ Всего: {stats['disk_total']:.2f} GB
-
-📊 *Общая скорость передачи трафика в реальном времени*
-⬆️ *Отправка:*
-{tx_speed_str}
-⬇️ *Загрузка:*
-{rx_speed_str}
-
-🔄 Обновлено: {datetime.datetime.now(TIMEZONE).strftime("%H:%M:%S")}
-⏳ Осталось: {30 - (i*1)} сек."""
+            text = f"{t('admin_server_live_title', lang)}\n\n" \
+                   f"{t('cpu_label', lang)} {stats['cpu']:.1f}%\n" \
+                   f"{t('ram_label', lang)} {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)\n" \
+                   f"{t('disk_label', lang)} {stats['disk_usage']:.1f}%\n" \
+                   f"{t('disk_used', lang)} {stats['disk_used']:.2f} GB\n" \
+                   f"{t('disk_free', lang)} {stats['disk_free']:.2f} GB\n" \
+                   f"{t('disk_total', lang)} {stats['disk_total']:.2f} GB\n\n" \
+                   f"{t('traffic_speed_title', lang)}\n" \
+                   f"{t('upload_label', lang)}\n{tx_speed_str}\n" \
+                   f"{t('download_label', lang)}\n{rx_speed_str}\n\n" \
+                   f"{t('updated_label', lang)} {datetime.datetime.now(TIMEZONE).strftime('%H:%M:%S')}\n" \
+                   f"{t('live_remaining', lang).format(sec=30 - (i*1))}"
 
             keyboard = [
-                [InlineKeyboardButton("⏹ Стоп", callback_data='admin_server')],
-                [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
+                [InlineKeyboardButton(t("btn_stop", lang), callback_data='admin_server')],
+                [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
             ]
             
             # Use bot.edit_message_text because we are in background task
@@ -1255,26 +1573,24 @@ async def admin_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
     current_prices = get_prices()
     
     keyboard = []
     order = ["1_month", "3_months", "6_months", "1_year"]
-    labels = {
-        "1_month": "1 Месяц",
-        "3_months": "3 Месяца",
-        "6_months": "6 Месяцев",
-        "1_year": "1 Год"
-    }
     
     for key in order:
         if key in current_prices:
             amount = current_prices[key]['amount']
-            keyboard.append([InlineKeyboardButton(f"{labels[key]}: {amount} ⭐️ (Изменить)", callback_data=f'admin_edit_price_{key}')])
+            label = t(f"plan_{key}", lang)
+            keyboard.append([InlineKeyboardButton(f"{label}: {amount} ⭐️ {t('btn_change', lang)}", callback_data=f'admin_edit_price_{key}')])
             
-    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')])
+    keyboard.append([InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')])
     
     await query.edit_message_text(
-        "💰 *Настройка цен*\n\nВыберите тариф для изменения стоимости:",
+        t("admin_prices_title", lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
@@ -1282,27 +1598,31 @@ async def admin_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_edit_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     key = query.data.split('_', 3)[3] # admin_edit_price_KEY
     
     context.user_data['edit_price_key'] = key
     context.user_data['admin_action'] = 'awaiting_price_amount'
     
     labels = {
-        "1_month": "1 Месяц",
-        "3_months": "3 Месяца",
-        "6_months": "6 Месяцев",
-        "1_year": "1 Год"
+        "1_month": t("plan_1_month", lang),
+        "3_months": t("plan_3_months", lang),
+        "6_months": t("plan_6_months", lang),
+        "1_year": t("plan_1_year", lang)
     }
     
     await query.edit_message_text(
-        f"✏️ *Изменение цены: {labels.get(key, key)}*\n\n Введите новую стоимость в Telegram Stars (целое число):",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_prices')]]),
+        t("price_edit_prompt", lang).format(label=labels.get(key, key)),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_cancel", lang), callback_data='admin_prices')]]),
         parse_mode='Markdown'
     )
 
 async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
@@ -1380,35 +1700,36 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Re-eval for trials:
                 # if expiry > 0 and expiry < current_time_ms: expired_trials += 1
 
-    text = f"""📊 *Статистика*
-    
-👥 *Пользователи бота:* {total_users}
-⚡ *Пользователи онлайн:* {online_users}
-🔌 *Всего клиентов:* {total_clients}
-✅ *Активные клиенты:* {active_subs}
-🆓 *Пробные подписки:* {active_trials}
-❌ *Истекшие пробные:* {expired_trials}
-💰 *Выручка:* {total_revenue} ⭐️
-🛒 *Продажи:* {total_sales}
-"""
+    text = f"{t('stats_header', lang)}\n\n" \
+           f"{t('stats_users', lang)} {total_users}\n" \
+           f"{t('stats_online', lang)} {online_users}\n" \
+           f"{t('stats_clients', lang)} {total_clients}\n" \
+           f"{t('stats_active', lang)} {active_subs}\n" \
+           f"{t('stats_trials', lang)} {active_trials}\n" \
+           f"{t('stats_expired_trials', lang)} {expired_trials}\n" \
+           f"{t('stats_revenue', lang)} {total_revenue} ⭐️\n" \
+           f"{t('stats_sales', lang)} {total_sales}\n"
+
     keyboard = [
         [
-            InlineKeyboardButton("👥 Все", callback_data='admin_users_all_0'),
-            InlineKeyboardButton("🟢 Активные", callback_data='admin_users_active_0'),
-            InlineKeyboardButton("⏳ Скоро истекают", callback_data='admin_users_expiring_0')
+            InlineKeyboardButton(t("btn_users_all", lang), callback_data='admin_users_all_0'),
+            InlineKeyboardButton(t("btn_users_active", lang), callback_data='admin_users_active_0'),
+            InlineKeyboardButton(t("btn_users_expiring", lang), callback_data='admin_users_expiring_0')
         ],
         [
-            InlineKeyboardButton("⚡ Онлайн", callback_data='admin_users_online_0'),
-            InlineKeyboardButton("🆓 Пробный период", callback_data='admin_users_trial_0')
+            InlineKeyboardButton(t("btn_users_online", lang), callback_data='admin_users_online_0'),
+            InlineKeyboardButton(t("btn_users_trial", lang), callback_data='admin_users_trial_0')
         ],
-        [InlineKeyboardButton("🔄 Обновить ники", callback_data='admin_sync_nicks')],
-        [InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]
+        [InlineKeyboardButton(t("btn_sync_nicks", lang), callback_data='admin_sync_nicks')],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Синхронизация...", show_alert=False)
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    await query.answer(t("sync_start", lang), show_alert=False)
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -1417,7 +1738,7 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
     conn.close()
     
     if not row:
-        await query.message.reply_text("❌ X-UI Inbound not found.")
+        await query.message.reply_text(t("sync_error_inbound", lang))
         return
         
     settings = json.loads(row[0])
@@ -1427,7 +1748,7 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
     failed_count = 0
     total = len(clients)
     
-    progress_msg = await context.bot.send_message(chat_id=query.from_user.id, text=f"🔄 Синхронизация: 0/{total}")
+    progress_msg = await context.bot.send_message(chat_id=query.from_user.id, text=t("sync_progress", lang).format(current=0, total=total))
     
     changed = False
     
@@ -1497,7 +1818,7 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
         # Update progress
         if (i + 1) % 2 == 0 or (i + 1) == total:
             try:
-                await progress_msg.edit_text(f"🔄 Синхронизация: {i+1}/{total}")
+                await progress_msg.edit_text(t("sync_progress", lang).format(current=i+1, total=total))
             except: pass
             
         await asyncio.sleep(0.05)
@@ -1513,7 +1834,7 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
         await proc.wait()
         
     try:
-        await progress_msg.edit_text(f"✅ Синхронизация завершена!\n\nОбновлено: {updated_count}\nОшибок: {failed_count}\n\n⚠️ X-UI был перезапущен для обновления имен в панели.")
+        await progress_msg.edit_text(t("sync_complete", lang).format(updated=updated_count, failed=failed_count))
     except: pass
     
     # Return to stats
@@ -1522,6 +1843,8 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
 async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     
     # format: admin_users_{filter}_{page}
     parts = query.data.split('_')
@@ -1601,7 +1924,7 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         
         if not row:
-            await query.edit_message_text("❌ Входящее соединение не найдено.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_stats')]]))
+            await query.edit_message_text(t("sync_error_inbound", lang), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_stats')]]))
             return
 
         settings = json.loads(row[0])
@@ -1745,14 +2068,22 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard.append(nav_row)
         
-    keyboard.append([InlineKeyboardButton("🔙 Назад к статистике", callback_data='admin_stats')])
+    keyboard.append([InlineKeyboardButton(t("btn_back_stats", lang), callback_data='admin_stats')])
     
-    title_map = {'all': 'Все клиенты', 'active': 'Активные клиенты', 'expiring': 'Скоро истекают (<7д)', 'online': 'Онлайн клиенты', 'trial': 'Использовали пробный (Все)'}
-    await query.edit_message_text(f"📋 *{title_map.get(filter_type, 'Clients')}*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    title_map = {
+        'all': t("title_all", lang),
+        'active': t("title_active", lang),
+        'expiring': t("title_expiring", lang),
+        'online': t("title_online", lang),
+        'trial': t("title_trial", lang)
+    }
+    await query.edit_message_text(t("users_list_title", lang).format(title=title_map.get(filter_type, 'Clients')), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def admin_reset_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     uid = query.data.split('_', 3)[3] # admin_reset_trial_UID
     
     conn = sqlite3.connect(DB_PATH)
@@ -1776,16 +2107,18 @@ async def admin_reset_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         
-        await context.bot.send_message(chat_id=query.from_user.id, text=f"✅ Пробный период для {client.get('email')} сброшен.")
+        await context.bot.send_message(chat_id=query.from_user.id, text=t("msg_reset_success", lang).format(email=client.get('email')))
         
         # Refresh details
         await admin_user_detail(update, context)
     else:
-         await context.bot.send_message(chat_id=query.from_user.id, text="❌ Не удалось найти Telegram ID пользователя.")
+         await context.bot.send_message(chat_id=query.from_user.id, text=t("msg_tgid_missing", lang))
 
 async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     uid = query.data.split('_', 2)[2]
     
     conn = sqlite3.connect(DB_PATH)
@@ -1803,7 +2136,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     client = next((c for c in clients if c.get('id') == uid), None)
     if not client:
         conn.close()
-        await query.edit_message_text("❌ Клиент не найден.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_users_0')]]))
+        await query.edit_message_text(t("msg_client_not_found", lang), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_list", lang), callback_data='admin_users_0')]]))
         return
         
     email = client.get('email', 'Unknown')
@@ -1831,20 +2164,20 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     down_gb = down / (1024**3)
     total_used_gb = up_gb + down_gb
     
-    limit_str = f"{total_limit / (1024**3):.2f} GB" if total_limit > 0 else "♾️ Безлимит"
+    limit_str = f"{total_limit / (1024**3):.2f} GB" if total_limit > 0 else f"♾️ {t('plan_unlimited', lang)}"
     
     current_time_ms = int(time.time() * 1000)
     
     # Online status (10 seconds threshold)
     is_online = (current_time_ms - last_online) < 10 * 1000 if last_online > 0 else False
-    online_status = "🟢 Онлайн" if is_online else "🔴 Офлайн"
+    online_status = t("status_online", lang) if is_online else t("status_offline", lang)
     
     # Active status
-    is_enabled_str = "✅ Да" if enable_val else "❌ Нет"
+    is_enabled_str = t("status_yes", lang) if enable_val else t("status_no", lang)
     
     # Subscription status
     is_sub_active = (expiry_ms == 0) or (expiry_ms > current_time_ms)
-    sub_active_str = "✅ Да" if is_sub_active else "❌ Нет"
+    sub_active_str = t("status_yes", lang) if is_sub_active else t("status_no", lang)
     
     # Hours left
     if expiry_ms == 0:
@@ -1858,14 +2191,14 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_time_str = datetime.datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
     
     # Check trial status
-    trial_status_str = "❓ Неизвестно"
+    trial_status_str = f"❓ {t('trial_unknown', lang)}"
     show_reset_trial = False
     
     if client.get('tgId'):
         tg_id_val = str(client.get('tgId'))
         
         # Try to get Username
-        username = "Не найден"
+        username = t("trial_unknown", lang) # Not found
         try:
             # Check DB first
             conn = sqlite3.connect(BOT_DB_PATH)
@@ -1877,7 +2210,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db_uname = None
             db_fname = None
             db_lname = None
-            trial_status_str = "❌ Не использован"
+            trial_status_str = t("trial_used_no", lang)
             show_reset_trial = False
             
             if row:
@@ -1885,10 +2218,10 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db_fname = row[1]
                 db_lname = row[2]
                 if row[3]:
-                    trial_status_str = "✅ Использован"
+                    trial_status_str = t("trial_used_yes", lang)
                     show_reset_trial = True
             else:
-                trial_status_str = "❌ Не использован (нет в базе)"
+                trial_status_str = f"{t('trial_used_no', lang)} (No DB)"
             
             # Use DB info if available
             if db_uname:
@@ -1913,31 +2246,31 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
             
     else:
-        tg_id_val = "Не привязан"
+        tg_id_val = t("status_unbound", lang)
         username = "-"
-        trial_status_str = "❓ Неизвестно"
+        trial_status_str = f"❓ {t('trial_unknown', lang)}"
     
-    text = f"""📧 Email: {email}
-🆔 TG ID: {tg_id_val}
-👤 Никнейм: {username}
-🔌 Включен: {is_enabled_str}
-📶 Соединение: {online_status}
-📅 Подписка: {sub_active_str}
-🆓 Пробный период: {trial_status_str}
-⏳ Истекает через: {hours_left} Часов
-🔼 Исходящий трафик: ↑{up_gb:.2f}GB
-🔽 Входящий трафик: ↓{down_gb:.2f}GB
-📊 Всего: ↑↓{total_used_gb:.2f}GB из {limit_str}
+    text = f"""{t('user_detail_email', lang)} {email}
+{t('user_detail_tgid', lang)} {tg_id_val}
+{t('user_detail_nick', lang)} {username}
+{t('user_detail_enabled', lang)} {is_enabled_str}
+{t('user_detail_online', lang)} {online_status}
+{t('user_detail_sub', lang)} {sub_active_str}
+{t('user_detail_trial', lang)} {trial_status_str}
+{t('user_detail_expires', lang)} {hours_left} {t('hours_left', lang)}
+{t('user_detail_up', lang)} ↑{up_gb:.2f}GB
+{t('user_detail_down', lang)} ↓{down_gb:.2f}GB
+{t('user_detail_total', lang)} ↑↓{total_used_gb:.2f}GB {t('user_detail_from', lang)} {limit_str}
 
-🔄 Обновлено: {current_time_str}"""
+{t('updated_label', lang)} {current_time_str}"""
     
     keyboard = []
     if show_reset_trial:
-        keyboard.append([InlineKeyboardButton("🔄 Сбросить пробный период", callback_data=f'admin_reset_trial_{uid}')])
+        keyboard.append([InlineKeyboardButton(t("btn_reset_trial", lang), callback_data=f'admin_reset_trial_{uid}')])
         
-    keyboard.append([InlineKeyboardButton("🔄 Перепривязать пользователя", callback_data=f'admin_rebind_{uid}')])
-    keyboard.append([InlineKeyboardButton("❌ Удалить пользователя", callback_data=f'admin_del_client_ask_{uid}')])
-    keyboard.append([InlineKeyboardButton("🔙 Назад к списку", callback_data='admin_users_0')])
+    keyboard.append([InlineKeyboardButton(t("btn_rebind", lang), callback_data=f'admin_rebind_{uid}')])
+    keyboard.append([InlineKeyboardButton(t("btn_delete_user", lang), callback_data=f'admin_del_client_ask_{uid}')])
+    keyboard.append([InlineKeyboardButton(t("btn_back_list", lang), callback_data='admin_users_0')])
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -1945,6 +2278,8 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_rebind_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     
     # Expected format: admin_rebind_UUID
     try:
@@ -1952,22 +2287,22 @@ async def admin_rebind_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # data: admin_rebind_123-456
         uid = query.data[len("admin_rebind_"):]
     except IndexError:
-        await query.message.reply_text("Ошибка: некорректный ID")
+        await query.message.reply_text(t("error_invalid_id", lang))
         return
 
     context.user_data['rebind_uid'] = uid
     context.user_data['admin_action'] = 'awaiting_rebind_contact'
     
     keyboard = [
-        [KeyboardButton("👤 Выбрать пользователя", request_users=KeyboardButtonRequestUsers(request_id=1, user_is_bot=False, max_quantity=1))],
-        [KeyboardButton("🔙 Отмена")]
+        [KeyboardButton(t("btn_select_user", lang), request_users=KeyboardButtonRequestUsers(request_id=1, user_is_bot=False, max_quantity=1))],
+        [KeyboardButton(t("btn_cancel", lang))]
     ]
     
     # We need to send a new message for reply keyboard, or delete previous and send new
     await query.message.delete()
     await context.bot.send_message(
         chat_id=query.from_user.id,
-        text=f"👤 *Перепривязка пользователя*\nUUID: `{uid}`\n\nПожалуйста, выберите пользователя через кнопку ниже или отправьте контакт.",
+        text=t("rebind_title", lang).format(uid=uid),
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
         parse_mode='Markdown'
     )
@@ -1984,11 +2319,11 @@ async def admin_promos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_admin_promo_list", lang), callback_data='admin_promo_list')],
         [InlineKeyboardButton(t("btn_admin_flash", lang), callback_data='admin_flash_menu')],
         [InlineKeyboardButton(t("btn_admin_promo_history", lang), callback_data='admin_promo_uses_0')],
-        [InlineKeyboardButton(t("btn_back", lang), callback_data='admin_panel')]
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
     
     await query.edit_message_text(
-        "🎁 *Управление промокодами*\n\nВыберите действие:",
+        t("promos_menu_title", lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
@@ -1996,6 +2331,8 @@ async def admin_promos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_promo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
@@ -2007,17 +2344,17 @@ async def admin_promo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not rows:
         await query.edit_message_text(
-            "📜 *Список промокодов*\n\nНет активных промокодов.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_promos_menu')]]),
+            t("promo_list_empty", lang),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='admin_promos_menu')]]),
             parse_mode='Markdown'
         )
         return
 
-    text = "📜 *Активные промокоды*\n\n"
+    text = t("promo_list_title", lang)
     for r in rows:
         code, days, max_uses, used_count = r
         limit_str = "♾️" if max_uses <= 0 else f"{max_uses}"
-        text += f"🏷 `{code}`\n⏳ Срок: {days} дн.\n👥 Использовано: {used_count} / {limit_str}\n\n"
+        text += f"🏷 `{code}`\n{t('promo_item_days', lang).format(days=days)}\n{t('promo_item_used', lang).format(used=used_count, limit=limit_str)}\n\n"
         
     # Split if too long (simple check)
     if len(text) > 4000:
@@ -2025,7 +2362,7 @@ async def admin_promo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.edit_message_text(
         text,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_promos_menu')]]),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='admin_promos_menu')]]),
         parse_mode='Markdown'
     )
 
@@ -2390,6 +2727,9 @@ async def admin_sales_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
     try:
         conn = sqlite3.connect(BOT_DB_PATH)
         cursor = conn.cursor()
@@ -2399,31 +2739,31 @@ async def admin_sales_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not rows:
             await query.edit_message_text(
-                "📜 *Журнал продаж*\n\nПродаж пока нет.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]]),
+                t("sales_log_empty", lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]]),
                 parse_mode='Markdown'
             )
             return
 
-        text = "📜 *Журнал продаж (последние 20)*\n\n"
+        text = t("sales_log_title", lang)
         
         for row in rows:
             tg_id, amount, date_ts, plan_id = row
             date_str = datetime.datetime.fromtimestamp(date_ts, tz=TIMEZONE).strftime("%d.%m %H:%M")
             
-            # Try to localize plan name using Russian as default for admin
-            plan_display = TEXTS['ru'].get(f"plan_{plan_id}", plan_id)
+            # Localize plan name
+            plan_display = TEXTS[lang].get(f"plan_{plan_id}", plan_id)
             
             text += f"📅 `{date_str}` | 🆔 `{tg_id}`\n💳 {plan_display} | 💰 {amount} XTR\n\n"
             
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]]),
             parse_mode='Markdown'
         )
     except Exception as e:
         logging.error(f"Error in sales log: {e}")
-        await query.edit_message_text("Ошибка при загрузке лога.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]]))
+        await query.edit_message_text(t("sales_log_error", lang), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]]))
 
 async def admin_user_db_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, tg_id):
     user_data = get_user_data(tg_id)
@@ -2510,21 +2850,24 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
     keyboard = [
-        [InlineKeyboardButton("📢 Всем", callback_data='admin_broadcast_all')],
-        [InlineKeyboardButton("🇮🇧 Английский (en)", callback_data='admin_broadcast_en')],
-        [InlineKeyboardButton("🇷🇺 Русский (ru)", callback_data='admin_broadcast_ru')],
-        [InlineKeyboardButton("👥 Индивидуально", callback_data='admin_broadcast_individual')],
-        [InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]
+        [InlineKeyboardButton(t("btn_broadcast_all", lang), callback_data='admin_broadcast_all')],
+        [InlineKeyboardButton(t("btn_broadcast_en", lang), callback_data='admin_broadcast_en')],
+        [InlineKeyboardButton(t("btn_broadcast_ru", lang), callback_data='admin_broadcast_ru')],
+        [InlineKeyboardButton(t("btn_broadcast_individual", lang), callback_data='admin_broadcast_individual')],
+        [InlineKeyboardButton(t("btn_cancel", lang), callback_data='admin_panel')]
     ]
     
     await query.edit_message_text(
-        "📢 *Рассылка сообщений*\n\nВыберите аудиторию для рассылки:",
+        t("broadcast_menu", lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
 
-def get_users_pagination_keyboard(users, selected_ids, page, users_per_page=10):
+def get_users_pagination_keyboard(users, selected_ids, page, lang='ru', users_per_page=10):
     total_pages = math.ceil(len(users) / users_per_page)
     if total_pages == 0: total_pages = 1
     
@@ -2557,14 +2900,17 @@ def get_users_pagination_keyboard(users, selected_ids, page, users_per_page=10):
     
     keyboard.append(nav_row)
     
-    confirm_text = f"✅ Готово ({len(selected_ids)})"
+    confirm_text = t("btn_done_count", lang).format(count=len(selected_ids))
     keyboard.append([InlineKeyboardButton(confirm_text, callback_data='admin_broadcast_confirm')])
-    keyboard.append([InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')])
+    keyboard.append([InlineKeyboardButton(t("btn_cancel", lang), callback_data='admin_panel')])
     
     return InlineKeyboardMarkup(keyboard)
 
 async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     
     parts = query.data.split('_')
     # Format: admin_broadcast_ACTION_PARAM...
@@ -2592,11 +2938,11 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
                 cursor_bot = conn_bot.cursor()
                 
                 for client in clients:
-                    tg_id = client.get('tgId')
+                    tg_id_client = client.get('tgId')
                     email = client.get('email', '')
                     
-                    if tg_id:
-                        tg_id_str = str(tg_id)
+                    if tg_id_client:
+                        tg_id_str = str(tg_id_client)
                         # Check if user exists
                         cursor_bot.execute("SELECT tg_id FROM user_prefs WHERE tg_id=?", (tg_id_str,))
                         if not cursor_bot.fetchone():
@@ -2615,9 +2961,9 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
         users = cursor.fetchall()
         conn.close()
         
-        keyboard = get_users_pagination_keyboard(users, [], 0)
+        keyboard = get_users_pagination_keyboard(users, [], 0, lang)
         await query.edit_message_text(
-            "📢 *Индивидуальная рассылка*\n\nВыберите пользователей из списка:",
+            t("broadcast_individual_title", lang),
             reply_markup=keyboard,
             parse_mode='Markdown'
         )
@@ -2641,7 +2987,7 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
         users = cursor.fetchall()
         conn.close()
         
-        keyboard = get_users_pagination_keyboard(users, selected, page)
+        keyboard = get_users_pagination_keyboard(users, selected, page, lang)
         try:
             await query.edit_message_reply_markup(reply_markup=keyboard)
         except:
@@ -2659,7 +3005,7 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
         users = cursor.fetchall()
         conn.close()
         
-        keyboard = get_users_pagination_keyboard(users, selected, page)
+        keyboard = get_users_pagination_keyboard(users, selected, page, lang)
         try:
             await query.edit_message_reply_markup(reply_markup=keyboard)
         except:
@@ -2670,7 +3016,7 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
     if action == 'confirm':
         selected = context.user_data.get('broadcast_selected_ids', [])
         if not selected:
-             await query.answer("⚠️ Выберите хотя бы одного пользователя!", show_alert=True)
+             await query.answer(t("broadcast_select_error", lang), show_alert=True)
              return
         
         await query.answer()
@@ -2678,8 +3024,8 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data['broadcast_target'] = 'individual'
         
         await query.edit_message_text(
-            f"✅ Выбрано {len(selected)} получателей.\n\nТеперь отправьте сообщение (текст, фото, видео, стикер), которое хотите отправить.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]]),
+            t("broadcast_confirm_prompt", lang).format(count=len(selected)),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_cancel", lang), callback_data='admin_panel')]]),
             parse_mode='Markdown'
         )
         context.user_data['admin_action'] = 'awaiting_broadcast'
@@ -2690,13 +3036,13 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
     target = action
     context.user_data['broadcast_target'] = target
     
-    target_name = "ВСЕМ"
-    if target == 'en': target_name = "English (en)"
-    if target == 'ru': target_name = "Русский (ru)"
+    target_name = t("btn_broadcast_all", lang)
+    if target == 'en': target_name = t("btn_broadcast_en", lang)
+    if target == 'ru': target_name = t("btn_broadcast_ru", lang)
     
     await query.edit_message_text(
-        f"📢 *Рассылка ({target_name})*\n\nОтправьте сообщение (текст, фото, видео, стикер), которое хотите отправить.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Отмена", callback_data='admin_panel')]]),
+        t("broadcast_general_prompt", lang).format(target=target_name),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_cancel", lang), callback_data='admin_panel')]]),
         parse_mode='Markdown'
     )
     context.user_data['admin_action'] = 'awaiting_broadcast'
@@ -2715,19 +3061,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         action = context.user_data.get('admin_action')
         
         # Handle Cancel Button for Rebind
-        if text == "🔙 Отмена" and action == 'awaiting_rebind_contact':
+        if text == t("btn_cancel", lang) and action == 'awaiting_rebind_contact':
             context.user_data['admin_action'] = None
             context.user_data['rebind_uid'] = None
-            await update.message.reply_text("🔙 Отменено.", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text(t("action_cancelled", lang), reply_markup=ReplyKeyboardRemove())
             # Show admin panel again
-            keyboard = [
-                [InlineKeyboardButton("📊 Статистика", callback_data='admin_stats')],
-                [InlineKeyboardButton("🎁 Создать промокод", callback_data='admin_new_promo')],
-                [InlineKeyboardButton("📢 Рассылка", callback_data='admin_broadcast')],
-        [InlineKeyboardButton("📜 Журнал продаж", callback_data='admin_sales_log')],
-        [InlineKeyboardButton("🔙 Главное меню", callback_data='back_to_main')]
-    ]
-            await update.message.reply_text("👮‍♂️ *Админ панель*\n\nВыберите действие:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+            await admin_panel(update, context)
             return
 
         # Handle User Shared (Rebind)
@@ -3726,10 +4065,7 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             remaining_str = ""
             if expiry_ms == 0:
-                if lang == 'ru':
-                    expiry_str = "Безлимит"
-                else:
-                    expiry_str = "Unlimited"
+                expiry_str = t("expiry_unlimited", lang)
             else:
                 expiry_str = datetime.datetime.fromtimestamp(expiry_ms / 1000, tz=TIMEZONE).strftime('%d.%m.%Y %H:%M')
                 
@@ -3744,11 +4080,11 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     else:
                         remaining_str = t("remaining_days", lang).format(days=int(days))
                 
-            msg_text = f"✅ <b>Ваша подписка активна</b>\n\n📅 Истекает: {expiry_str}"
+            msg_text = t("sub_active_html", lang).format(expiry=expiry_str)
             if remaining_str:
                 msg_text += f"\n{remaining_str}"
             
-            msg_text += f"\n\n👇 <b>Рекомендуется использовать подписку</b>\n        (Нажмите на ссылку для копирования)\n\n📋 <b>Ссылка подписки:</b>\n<code>{html.escape(sub_link)}</code>\n\n🔑 <b>Ключ доступа:</b> (Нажмите чтобы развернуть)\n<tg-spoiler><code>{html.escape(vless_link)}</code></tg-spoiler>"
+            msg_text += t("sub_recommendation", lang).format(link=html.escape(sub_link), key=html.escape(vless_link))
             
             try:
                 await query.edit_message_text(
@@ -3989,29 +4325,29 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Expiry formatting
         if expiry_time == 0:
-            expiry_str = "♾️ Безлимит"
+            expiry_str = t("unlimited_text", lang)
         else:
             expiry_dt = datetime.datetime.fromtimestamp(expiry_time / 1000, tz=TIMEZONE)
             expiry_str = expiry_dt.strftime("%d.%m.%Y %H:%M")
             
-        text = f"""📊 *Ваша статистика*
+        text = f"""{t("stats_your_title", lang)}
 
 {t("stats_sub_type", lang).format(plan=sub_plan)}
 
-📅 *За сегодня:*
+{t("stats_today", lang)}
 ⬇️ {format_bytes(day_down)}  ⬆️ {format_bytes(day_up)}
 
-📅 *За неделю:*
+{t("stats_week", lang)}
 ⬇️ {format_bytes(week_down)}  ⬆️ {format_bytes(week_up)}
 
-📅 *За месяц:*
+{t("stats_month", lang)}
 ⬇️ {format_bytes(month_down)}  ⬆️ {format_bytes(month_up)}
 
-📦 *Всего:*
+{t("stats_total", lang)}
 ⬇️ {format_bytes(current_down)}  ⬆️ {format_bytes(current_up)}
 ∑ {format_bytes(current_total)}
 
-⏳ *Истекает:* {expiry_str}"""
+{t("stats_expires", lang)} {expiry_str}"""
 
         try:
             await query.edit_message_text(
@@ -4330,10 +4666,108 @@ async def admin_poll_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+def generate_poll_message(poll_id, lang):
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        
+        # Get Poll
+        cursor.execute("SELECT question, options, active FROM polls WHERE id=?", (poll_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            conn.close()
+            return None, None
+            
+        question, options_json, active = row
+        options = json.loads(options_json)
+        
+        # Get Votes
+        cursor.execute("SELECT option_index, COUNT(*) FROM poll_votes WHERE poll_id=? GROUP BY option_index", (poll_id,))
+        vote_counts = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        conn.close()
+        
+        total_votes = sum(vote_counts.values())
+        
+        text = f"📊 *{t('poll_title', lang)}*\n\n{question}\n\n"
+        
+        for idx, option in enumerate(options):
+            count = vote_counts.get(idx, 0)
+            percent = (count / total_votes * 100) if total_votes > 0 else 0
+            
+            # Progress Bar (10 chars)
+            filled = int(percent // 10)
+            empty = 10 - filled
+            bar = "▓" * filled + "░" * empty
+            
+            text += f"{option}\n{bar} {int(percent)}% ({count})\n\n"
+            
+        text += f"👥 {t('poll_total_votes', lang)}: {total_votes}"
+        
+        keyboard = []
+        if active:
+            for idx, option in enumerate(options):
+                keyboard.append([InlineKeyboardButton(option, callback_data=f'poll_vote_{poll_id}_{idx}')])
+        
+        # Add Refresh Button
+        keyboard.append([InlineKeyboardButton("🔄 " + t('btn_refresh', lang), callback_data=f'poll_refresh_{poll_id}')])
+                
+        return text, InlineKeyboardMarkup(keyboard)
+    except Exception as e:
+        logging.error(f"Error generating poll message: {e}")
+        return None, None
+
+async def handle_poll_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    parts = query.data.split('_')
+    # poll_vote_POLLID_IDX
+    poll_id = int(parts[2])
+    option_idx = int(parts[3])
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    
+    # Save vote (upsert)
+    cursor.execute("INSERT OR REPLACE INTO poll_votes (poll_id, tg_id, option_index) VALUES (?, ?, ?)", (poll_id, tg_id, option_idx))
+    conn.commit()
+    conn.close()
+    
+    text, reply_markup = generate_poll_message(poll_id, lang)
+    
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    except:
+        pass # Message not modified
+        
+    await query.answer(t("poll_vote_registered", lang))
+
+async def handle_poll_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    parts = query.data.split('_')
+    # poll_refresh_POLLID
+    poll_id = int(parts[2])
+    
+    text, reply_markup = generate_poll_message(poll_id, lang)
+    
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    except:
+        pass
+        
+    await query.answer()
+
 async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
     
     question = context.user_data.get('poll_question')
     options = context.user_data.get('poll_options')
@@ -4341,6 +4775,14 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not question or not options:
         await query.edit_message_text("❌ Ошибка: Опрос не найден. Создайте его заново.")
         return
+        
+    # Create Poll in DB
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO polls (question, options, created_at) VALUES (?, ?, ?)", (question, json.dumps(options), int(time.time())))
+    poll_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
         
     # Get all users
     conn = sqlite3.connect(BOT_DB_PATH)
@@ -4373,14 +4815,28 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     status_msg = await query.edit_message_text(f"⏳ Рассылка опроса запущена ({len(all_users)} пользователей)...")
     
+    # Pre-generate messages
+    msg_ru, markup_ru = generate_poll_message(poll_id, 'ru')
+    msg_en, markup_en = generate_poll_message(poll_id, 'en')
+    
+    # Map user langs
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT tg_id, lang FROM user_prefs")
+    user_langs = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    
     for user_id in all_users:
         try:
-            await context.bot.send_poll(
+            u_lang = user_langs.get(user_id, 'ru')
+            text = msg_en if u_lang == 'en' else msg_ru
+            markup = markup_en if u_lang == 'en' else markup_ru
+            
+            await context.bot.send_message(
                 chat_id=user_id,
-                question=question,
-                options=options,
-                is_anonymous=True,
-                allows_multiple_answers=False
+                text=text,
+                reply_markup=markup,
+                parse_mode='Markdown'
             )
             sent += 1
             await asyncio.sleep(0.05)
@@ -4391,7 +4847,7 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     await status_msg.edit_text(
         f"✅ Рассылка опроса завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В меню опросов", callback_data='admin_poll_menu')]])
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_poll_menu')]])
     )
 
 if __name__ == '__main__':
@@ -4437,6 +4893,8 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_poll_menu, pattern='^admin_poll_menu$'))
     application.add_handler(CallbackQueryHandler(admin_poll_new, pattern='^admin_poll_new$'))
     application.add_handler(CallbackQueryHandler(admin_poll_send, pattern='^admin_poll_send$'))
+    application.add_handler(CallbackQueryHandler(handle_poll_vote, pattern='^poll_vote_'))
+    application.add_handler(CallbackQueryHandler(handle_poll_refresh, pattern='^poll_refresh_'))
     application.add_handler(CallbackQueryHandler(admin_sales_log, pattern='^admin_sales_log$'))
     application.add_handler(CallbackQueryHandler(admin_create_backup, pattern='^admin_create_backup$'))
     application.add_handler(CallbackQueryHandler(admin_view_logs, pattern='^admin_logs$'))
