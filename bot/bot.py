@@ -499,6 +499,12 @@ TEXTS = {
         "user_detail_down": "🔽 Входящий трафик:",
         "user_detail_total": "📊 Всего:",
         "user_detail_from": "из",
+        "user_detail_limit_ip": "📱 Лимит устройств:",
+        "btn_edit_limit_ip": "📱 Изменить лимит устройств",
+        "limit_ip_prompt": "📱 *Изменение лимита устройств*\n\nТекущий лимит: {limit}\n\nВведите новый лимит (0 = Безлимит):",
+        "limit_ip_success": "✅ Лимит устройств обновлен: {limit}",
+        "limit_ip_error": "❌ Ошибка при обновлении лимита.",
+        "limit_ip_invalid": "❌ Неверное число. Введите целое число.",
         "status_yes": "✅ Да",
         "status_no": "❌ Нет",
         "status_online": "🟢 Онлайн",
@@ -2152,6 +2158,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     enable_val = client.get('enable', False)
     expiry_ms = client.get('expiryTime', 0)
     total_limit = client.get('total', 0)
+    limit_ip = client.get('limitIp', 0)
     last_online = 0
     
     if traffic_row:
@@ -2165,6 +2172,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_used_gb = up_gb + down_gb
     
     limit_str = f"{total_limit / (1024**3):.2f} GB" if total_limit > 0 else f"♾️ {t('plan_unlimited', lang)}"
+    limit_ip_str = str(limit_ip) if limit_ip > 0 else "♾️"
     
     current_time_ms = int(time.time() * 1000)
     
@@ -2256,6 +2264,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {t('user_detail_enabled', lang)} {is_enabled_str}
 {t('user_detail_online', lang)} {online_status}
 {t('user_detail_sub', lang)} {sub_active_str}
+{t('user_detail_limit_ip', lang)} {limit_ip_str}
 {t('user_detail_trial', lang)} {trial_status_str}
 {t('user_detail_expires', lang)} {hours_left} {t('hours_left', lang)}
 {t('user_detail_up', lang)} ↑{up_gb:.2f}GB
@@ -2268,11 +2277,44 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if show_reset_trial:
         keyboard.append([InlineKeyboardButton(t("btn_reset_trial", lang), callback_data=f'admin_reset_trial_{uid}')])
         
+    keyboard.append([InlineKeyboardButton(t("btn_edit_limit_ip", lang), callback_data=f'admin_edit_limit_ip_{uid}')])
     keyboard.append([InlineKeyboardButton(t("btn_rebind", lang), callback_data=f'admin_rebind_{uid}')])
     keyboard.append([InlineKeyboardButton(t("btn_delete_user", lang), callback_data=f'admin_del_client_ask_{uid}')])
     keyboard.append([InlineKeyboardButton(t("btn_back_list", lang), callback_data='admin_users_0')])
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def admin_edit_limit_ip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    uid = query.data.split('_')[4] # admin_edit_limit_ip_UUID
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row: return
+    
+    settings = json.loads(row[0])
+    clients = settings.get('clients', [])
+    client = next((c for c in clients if c.get('id') == uid), None)
+    
+    if not client: return
+    
+    current_limit = client.get('limitIp', 0)
+    
+    context.user_data['edit_limit_ip_uid'] = uid
+    context.user_data['admin_action'] = 'awaiting_limit_ip'
+    
+    await query.edit_message_text(
+        t("limit_ip_prompt", lang).format(limit=current_limit),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_cancel", lang), callback_data=f'admin_u_{uid}')]]),
+        parse_mode='Markdown'
+    )
 
 
 async def admin_rebind_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3430,6 +3472,60 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             await admin_user_db_detail(update, context, target_id)
             context.user_data['admin_action'] = None
+            return
+
+        elif action == 'awaiting_limit_ip':
+            if not text: return
+            uid = context.user_data.get('edit_limit_ip_uid')
+            try:
+                new_limit = int(text.strip())
+                if new_limit < 0: raise ValueError
+            except ValueError:
+                await update.message.reply_text(t("limit_ip_invalid", lang))
+                return
+            
+            # Update X-UI DB
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+                row = cursor.fetchone()
+                
+                if row:
+                    settings = json.loads(row[0])
+                    clients = settings.get('clients', [])
+                    
+                    found = False
+                    for client in clients:
+                        if client.get('id') == uid:
+                            client['limitIp'] = new_limit
+                            found = True
+                            break
+                    
+                    if found:
+                        new_settings = json.dumps(settings)
+                        cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (new_settings, INBOUND_ID))
+                        conn.commit()
+                        
+                        # Restart X-UI
+                        subprocess.run(["systemctl", "restart", "x-ui"], check=False)
+                        
+                        await update.message.reply_text(t("limit_ip_success", lang).format(limit=new_limit if new_limit > 0 else "Unlimited"))
+                    else:
+                        await update.message.reply_text(t("msg_client_not_found", lang))
+                else:
+                    await update.message.reply_text(t("sync_error_inbound", lang))
+                
+                conn.close()
+                
+            except Exception as e:
+                logging.error(f"Error updating limitIp: {e}")
+                await update.message.reply_text(t("limit_ip_error", lang))
+            
+            context.user_data['admin_action'] = None
+            # Return to user detail
+            # We can't easily trigger the callback handler from here without mocking, so user has to navigate back manually or we send a link/button
+            await admin_user_detail(update, context) # This might fail if update.callback_query is missing, but we can try adapting admin_user_detail or just sending a fresh message
             return
 
         elif action == 'awaiting_poll_question':

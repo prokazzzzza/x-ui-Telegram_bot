@@ -1,107 +1,62 @@
-# Maxi_VPN_bot
+# X-UI Telegram Bot
 
-**Maxi_VPN_bot** is a comprehensive Telegram bot designed to manage VPN subscriptions powered by [X-UI](https://github.com/MHSanaei/3x-ui) (VLESS + Reality). It provides a seamless user experience for purchasing, managing, and connecting to a secure VPN service using Telegram Stars for payments.
+Этот бот предназначен для управления панелью X-UI через Telegram. Он позволяет продавать подписки, управлять пользователями, проводить опросы и контролировать использование сервиса.
 
-## 🚀 Features
+## Функционал
 
-### User Features
--   **Automated Purchases**: Buy subscriptions (1 Month, 3 Months, 6 Months, 1 Year) instantly using **Telegram Stars**.
--   **Subscription Management**:
-    -   View current subscription status (expiry date, traffic usage).
-    -   Extend existing subscriptions.
-    -   Receive expiry warnings (24h before).
--   **Connection Keys**: One-click retrieval of VLESS+Reality connection strings (subscription URL).
--   **Cross-Platform Support**: Detailed setup instructions for:
-    -   📱 Android (v2RayTun)
-    -   🍎 iOS (V2Box)
-    -   💻 PC (AmneziaVPN / Hiddify)
--   **Referral System**: Invite users and earn bonuses/extensions.
--   **Promo Codes**: Redeem codes for free trial days.
--   **Free Trial**: 3-day free trial for new users.
--   **Multi-language**: Support for Russian 🇷🇺 and English 🇬🇧.
+### 🛍 Магазин и Подписки
+- **Покупка подписок:** Интеграция с Telegram Stars для оплаты.
+- **Автоматическая выдача:** Генерация ключей доступа (VLESS/VMess) сразу после оплаты.
+- **Продление:** Возможность продлить текущую подписку.
+- **Пробный период:** Автоматическая выдача пробного доступа на 3 дня.
 
-### Admin Panel
-Accessible only to the administrator, offering full control over the service:
--   **📊 Statistics**: View server load (CPU, RAM, Disk).
--   **💰 Price Management**: Adjust prices for all subscription tiers dynamically.
--   **📜 Sales Log**: View the last 20 transactions (User, Plan, Amount, Time).
--   **🎁 Promo Codes**:
-    -   Generate standard promo codes with custom duration and usage limits.
-    -   **⚡ Flash Promo System**: Send self-destructing promo messages to all users to drive immediate engagement. Messages are automatically deleted after a set time.
-    -   **👥 Usage History**: Track who used which promo code and when.
-    -   **🗑 Revoke & Manage**: Ability to revoke active promo codes from users (deducting days from their subscription) and visual indicators for expired codes.
--   **📢 Broadcast**: Send messages to all bot users.
--   **👥 User Management**:
-    -   Search users by ID.
-    -   Reset trial status.
-    -   Delete users from the database.
-    -   Rebind users.
--   **🖥 Server Status**: Real-time monitoring of system resources.
+### 👤 Личный кабинет пользователя
+- **Мой конфиг:** Просмотр ключа доступа, QR-кода и ссылок для подключения.
+- **Статистика:** Отображение потребленного трафика (Download/Upload) и срока действия.
+- **Инструкции:** Гайды по настройке для Android, iOS и PC.
 
-## 🛠 Installation & Setup
+### 👮‍♂️ Админ-панель
+- **Статистика:** Общая сводка по пользователям, доходам и трафику.
+- **Управление пользователями:**
+  - Просмотр списка всех/активных/истекающих клиентов.
+  - Детальная информация о клиенте.
+  - **Редактирование лимита устройств (Device Limit):** Установка ограничения на количество одновременных подключений (IP) для каждого пользователя.
+  - Сброс пробного периода.
+  - Удаление пользователей.
+- **Управление сервером:** Мониторинг CPU, RAM, Disk и Live-трафика.
+- **Рассылки:** Отправка сообщений всем пользователям или группам (RU/EN).
+- **Опросы (Custom Polls):**
+  - Создание и рассылка опросов с кастомным дизайном.
+  - Реальное время обновления статистики (прогресс-бары, проценты).
+  - Глобальный учет голосов.
+- **Промокоды:** Создание, удаление и просмотр статистики использования промокодов.
+- **Flash-промо:** Временные сообщения с промокодами, которые удаляются автоматически.
+- **Бэкапы:** Создание резервных копий базы данных.
 
-### Automatic Installation (Recommended)
-You can deploy the bot on any server with a single command. The script will check for X-UI, install it if missing, and configure the bot for you.
+## Установка и Запуск
 
-```bash
-bash <(curl -Ls https://raw.githubusercontent.com/prokazzzzza/x-ui-Telegram_bot/main/bot/install_bot.sh)
-```
+1. **Требования:**
+   - Python 3.10+
+   - X-UI (MHSanaei fork recommended)
+   - Telegram Bot Token
 
-During installation, you will be prompted to enter:
-1.  **Telegram Bot Token** (from @BotFather)
-2.  **Admin Telegram ID** (your numerical ID)
+2. **Настройка:**
+   - Переименуйте `.env.example` в `.env` и заполните переменные:
+     - `BOT_TOKEN`: Токен вашего бота.
+     - `ADMIN_ID`: Ваш Telegram ID.
+     - `HOST_IP`: IP адрес сервера.
 
-### Manual Installation
+3. **Запуск:**
+   Бот работает как системный сервис `x-ui-bot`.
+   ```bash
+   systemctl start x-ui-bot
+   systemctl status x-ui-bot
+   ```
 
-#### Prerequisites
--   Linux Server (Ubuntu/Debian recommended)
--   Python 3.9+
--   X-UI (MHSanaei fork) installed
+## Правила разработки (.trae/rules/rus.md)
 
-#### Configuration
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/prokazzzzza/x-ui-Telegram_bot.git
-    cd x-ui-Telegram_bot/bot
-    ```
-2.  Create a `.env` file with your credentials:
-    ```env
-    BOT_TOKEN=your_bot_token_here
-    ADMIN_ID=your_admin_id_here
-    ```
-3.  Install dependencies:
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
-
-#### Running the Bot
-The bot runs as a systemd service:
-```bash
-systemctl start x-ui-bot
-systemctl enable x-ui-bot
-```
-
-## 📂 Project Structure
--   `bot.py`: Main application logic.
--   `install_bot.sh`: Automated deployment script.
--   `.env`: Configuration file for secrets (not tracked in git).
--   `bot_data.db`: SQLite database for user preferences, transactions, and promos.
--   `/etc/x-ui/x-ui.db`: External connection to X-UI database for client management.
-
-## 📝 Recent Updates
--   **Stability Improvements**: Optimized menu navigation to use text-based updates, preventing message editing errors.
--   **Welcome Image**: Welcome image is now displayed only on bot start (`/start`) to ensure smoother user experience.
--   **Deployment Script**: Added `install_bot.sh` for one-click installation and configuration.
--   **Security**: Moved sensitive credentials (Token, Admin ID) to `.env` file.
--   **Sales Log**: Added a dedicated menu to view recent sales history directly in the admin panel.
--   **Admin Notifications**: Real-time notifications to the admin for every new purchase.
--   **Flash Promo**: Implemented a new marketing tool for time-limited promotions with self-destructing messages.
--   **Promo Management**: Added ability to revoke promo codes and view their expiration status.
--   **Live Monitoring**: Improved server live monitoring with non-blocking updates and instant stop functionality.
--   **Localization**: Improved multi-language support for the Admin Panel.
-
-
-## 📜 License
-Private / Proprietary
+Проект следует строгим правилам разработки:
+- Использование Git Flow (коммиты с описанием).
+- Контроль качества кода (Husky/Pre-commit).
+- UTF-8 кодировка.
+- Регулярное обновление документации.

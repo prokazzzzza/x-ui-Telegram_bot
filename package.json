@@ -1,0 +1,25 @@
+{
+  "name": "x-ui",
+  "version": "1.0.0",
+  "description": "Этот бот предназначен для управления панелью X-UI через Telegram. Он позволяет продавать подписки, управлять пользователями, проводить опросы и контролировать использование сервиса.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "husky"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prokazzzzza/x-ui-Telegram_bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/prokazzzzza/x-ui-Telegram_bot/issues"
+  },
+  "homepage": "https://github.com/prokazzzzza/x-ui-Telegram_bot#readme",
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}
