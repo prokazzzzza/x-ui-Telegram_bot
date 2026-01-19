@@ -5002,6 +5002,7 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(admin_delete_user_db, pattern='^admin_del_db_'))
     application.add_handler(CallbackQueryHandler(admin_delete_client_ask, pattern='^admin_del_client_ask_'))
     application.add_handler(CallbackQueryHandler(admin_delete_client_confirm, pattern='^admin_del_client_confirm_'))
+    application.add_handler(CallbackQueryHandler(admin_edit_limit_ip, pattern='^admin_edit_limit_ip_'))
     
     application.add_handler(CallbackQueryHandler(admin_flash_menu, pattern='^admin_flash_menu$'))
     application.add_handler(CallbackQueryHandler(admin_flash_select, pattern='^admin_flash_sel_'))
