@@ -1798,54 +1798,90 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
     for i, client in enumerate(clients):
         tg_id = str(client.get('tgId', ''))
         
+        # Fallback: Extract tg_id from email if tgId field is empty
+        if not tg_id or not tg_id.isdigit():
+            email = client.get('email', '')
+            if email.startswith('tg_'):
+                possible_id = email[3:]
+                # Check if it has name part (tg_123_name) -> not supported by current new logic but possible old logic
+                # Actually new logic is just tg_ID.
+                # Let's try to split by _ and take first part
+                parts = possible_id.split('_')
+                if parts[0].isdigit():
+                    tg_id = parts[0]
+                    # Update the client object with the recovered tgId for future consistency
+                    client['tgId'] = int(tg_id)
+        
         if tg_id and tg_id.isdigit():
+            user_nick = ""
+            uname = None
+            fname = None
+            lname = None
+            
+            # Try to get info from Telegram
             try:
-                # 1. Fetch from Telegram
                 chat = await context.bot.get_chat(tg_id)
                 uname = chat.username
                 fname = chat.first_name
                 lname = chat.last_name
-                
-                # 2. Update Bot DB
+                # Update Bot DB
                 update_user_info(tg_id, uname, fname, lname)
-                
+            except Exception as e:
+                logging.warning(f"Sync: Failed to fetch chat {tg_id} from API: {e}")
+                # Fallback to local DB
+                try:
+                    conn_bot = sqlite3.connect(BOT_DB_PATH)
+                    cursor_bot = conn_bot.cursor()
+                    cursor_bot.execute("SELECT username, first_name, last_name FROM user_prefs WHERE tg_id=?", (tg_id,))
+                    row_u = cursor_bot.fetchone()
+                    conn_bot.close()
+                    if row_u:
+                        uname = row_u[0]
+                        fname = row_u[1]
+                        lname = row_u[2]
+                        logging.info(f"Sync: Found cached info for {tg_id}: {uname} {fname}")
+                except: pass
+
+            # Construct nickname
+            if uname:
+                user_nick = f"@{uname}"
+            elif fname:
+                user_nick = fname
+                if lname: user_nick += f" {lname}"
+            
+            try:
                 # 3. Update X-UI Comment (nickname)
-                # User request: Only update if comment is empty
-                
-                user_nick = ""
-                if uname:
-                    user_nick = f"@{uname}"
-                elif fname:
-                    user_nick = fname
-                    if lname: user_nick += f" {lname}"
-                
                 if user_nick:
-                    # In 3x-ui, 'remark' is used for Inbound, but clients often don't have a standard comment field.
-                    # BUT, X-UI panels often support arbitrary keys.
-                    # If we want to display it in the UI, we usually need to find what key the UI reads.
-                    # Common keys: 'email' (used as ID), 'limitIp', 'totalGB', 'expiryTime', 'enable', 'tgId', 'subId'.
-                    # Some forks use '_comment' or 'comment'.
-                    # Let's try to set 'comment' as per user request "в инбаундах их комментарии".
-                    # And also 'remark' just in case.
-                    
+                    # Check existing keys
                     old_comment = client.get('comment', '')
-                    if not old_comment:
+                    old_remark = client.get('_comment', '')
+                    old_u_remark = client.get('remark', '') 
+                    
+                    if not old_comment and not old_remark and not old_u_remark:
                          client['comment'] = user_nick
+                         client['_comment'] = user_nick 
+                         
+                         # Ensure tgId is set correctly
+                         if 'tgId' not in client or not client['tgId']:
+                             client['tgId'] = int(tg_id)
+
+                         clients[i] = client
                          changed = True
                          updated_count += 1
+                         logging.info(f"Sync: Updated comment for {tg_id} -> {user_nick}")
+                else:
+                    logging.warning(f"Sync: No nickname found for {tg_id}")
+                
+                # Also force update tgId if it was missing/mismatched
+                current_tgid = client.get('tgId')
+                if str(current_tgid) != str(tg_id):
+                    client['tgId'] = int(tg_id)
+                    clients[i] = client
+                    changed = True
+                    logging.info(f"Sync: Restored tgId for {tg_id}")
                          
-                    # Also try 'remark' if it exists in the client object structure or if we want to add it
-                    # But be careful not to break strict parsers.
-                    # X-UI is usually lenient with extra JSON fields.
-                    
-                # We do NOT change email here.
-                
             except Exception as e:
-                logging.error(f"Failed to sync {tg_id}: {e}")
-                failed_count += 1
-                
-                updated_count += 1
-            except Exception:
+                logging.error(f"Sync: Critical error processing client {tg_id}: {e}")
                 failed_count += 1
         
         # Update progress
@@ -1858,9 +1894,12 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
         
     if changed:
         # Save X-UI settings
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
         new_settings = json.dumps(settings, indent=2)
         cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (new_settings, INBOUND_ID))
         conn.commit()
+        conn.close()
         # Restart X-UI
         # subprocess.run(["systemctl", "restart", "x-ui"])
         proc = await asyncio.create_subprocess_exec("systemctl", "restart", "x-ui")
