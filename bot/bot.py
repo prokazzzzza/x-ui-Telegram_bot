@@ -195,6 +195,12 @@ TEXTS = {
         "btn_admin_server": "🖥 Server",
         "btn_admin_prices": "💰 Pricing",
         "btn_admin_promos": "🎁 Promo Codes",
+        "btn_suspicious": "⚠️ Multi-IP",
+        "btn_leaderboard": "🏆 Leaderboard",
+        "leaderboard_title": "🏆 *Traffic Leaderboard*\n\nRanking by total traffic usage:",
+        "leaderboard_empty": "No data available.",
+        "leaderboard_rank": "#{rank} {label}: {traffic}",
+        "leaderboard_header": "🏆 *Traffic Leaderboard* (Page {page}/{total})\n\n",
         "btn_admin_poll": "📊 Polls",
         "btn_admin_broadcast": "📢 Broadcast",
         "btn_admin_sales": "📜 Sales Log",
@@ -516,6 +522,11 @@ TEXTS = {
         "ip_history_empty": "История подключений не найдена.",
         "ip_history_entry": "{flag} `{ip}` ({country})\n🕒 {time}\n",
         "btn_suspicious": "⚠️ Мульти-IP",
+        "btn_leaderboard": "🏆 Топ пользователей",
+        "leaderboard_title": "🏆 *Рейтинг по трафику*\n\nТоп пользователей по потреблению:",
+        "leaderboard_empty": "Нет данных.",
+        "leaderboard_rank": "№{rank} {label}: {traffic}",
+        "leaderboard_header": "🏆 *Рейтинг по трафику* (Стр. {page}/{total})\n\n",
         "suspicious_title": "⚠️ *Пользователи с мульти-подключениями*\n(>1 IP за последние 10 мин)\n\n",
         "suspicious_empty": "✅ Подозрительных активностей не обнаружено.",
         "suspicious_entry": "📧 `{email}`\n🔌 IP: {count}\n{ips}\n\n",
@@ -695,6 +706,18 @@ def init_db():
     ''')
     # Index for fast lookup
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_flash_delete ON flash_messages(delete_at)")
+    
+    # Suspicious Events Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS suspicious_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            ips TEXT, -- Comma separated IPs with flags
+            timestamp INTEGER, -- First detection time
+            last_seen INTEGER, -- Last detection time
+            count INTEGER DEFAULT 1 -- How many detection intervals
+        )
+    ''')
     
     # Polls Tables
     cursor.execute('''
@@ -907,27 +930,13 @@ def get_user_rank(tg_id):
         settings = json.loads(row[0])
         clients = settings.get('clients', [])
         
-        # Filter clients with valid expiry or unlimited (0)
-        # We want to rank by expiryTime descending.
-        # 0 is unlimited, should be at top.
-        # But for comparison, let's treat 0 as very large number.
-        
         valid_clients = []
         user_expiry = None
-        
-        current_time_ms = int(time.time() * 1000)
         
         for c in clients:
             expiry = c.get('expiryTime', 0)
             tid = str(c.get('tgId', ''))
-            
-            # Treat 0 as infinity (e.g., year 3000)
-            sort_val = expiry if expiry > 0 else 32503680000000 # Year 3000
-            
-            # Include only active or unlimited? Or all?
-            # User wants "competition". Usually implies active users.
-            # Let's include everyone who is enabled or has future expiry?
-            # If I am expired, I should be at bottom.
+            sort_val = expiry if expiry > 0 else 32503680000000
             
             valid_clients.append({
                 'tg_id': tid,
@@ -940,7 +949,6 @@ def get_user_rank(tg_id):
         if user_expiry is None:
             return None, len(valid_clients), 0
             
-        # Sort descending
         valid_clients.sort(key=lambda x: x['sort_val'], reverse=True)
         
         rank = -1
@@ -950,14 +958,69 @@ def get_user_rank(tg_id):
                 break
                 
         total = len(valid_clients)
-        percent = int(((total - rank) / total) * 100) if total > 0 else 0
-        # Wait, top 1 is (10-1)/10 = 90%? No. Top 1/10 is top 10%.
-        # Percentile: (total - rank + 1) / total * 100 ?
-        # Rank 1 of 100 -> Top 1%
         percent_top = int((rank / total) * 100) if total > 0 else 0
         if percent_top == 0: percent_top = 1
         
         return rank, total, percent_top
+        
+    except Exception as e:
+        logging.error(f"Error calculating rank: {e}")
+        return None, 0, 0
+
+def get_user_rank_traffic(target_email):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # 1. Get all clients from settings
+        cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        
+        if not row:
+            conn.close()
+            return None, 0, 0
+            
+        settings = json.loads(row[0])
+        clients = settings.get('clients', [])
+        
+        # 2. Get traffic for all clients
+        cursor.execute("SELECT email, up, down FROM client_traffics")
+        traffic_rows = cursor.fetchall()
+        traffic_map = {row[0]: (row[1] or 0) + (row[2] or 0) for row in traffic_rows}
+        conn.close()
+        
+        # 3. Build list with traffic
+        leaderboard = []
+        user_traffic = 0
+        
+        for c in clients:
+            email = c.get('email', '')
+            traffic = traffic_map.get(email, 0)
+            
+            # Fallback to settings if not in map
+            if traffic == 0:
+                traffic = c.get('up', 0) + c.get('down', 0)
+                
+            leaderboard.append({
+                'email': email,
+                'traffic': traffic
+            })
+            
+            if email == target_email:
+                user_traffic = traffic
+                
+        # 4. Sort descending
+        leaderboard.sort(key=lambda x: x['traffic'], reverse=True)
+        
+        # 5. Find rank
+        rank = -1
+        for idx, item in enumerate(leaderboard):
+            if item['email'] == target_email:
+                rank = idx + 1
+                break
+                
+        total = len(leaderboard)
+        return rank, total, user_traffic
         
     except Exception as e:
         logging.error(f"Error calculating rank: {e}")
@@ -1400,6 +1463,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_admin_prices", lang), callback_data='admin_prices')],
         [InlineKeyboardButton(t("btn_admin_promos", lang), callback_data='admin_promos_menu')],
         [InlineKeyboardButton(t("btn_suspicious", lang), callback_data='admin_suspicious')],
+        [InlineKeyboardButton(t("btn_leaderboard", lang), callback_data='admin_leaderboard')],
         [InlineKeyboardButton(t("btn_admin_poll", lang), callback_data='admin_poll_menu')],
         [InlineKeyboardButton(t("btn_admin_broadcast", lang), callback_data='admin_broadcast')],
         [InlineKeyboardButton(t("btn_admin_sales", lang), callback_data='admin_sales_log')],
@@ -2184,6 +2248,97 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     await query.edit_message_text(t("users_list_title", lang).format(title=title_map.get(filter_type, 'Clients')), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    # format: admin_leaderboard_{page}
+    parts = query.data.split('_')
+    page = 0
+    if len(parts) == 3:
+        try:
+            page = int(parts[2])
+        except: pass
+        
+    ITEMS_PER_PAGE = 10
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+    row = cursor.fetchone()
+    
+    if not row:
+        conn.close()
+        return
+
+    settings = json.loads(row[0])
+    clients = settings.get('clients', [])
+    
+    cursor.execute("SELECT email, up, down FROM client_traffics")
+    traffic_rows = cursor.fetchall()
+    traffic_map = {row[0]: (row[1] or 0) + (row[2] or 0) for row in traffic_rows}
+    conn.close()
+    
+    leaderboard = []
+    
+    for c in clients:
+        email = c.get('email', '')
+        traffic = traffic_map.get(email, 0)
+        if traffic == 0:
+            traffic = c.get('up', 0) + c.get('down', 0)
+            
+        leaderboard.append({
+            'email': email,
+            'traffic': traffic,
+            'uid': c.get('id'),
+            'enable': c.get('enable')
+        })
+        
+    # Sort descending
+    leaderboard.sort(key=lambda x: x['traffic'], reverse=True)
+    
+    total_items = len(leaderboard)
+    total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    if total_pages == 0: total_pages = 1
+    
+    if page >= total_pages: page = total_pages - 1
+    
+    start = page * ITEMS_PER_PAGE
+    end = start + ITEMS_PER_PAGE
+    current_items = leaderboard[start:end]
+    
+    text = t("leaderboard_header", lang).format(page=page+1, total=total_pages)
+    if not current_items:
+        text += t("leaderboard_empty", lang)
+            
+    # Keyboard construction
+    keyboard = []
+    for i, item in enumerate(current_items):
+        rank = start + i + 1
+        status = "🟢" if item['enable'] else "🔴"
+        email = item['email']
+        traffic_gb = item['traffic'] / (1024**3)
+        label = f"#{rank} {status} {email} ({traffic_gb:.2f} GB)"
+        
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"admin_u_{item['uid']}")])
+        
+    # Navigation
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f'admin_leaderboard_{page-1}'))
+        
+    nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data='noop'))
+    
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("➡️", callback_data=f'admin_leaderboard_{page+1}'))
+        
+    keyboard.append(nav_row)
+    keyboard.append([InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')])
+    
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
 async def admin_reset_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -2286,6 +2441,10 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_sub_active = (expiry_ms == 0) or (expiry_ms > current_time_ms)
     sub_active_str = t("status_yes", lang) if is_sub_active else t("status_no", lang)
     
+    # Rank
+    rank, total_users, _ = get_user_rank_traffic(email)
+    rank_str = f"#{rank} / {total_users}" if rank else "?"
+
     # Hours left
     if expiry_ms == 0:
         hours_left = "♾️"
@@ -2358,6 +2517,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         trial_status_str = f"❓ {t('trial_unknown', lang)}"
     
     text = f"""{t('user_detail_email', lang)} {email}
+🏆 Rank: {rank_str}
 {t('user_detail_tgid', lang)} {tg_id_val}
 {t('user_detail_nick', lang)} {username}
 {t('user_detail_enabled', lang)} {is_enabled_str}
@@ -2469,88 +2629,71 @@ async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_T
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
     
-    # Analyze last 1 hour of logs for SIMULTANEOUS usage
-    # Logic: Group by Minute. If a user has > 1 IP in the same minute -> Suspicious.
-    
-    threshold = int(time.time()) - 3600 # Last 1 hour
+    # admin_suspicious_PAGE
+    parts = query.data.split('_')
+    page = 0
+    if len(parts) >= 3:
+        try:
+            page = int(parts[2])
+        except: page = 0
+        
+    ITEMS_PER_PAGE = 10
+    offset = page * ITEMS_PER_PAGE
     
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
-    # Get all logs for last hour
+    
+    # Get total count
+    cursor.execute("SELECT COUNT(*) FROM suspicious_events")
+    total_items = cursor.fetchone()[0]
+    total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+    if total_pages == 0: total_pages = 1
+    
+    # Get items
     cursor.execute("""
-        SELECT email, ip, timestamp, country_code 
-        FROM connection_logs 
-        WHERE timestamp > ?
-        ORDER BY timestamp ASC
-    """, (threshold,))
+        SELECT email, ips, last_seen, count 
+        FROM suspicious_events 
+        ORDER BY last_seen DESC 
+        LIMIT ? OFFSET ?
+    """, (ITEMS_PER_PAGE, offset))
     rows = cursor.fetchall()
     conn.close()
     
-    # Dictionary: email -> { timestamp_minute: {ip1, ip2...} }
-    analysis = {}
-    
-    for row in rows:
-        email, ip, ts, cc = row
-        # Round timestamp to nearest minute (60 seconds)
-        minute_bucket = ts // 60
-        
-        if email not in analysis:
-            analysis[email] = {}
-        
-        if minute_bucket not in analysis[email]:
-            analysis[email][minute_bucket] = set()
-            
-        # We store tuple (ip, country_code) to display flag later
-        analysis[email][minute_bucket].add((ip, cc))
-        
-    suspicious_users = []
-    
-    for email, minutes in analysis.items():
-        # Check each minute bucket
-        detected_ips = set()
-        simultaneous_minutes = 0
-        
-        for minute, ips_set in minutes.items():
-            if len(ips_set) > 1:
-                # Found simultaneous usage in this minute!
-                simultaneous_minutes += 1
-                for ip_data in ips_set:
-                    detected_ips.add(ip_data)
-        
-        if simultaneous_minutes > 0:
-            suspicious_users.append({
-                'email': email,
-                'ips': detected_ips, # Set of (ip, cc)
-                'minutes': simultaneous_minutes
-            })
-    
     text = t("suspicious_title", lang)
     
-    if not suspicious_users:
+    if not rows:
         text += t("suspicious_empty", lang)
     else:
-        for user in suspicious_users:
-            email = user['email']
-            count = len(user['ips'])
-            mins = user['minutes']
+        for row in rows:
+            email, ip_str, last_seen, count = row
+            time_str = datetime.datetime.fromtimestamp(last_seen, tz=TIMEZONE).strftime("%Y-%m-%d %H:%M")
             
-            # Format IPs list
-            ip_lines = []
-            for ip, cc in user['ips']:
-                flag = get_flag_emoji(cc)
-                ip_lines.append(f"{flag} {ip}")
+            # Format IPs: try to ensure flags are present if string already has them, otherwise just display
+            # The background task stores formatted string "🇺🇸 1.2.3.4, 🇩🇪 5.6.7.8"
             
-            ip_str = ", ".join(ip_lines)
+            # Text entry
+            text += f"📧 `{email}`\n⏱ {time_str} | 🔢 {count} x\n🔌 {ip_str}\n\n"
             
-            # Add entry to text
-            # We can reuse suspicious_entry but format slightly differently or update translation
-            # Let's hardcode format here for better control or update translation key
-            # "📧 `{email}`\n⏱ Minutes: {mins}\n🔌 IPs: {ip_str}\n\n"
-            text += f"📧 `{email}`\n⏱ Совпадений (мин): {mins}\n🔌 IP: {ip_str}\n\n"
-            
+    # Pagination
+    keyboard = []
+    nav_row = []
+    
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f'admin_suspicious_{page-1}'))
+        
+    nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data='noop'))
+    
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("➡️", callback_data=f'admin_suspicious_{page+1}'))
+        
+    if nav_row:
+        keyboard.append(nav_row)
+        
+    keyboard.append([InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')])
+    
     await query.edit_message_text(
         text,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]]),
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
 
@@ -5295,6 +5438,102 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_poll_menu')]])
     )
 
+async def detect_suspicious_activity(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Background task to analyze logs and store suspicious events (Multi-IP).
+    Runs every 5 minutes. Analyzes last 10 minutes.
+    """
+    try:
+        # Analyze last 10 minutes (600 seconds)
+        # We look for SIMULTANEOUS usage in the same minute
+        now = int(time.time())
+        threshold = now - 600
+        
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        
+        # Get logs
+        cursor.execute("""
+            SELECT email, ip, timestamp, country_code 
+            FROM connection_logs 
+            WHERE timestamp > ?
+            ORDER BY timestamp ASC
+        """, (threshold,))
+        rows = cursor.fetchall()
+        
+        if not rows:
+            conn.close()
+            return
+
+        # Analysis Logic (Same as before)
+        analysis = {}
+        for row in rows:
+            email, ip, ts, cc = row
+            minute_bucket = ts // 60
+            if email not in analysis: analysis[email] = {}
+            if minute_bucket not in analysis[email]: analysis[email][minute_bucket] = set()
+            analysis[email][minute_bucket].add((ip, cc))
+            
+        suspicious_users = []
+        for email, minutes in analysis.items():
+            detected_ips = set()
+            simultaneous_minutes = 0
+            for minute, ips_set in minutes.items():
+                if len(ips_set) > 1:
+                    simultaneous_minutes += 1
+                    for ip_data in ips_set:
+                        detected_ips.add(ip_data)
+            
+            if simultaneous_minutes > 0:
+                suspicious_users.append({
+                    'email': email,
+                    'ips': detected_ips,
+                    'minutes': simultaneous_minutes
+                })
+        
+        # Save to DB
+        current_time = int(time.time())
+        
+        for user in suspicious_users:
+            email = user['email']
+            # Format IPs string
+            ip_lines = []
+            for ip, cc in user['ips']:
+                flag = get_flag_emoji(cc)
+                ip_lines.append(f"{flag} {ip}")
+            ip_str = ", ".join(ip_lines)
+            
+            # Check if event exists for this user recently (e.g. last 30 mins) to avoid spamming DB
+            # If exists, update 'last_seen' and increment 'count'
+            # If IPs changed, maybe create new? Let's just update for simplicity.
+            
+            recent_threshold = current_time - 1800 # 30 mins
+            
+            cursor.execute("SELECT id, count, ips FROM suspicious_events WHERE email=? AND last_seen > ?", (email, recent_threshold))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Update
+                eid, count, old_ips = existing
+                # Merge IPs if new ones appeared
+                # Simple logic: overwrite with latest detected set (or merge strings, but that's messy)
+                # Let's overwrite IPs with the current detected set as it's the latest state.
+                # Or better: merge unique IPs.
+                
+                # We can't easily parse old_ips back to set without regex. 
+                # Let's just update last_seen and count.
+                cursor.execute("UPDATE suspicious_events SET last_seen=?, count=count+?, ips=? WHERE id=?", (current_time, user['minutes'], ip_str, eid))
+            else:
+                # Insert New
+                cursor.execute("INSERT INTO suspicious_events (email, ips, timestamp, last_seen, count) VALUES (?, ?, ?, ?, ?)",
+                               (email, ip_str, current_time, current_time, user['minutes']))
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        logging.error(f"Error in detect_suspicious_activity: {e}")
+
 def register_handlers(application):
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(set_language, pattern='^set_lang_'))
@@ -5351,7 +5590,8 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(admin_delete_client_confirm, pattern='^admin_del_client_confirm_'))
     application.add_handler(CallbackQueryHandler(admin_edit_limit_ip, pattern='^admin_edit_limit_ip_'))
     application.add_handler(CallbackQueryHandler(admin_ip_history, pattern='^admin_ip_history_'))
-    application.add_handler(CallbackQueryHandler(admin_suspicious_users, pattern='^admin_suspicious$'))
+    application.add_handler(CallbackQueryHandler(admin_suspicious_users, pattern='^admin_suspicious.*'))
+    application.add_handler(CallbackQueryHandler(admin_leaderboard, pattern='^admin_leaderboard'))
     
     application.add_handler(CallbackQueryHandler(admin_flash_menu, pattern='^admin_flash_menu$'))
     application.add_handler(CallbackQueryHandler(admin_flash_select, pattern='^admin_flash_sel_'))
@@ -5371,6 +5611,7 @@ if __name__ == '__main__':
     job_queue.run_repeating(check_expiring_subscriptions, interval=86400, first=10)
     job_queue.run_repeating(log_traffic_stats, interval=3600, first=5) # Every hour
     job_queue.run_repeating(cleanup_flash_messages, interval=60, first=10) # Every minute
+    job_queue.run_repeating(detect_suspicious_activity, interval=300, first=30) # Every 5 minutes check for suspicious users
     
     print("Bot started...")
     application.run_polling()
