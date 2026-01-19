@@ -1809,50 +1809,40 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
                 # 2. Update Bot DB
                 update_user_info(tg_id, uname, fname, lname)
                 
-                # 3. Update X-UI Email (if needed)
-                # Format: tg_{ID}_{Username} or tg_{ID}_{FirstName}
-                # Sanitize: Alphanumeric only + underscores
+                # 3. Update X-UI Comment (nickname)
+                # User request: Only update if comment is empty
                 
-                base_name = ""
+                user_nick = ""
                 if uname:
-                    base_name = uname
+                    user_nick = f"@{uname}"
                 elif fname:
-                    base_name = fname
-                    
-                # Sanitize
-                import re
-                clean_name = re.sub(r'[^a-zA-Z0-9]', '', base_name)
-                if not clean_name: clean_name = "User"
+                    user_nick = fname
+                    if lname: user_nick += f" {lname}"
                 
-                # User requested email to be just tg_ID, and name in comment
-                new_email = f"tg_{tg_id}"
-                old_email = client.get('email')
-                
-                # Update comment if changed
-                old_comment = client.get('comment', '')
-                if old_comment != clean_name:
-                    client['comment'] = clean_name
-                    clients[i] = client
-                    changed = True
-                
-                if old_email != new_email:
-                    # Check for duplicates? X-UI might complain if duplicate.
-                    # But tg_ID is unique usually.
+                if user_nick:
+                    # In 3x-ui, 'remark' is used for Inbound, but clients often don't have a standard comment field.
+                    # BUT, X-UI panels often support arbitrary keys.
+                    # If we want to display it in the UI, we usually need to find what key the UI reads.
+                    # Common keys: 'email' (used as ID), 'limitIp', 'totalGB', 'expiryTime', 'enable', 'tgId', 'subId'.
+                    # Some forks use '_comment' or 'comment'.
+                    # Let's try to set 'comment' as per user request "в инбаундах их комментарии".
+                    # And also 'remark' just in case.
                     
-                    # Update Client Object
-                    client['email'] = new_email
-                    clients[i] = client
-                    changed = True
+                    old_comment = client.get('comment', '')
+                    if not old_comment:
+                         client['comment'] = user_nick
+                         changed = True
+                         updated_count += 1
+                         
+                    # Also try 'remark' if it exists in the client object structure or if we want to add it
+                    # But be careful not to break strict parsers.
+                    # X-UI is usually lenient with extra JSON fields.
                     
-                    # Update client_traffics to preserve stats
-                    try:
-                        conn.execute("UPDATE client_traffics SET email=? WHERE email=?", (new_email, old_email))
-                        # Also update local history if any
-                        conn_bot = sqlite3.connect(BOT_DB_PATH)
-                        conn_bot.execute("UPDATE traffic_history SET email=? WHERE email=?", (new_email, old_email))
-                        conn_bot.commit()
-                        conn_bot.close()
-                    except: pass
+                # We do NOT change email here.
+                
+            except Exception as e:
+                logging.error(f"Failed to sync {tg_id}: {e}")
+                failed_count += 1
                 
                 updated_count += 1
             except Exception:
@@ -2407,37 +2397,84 @@ async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_T
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
     
-    # Threshold: active in last 10 minutes (600 seconds)
-    threshold = int(time.time()) - 600
+    # Analyze last 1 hour of logs for SIMULTANEOUS usage
+    # Logic: Group by Minute. If a user has > 1 IP in the same minute -> Suspicious.
+    
+    threshold = int(time.time()) - 3600 # Last 1 hour
     
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
+    # Get all logs for last hour
     cursor.execute("""
-        SELECT email, ip 
+        SELECT email, ip, timestamp, country_code 
         FROM connection_logs 
         WHERE timestamp > ?
+        ORDER BY timestamp ASC
     """, (threshold,))
     rows = cursor.fetchall()
     conn.close()
     
-    # Process grouping in python
-    usage = {}
-    for email, ip in rows:
-        if email not in usage:
-            usage[email] = set()
-        usage[email].add(ip)
+    # Dictionary: email -> { timestamp_minute: {ip1, ip2...} }
+    analysis = {}
     
-    # Filter for > 1 unique IP
-    suspicious_list = {k: v for k, v in usage.items() if len(v) > 1}
+    for row in rows:
+        email, ip, ts, cc = row
+        # Round timestamp to nearest minute (60 seconds)
+        minute_bucket = ts // 60
+        
+        if email not in analysis:
+            analysis[email] = {}
+        
+        if minute_bucket not in analysis[email]:
+            analysis[email][minute_bucket] = set()
+            
+        # We store tuple (ip, country_code) to display flag later
+        analysis[email][minute_bucket].add((ip, cc))
+        
+    suspicious_users = []
+    
+    for email, minutes in analysis.items():
+        # Check each minute bucket
+        detected_ips = set()
+        simultaneous_minutes = 0
+        
+        for minute, ips_set in minutes.items():
+            if len(ips_set) > 1:
+                # Found simultaneous usage in this minute!
+                simultaneous_minutes += 1
+                for ip_data in ips_set:
+                    detected_ips.add(ip_data)
+        
+        if simultaneous_minutes > 0:
+            suspicious_users.append({
+                'email': email,
+                'ips': detected_ips, # Set of (ip, cc)
+                'minutes': simultaneous_minutes
+            })
     
     text = t("suspicious_title", lang)
     
-    if not suspicious_list:
+    if not suspicious_users:
         text += t("suspicious_empty", lang)
     else:
-        for email, ips in suspicious_list.items():
-            ip_str = ", ".join(list(ips))
-            text += t("suspicious_entry", lang).format(email=email, count=len(ips), ips=ip_str)
+        for user in suspicious_users:
+            email = user['email']
+            count = len(user['ips'])
+            mins = user['minutes']
+            
+            # Format IPs list
+            ip_lines = []
+            for ip, cc in user['ips']:
+                flag = get_flag_emoji(cc)
+                ip_lines.append(f"{flag} {ip}")
+            
+            ip_str = ", ".join(ip_lines)
+            
+            # Add entry to text
+            # We can reuse suspicious_entry but format slightly differently or update translation
+            # Let's hardcode format here for better control or update translation key
+            # "📧 `{email}`\n⏱ Minutes: {mins}\n🔌 IPs: {ip_str}\n\n"
+            text += f"📧 `{email}`\n⏱ Совпадений (мин): {mins}\n🔌 IP: {ip_str}\n\n"
             
     await query.edit_message_text(
         text,
@@ -2489,7 +2526,6 @@ async def admin_promos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_admin_promo_list", lang), callback_data='admin_promo_list')],
         [InlineKeyboardButton(t("btn_admin_flash", lang), callback_data='admin_flash_menu')],
         [InlineKeyboardButton(t("btn_admin_promo_history", lang), callback_data='admin_promo_uses_0')],
-        [InlineKeyboardButton(t("btn_suspicious", lang), callback_data='admin_suspicious')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
     
@@ -3987,7 +4023,7 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
             else:
                 new_expiry = current_expiry + ms_to_add
                 
-            # Update comment with latest nickname if available
+            # Update comment with latest nickname if available (User Request: auto-update comment on any sub action)
             try:
                 user = None
                 if update.callback_query:
@@ -3996,15 +4032,22 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                     user = update.message.from_user
                 
                 if user:
-                    import re
-                    uname = user.username
-                    fname = user.first_name
-                    base_name = uname if uname else fname
-                    if not base_name: base_name = "User"
-                    clean_name = re.sub(r'[^a-zA-Z0-9]', '', base_name)
-                    if not clean_name: clean_name = "User"
+                    user_nick = ""
+                    if user.username:
+                        user_nick = f"@{user.username}"
+                    elif user.first_name:
+                        user_nick = user.first_name
+                        if user.last_name: user_nick += f" {user.last_name}"
                     
-                    user_client['comment'] = clean_name
+                    if user_nick:
+                        # Only write if comment is empty, or user wants force update?
+                        # User said: "в дальнейшем при любых подписках... сразу туда заполнять данные в эти комментарии"
+                        # Implicitly means we should ensure it's set.
+                        # And: "Если в комментарии уже есть чтото, то пропускаем перезапись."
+                        
+                        old_comment = user_client.get('comment', '')
+                        if not old_comment:
+                            user_client['comment'] = user_nick
             except: pass
                 
             user_client['expiryTime'] = new_expiry
@@ -4026,28 +4069,32 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
             new_expiry = current_time_ms + ms_to_add
             
             # Try to get nickname for new client
-            uname_val = "User"
+            uname_val = ""
             try:
                 # Check DB first
                 conn_db = sqlite3.connect(BOT_DB_PATH)
                 cursor_db = conn_db.cursor()
-                cursor_db.execute("SELECT username, first_name FROM user_prefs WHERE tg_id=?", (tg_id,))
+                cursor_db.execute("SELECT username, first_name, last_name FROM user_prefs WHERE tg_id=?", (tg_id,))
                 row_db = cursor_db.fetchone()
                 conn_db.close()
                 
                 if row_db:
-                    if row_db[0]: uname_val = row_db[0]
-                    elif row_db[1]: uname_val = row_db[1]
+                    if row_db[0]:
+                        uname_val = f"@{row_db[0]}"
+                    elif row_db[1]:
+                        uname_val = row_db[1]
+                        if row_db[2]: uname_val += f" {row_db[2]}"
                 else:
                     # Fetch
                     chat = await context.bot.get_chat(tg_id)
-                    if chat.username: uname_val = chat.username
-                    elif chat.first_name: uname_val = chat.first_name
+                    if chat.username:
+                        uname_val = f"@{chat.username}"
+                    elif chat.first_name:
+                        uname_val = chat.first_name
+                        if chat.last_name: uname_val += f" {chat.last_name}"
             except: pass
             
-            import re
-            clean_name = re.sub(r'[^a-zA-Z0-9]', '', uname_val)
-            if not clean_name: clean_name = "User"
+            if not uname_val: uname_val = "User"
             
             # Use simple tg_ID for email, put nickname in comment
             new_email = f"tg_{tg_id}"
@@ -4064,7 +4111,7 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                 "flow": "xtls-rprx-vision",
                 "created_at": current_time_ms,
                 "updated_at": current_time_ms,
-                "comment": clean_name,
+                "comment": uname_val, # Use full nickname
                 "reset": 0
             }
             clients.append(new_client)
@@ -4434,6 +4481,19 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if user_client:
                     # Try to get fresh stats from client_traffics using the found email
                     found_email = user_client.get('email')
+                    
+                    # Also try to update remark if it's empty (proactive update)
+                    try:
+                        # Check remark
+                        # Note: We are in a read-only transaction here maybe? No, we can write.
+                        # But we are inside `stats` handler, we should be careful.
+                        # However, user requested: "в дальнейшем при любых подписках... сразу туда заполнять данные"
+                        # This block is for existing users viewing stats.
+                        # Let's do it in 'process_subscription' instead for new subs.
+                        # Here we just read.
+                        pass
+                    except: pass
+
                     if found_email:
                         cursor.execute("SELECT up, down FROM client_traffics WHERE email=?", (found_email,))
                         row_fresh = cursor.fetchone()
