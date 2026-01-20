@@ -161,19 +161,19 @@ TEXTS = {
         "sub_expired": "⚠️ Subscription Expired\n\nYour subscription has expired. Please buy a new plan to restore access.",
         "sub_active": "✅ Your Subscription is Active\n\n📅 Expires: {expiry}\n\nKey:\n`{link}`",
         "sub_not_found": "❌ No Subscription Found\n\nYou don't have an active subscription. Please visit the shop.",
-        "stats_title": "📊 Your Stats\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
+        "stats_title": "📊 <b>Your Stats</b>\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
         "stats_no_sub": "No stats found. Subscription required.",
-        "expiry_warning": "⚠️ Subscription Expiring Soon!\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
+        "expiry_warning": "⚠️ <b>Subscription Expiring Soon!</b>\n\nYour VPN subscription will expire in less than <b>24</b> hours.\nPlease renew it to avoid service interruption.",
         "btn_renew": "💎 Renew Now",
         "btn_instructions": "📚 Setup Instructions",
         "lang_sel": "Language selected: English 🇬🇧",
-        "trial_used": "⚠️ Trial Already Used\n\nYou have already used your trial period.\nActivated: {date}",
-        "trial_activated": "🎉 Trial Activated!\n\nYou have received 3 days of free access.\nCheck '🚀 My Config' to connect.",
-        "ref_title": "👥 *Referral Program*\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n`{link}`\n\n🎁 You have invited: {count} users.",
-        "promo_prompt": "🎁 *Redeem Promo Code*\n\nPlease enter your promo code:",
-        "promo_success": "✅ *Promo Code Redeemed!*\n\nAdded {days} days to your subscription.",
-        "promo_invalid": "❌ *Invalid or Expired Code*",
-        "promo_used": "⚠️ *Code Already Used*",
+        "trial_used": "⚠️ <b>Trial Already Used</b>\n\nYou have already used your trial period.\nActivated: <b>{date}</b>",
+        "trial_activated": "🎉 <b>Trial Activated!</b>\n\nYou have received <b>3</b> days of free access.\nCheck '🚀 My Config' to connect.",
+        "ref_title": "👥 <b>Referral Program</b>\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n<code>{link}</code>\n\n🎁 You have invited: <b>{count}</b> users.",
+        "promo_prompt": "🎁 <b>Redeem Promo Code</b>\n\nPlease enter your promo code:",
+        "promo_success": "✅ <b>Promo Code Redeemed!</b>\n\nAdded <b>{days}</b> days to your subscription.",
+        "promo_invalid": "❌ <b>Invalid or Expired Code</b>",
+        "promo_used": "⚠️ <b>Code Already Used</b>",
         "instr_menu": "📚 *Setup Instructions*\n\nChoose your device:",
         "btn_android": "📱 Android (v2RayTun)",
         "btn_ios": "🍎 iOS (V2Box)",
@@ -352,12 +352,12 @@ TEXTS = {
         "sub_active_html": "✅ <b>Your subscription is active</b>\n\n📅 Expires: {expiry}",
         "sub_recommendation": "\n\n👇 <b>Subscription recommended</b>\n        (Tap link to copy)\n\n📋 <b>Subscription Link:</b>\n<code>{link}</code>\n\n🔑 <b>Access Key:</b> (Tap to reveal)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
         "expiry_unlimited": "Unlimited",
-        "stats_your_title": "📊 *Your Statistics*",
-        "stats_today": "📅 *Today:*",
-        "stats_week": "📅 *This Week:*",
-        "stats_month": "📅 *This Month:*",
-        "stats_total": "📦 *Total:*",
-        "stats_expires": "⏳ *Expires:*",
+        "stats_your_title": "📊 <b>Your Statistics</b>",
+        "stats_today": "📅 <b>Today:</b>",
+        "stats_week": "📅 <b>This Week:</b>",
+        "stats_month": "📅 <b>This Month:</b>",
+        "stats_total": "📦 <b>Total:</b>",
+        "stats_expires": "⏳ <b>Expires:</b>",
         "unlimited_text": "♾️ Unlimited"
     },
     "ru": {
@@ -366,12 +366,12 @@ TEXTS = {
         "sub_active_html": "✅ <b>Ваша подписка активна</b>\n\n📅 Истекает: {expiry}",
         "sub_recommendation": "\n\n👇 <b>Рекомендуется использовать подписку</b>\n        (Нажмите на ссылку для копирования)\n\n📋 <b>Ссылка подписки:</b>\n<code>{link}</code>\n\n🔑 <b>Ключ доступа:</b> (Нажмите чтобы развернуть)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
         "expiry_unlimited": "Безлимит",
-        "stats_your_title": "📊 *Ваша статистика*",
-        "stats_today": "📅 *За сегодня:*",
-        "stats_week": "📅 *За неделю:*",
-        "stats_month": "📅 *За месяц:*",
-        "stats_total": "📦 *Всего:*",
-        "stats_expires": "⏳ *Истекает:*",
+        "stats_your_title": "📊 <b>Ваша статистика</b>",
+        "stats_today": "📅 <b>За сегодня:</b>",
+        "stats_week": "📅 <b>За неделю:</b>",
+        "stats_month": "📅 <b>За месяц:</b>",
+        "stats_total": "📦 <b>Всего:</b>",
+        "stats_expires": "⏳ <b>Истекает:</b>",
         "unlimited_text": "♾️ Безлимит",
         "welcome": "Добро пожаловать в Maxi-VPN! 🛡️\n\nПожалуйста, выберите язык:",
         "main_menu": "🚀 Maxi-VPN — Твой пропуск в свободный интернет!\n\n⚡️ Высокая скорость, анонимность и доступ к любым сервисам.\n💎 Оплата в один клик через Telegram Stars.",
@@ -1500,7 +1500,7 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             text,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     except Exception as e:
         logging.error(f"Referral error for {tg_id}: {e}")
@@ -5339,7 +5339,7 @@ async def check_expiring_subscriptions(context: ContextTypes.DEFAULT_TYPE):
                             chat_id=tg_id,
                             text=t("expiry_warning", user_lang),
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_renew", user_lang), callback_data='shop')]]),
-                            parse_mode='Markdown'
+                            parse_mode='HTML'
                         )
                         logging.info(f"Sent expiry warning to {tg_id}")
                      except Exception as ex:
