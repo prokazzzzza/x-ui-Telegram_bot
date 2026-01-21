@@ -3972,11 +3972,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = str(update.message.from_user.id)
     lang = get_lang(tg_id)
     text = update.message.text
-    action = None
+    action = context.user_data.get('admin_action')
     
     # Admin actions
     if tg_id == ADMIN_ID:
-        action = context.user_data.get('admin_action')
         
         # Handle Cancel Button for Rebind
         if text == t("btn_cancel", lang) and action == 'awaiting_rebind_contact':
@@ -6262,7 +6261,7 @@ def register_handlers(application):
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
-SUPPORT_TOKEN = "8062902239:AAF5IFxjHtu1Nka3lYO2e4UdTClIxW_Xjsc"
+SUPPORT_BOT_TOKEN = os.getenv("SUPPORT_BOT_TOKEN")
 
 async def admin_bot_start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -6339,7 +6338,12 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
         # We fetch last 20 to be efficient.
         try:
             # Try using the wrapper method if available (v20+)
-            txs = await context.bot.get_star_transactions(limit=20)
+            result = await context.bot.get_star_transactions(limit=20)
+            # In PTB v21+, returns StarTransactions object which has .transactions list
+            if hasattr(result, 'transactions'):
+                txs = result.transactions
+            else:
+                txs = result
         except Exception:
              # Fallback: Try raw API if wrapper fails or method not found
              return 
@@ -6369,7 +6373,18 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
             # Filter for incoming payments (source is User)
             if not tx.source: continue
             
-            tg_id = str(tx.source.id)
+            # source might be User object or Chat object, or just ID if using some library versions
+            # In python-telegram-bot v20+, StarTransaction.source is TransactionPartnerUser or similar.
+            
+            tg_id = None
+            if hasattr(tx.source, 'user'):
+                # TransactionPartnerUser(user=User(...))
+                tg_id = str(tx.source.user.id)
+            elif hasattr(tx.source, 'id'):
+                 tg_id = str(tx.source.id)
+            
+            if not tg_id: continue
+            
             amount = tx.amount
             date = int(tx.date.timestamp())
             
@@ -6437,7 +6452,8 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
     except Exception as e:
-        logging.error(f"Error in check_missed_transactions: {e}")
+        import traceback
+        logging.error(f"Error in check_missed_transactions: {e}\n{traceback.format_exc()}")
 
 async def main():
     init_db()
@@ -6454,38 +6470,37 @@ async def main():
     job_queue.run_repeating(detect_suspicious_activity, interval=300, first=30)
     job_queue.run_repeating(check_missed_transactions, interval=60, first=30)
     
-    # 2. Support Bot App
-    app_support = ApplicationBuilder().token(SUPPORT_TOKEN).build()
-    
-    # Register Handler for Support Bot
-    # Only needs to handle messages from Admin
-    app_support.add_handler(CommandHandler('start', admin_bot_start_handler))
-    app_support.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, admin_bot_reply_handler))
-    
-    # Cross-link bots
-    # We need Main Bot to be able to send via Support Bot (to Admin)
-    # And Support Bot to send via Main Bot (to User)
-    
-    # Actually, Main Bot sends via Support Bot to Admin
-    # In `handle_message` of Main Bot, we need access to `app_support.bot`
-    app_main.bot_data['support_bot'] = app_support.bot
-    
-    # In `admin_bot_reply_handler`, we need `app_main.bot`
-    app_support.bot_data['main_bot'] = app_main.bot
-
-    # Initialize and Start
+    # Initialize Main Bot
     await app_main.initialize()
-    await app_support.initialize()
-    
     await app_main.start()
-    await app_support.start()
-    
     await app_main.updater.start_polling()
-    await app_support.updater.start_polling()
     
-    print("🤖 Both Bots Started!")
-    print(f"Main Bot: @{(await app_main.bot.get_me()).username}")
-    print(f"Support Bot: @{(await app_support.bot.get_me()).username}")
+    me = await app_main.bot.get_me()
+    print(f"🤖 Main Bot Started: @{me.username}")
+    
+    # 2. Support Bot App (Optional)
+    if SUPPORT_BOT_TOKEN:
+        try:
+            app_support = ApplicationBuilder().token(SUPPORT_BOT_TOKEN).build()
+            
+            # Register Handler for Support Bot
+            app_support.add_handler(CommandHandler('start', admin_bot_start_handler))
+            app_support.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, admin_bot_reply_handler))
+            
+            # Cross-link bots
+            app_main.bot_data['support_bot'] = app_support.bot
+            app_support.bot_data['main_bot'] = app_main.bot
+            
+            await app_support.initialize()
+            await app_support.start()
+            await app_support.updater.start_polling()
+            
+            sup_me = await app_support.bot.get_me()
+            print(f"🤖 Support Bot Started: @{sup_me.username}")
+        except Exception as e:
+            logging.error(f"Failed to start Support Bot: {e}")
+    else:
+        logging.info("Support Bot Token not provided. Running in Single Bot Mode.")
     
     # Keep alive
     stop_event = asyncio.Event()
