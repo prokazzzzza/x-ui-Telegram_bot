@@ -1277,8 +1277,17 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
-    if rank_sub and rank_sub > 0:
+    
+    # Always show rank if valid
+    if rank_sub is not None and rank_sub > 0:
         text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
+    elif days_left > 0:
+         # If has active sub but not ranked (should not happen if logic is correct, unless total=0)
+         pass
+    else:
+         # No active sub or unlimited, maybe show encouragement
+         if days_left == 0: # Unlimited or expired
+             pass
 
     # Check for welcome image
     welcome_photo_path = "welcome.jpg"
@@ -1332,10 +1341,17 @@ async def show_main_menu_query(query, context, lang):
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
-    if rank_sub and rank_sub > 0:
+    
+    # Always show rank if valid
+    if rank_sub is not None and rank_sub > 0:
         text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
-        
-    # Check for welcome image - DISABLED for query (text only to avoid issues)
+    elif days_left > 0:
+         # If has active sub but not ranked (should not happen if logic is correct, unless total=0)
+         pass
+    else:
+         # No active sub or unlimited, maybe show encouragement
+         if days_left == 0: # Unlimited or expired
+             pass
     # welcome_photo_path = "welcome.jpg"
     # if os.path.exists(welcome_photo_path):
     #     try:
@@ -1472,8 +1488,21 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
+    # Always show rank if user has a sub (days_left > 0) OR if rank is top 10?
+    # User said: "not all users...".
+    # Logic was: if rank_sub and rank_sub > 0
+    # Maybe rank_sub is None if user is not found in clients list?
+    # If user has no subscription (expiry=0 or expired), get_user_rank_subscription returns days=-1 or skips them.
+    
     if rank_sub and rank_sub > 0:
         text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
+    else:
+        # If no rank (e.g. no sub), maybe encourage them?
+        # But user specifically asked about the message: "Your place 4 of 12".
+        # This implies they WANT to see it even if they are low rank?
+        # If rank_sub is returned, it means they are in the list.
+        # If they are unlimited (0), they are skipped in calculation.
+        pass
 
     # Revert to text-only main menu
     try:
@@ -4065,7 +4094,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parts = text.split()
                 if len(parts) != 3:
                     raise ValueError
-                code, days, limit = parts[0], int(parts[1]), int(parts[2])
+                code, days, limit = parts[0].upper(), int(parts[1]), int(parts[2]) # Force uppercase
                 
                 conn = sqlite3.connect(BOT_DB_PATH)
                 cursor = conn.cursor()
@@ -4533,6 +4562,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = get_lang(tg_id)
         code = text.strip()
         
+        # Check promo with case insensitivity handled by DB
         days, actual_code = check_promo(code, tg_id)
         
         if days == "USED":

@@ -1,7 +1,6 @@
 import pytest
 import sqlite3
 import os
-import json
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,7 +11,6 @@ from bot import check_promo, redeem_promo_db, get_lang
 
 # Mock DB Path
 TEST_DB_PATH = "test_bot_data.db"
-BOT_DB_PATH = TEST_DB_PATH
 
 @pytest.fixture
 def setup_db():
