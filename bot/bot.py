@@ -197,6 +197,13 @@ TEXTS = {
         "btn_admin_prices": "💰 Pricing",
         "btn_admin_promos": "🎁 Promo Codes",
         "btn_suspicious": "⚠️ Multi-IP",
+        "btn_support": "🆘 Support",
+        "support_title": "🆘 *Support*\n\nDescribe your problem in one message (you can attach a photo).\nAdministrator will answer you as soon as possible.",
+        "support_sent": "✅ Message sent to support!",
+        "support_reply_template": "🔔 *Reply from Support:*\n\n{text}",
+        "admin_support_alert": "🆘 *New Support Ticket*\nUser: {user} (`{id}`)\n\n{text}",
+        "admin_reply_hint": "↩️ Reply to this message to answer the user.",
+        "admin_reply_sent": "✅ Answer sent to user.",
         "btn_leaderboard": "🏆 Leaderboard",
         "leaderboard_title_traffic": "🏆 *Traffic Leaderboard (Month)* (Page {page}/{total})\n\nRanking by traffic usage this month:",
         "leaderboard_title_sub": "🏆 *Subscription Leaderboard* (Page {page}/{total})\n\nRanking by remaining days:",
@@ -430,8 +437,8 @@ TEXTS = {
         "stats_sub_type": "💳 Тариф: {plan}",
         "remaining_days": "⏳ Осталось: {days} дн.",
         "remaining_hours": "⏳ Осталось: {hours} ч.",
-        "rank_info_traffic": "\n🏆 Вы загрузили данных через VPN: <code>{traffic}</code>\nВы занимаете {rank}-е место в рейтинге по трафику из {total}.",
-        "rank_info_sub": "\n🏆 Вы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
+        "rank_info_traffic": "\n🏆 Загружено данных через VPN: <code>{traffic}</code>\nВы занимаете {rank}-е место в рейтинге по трафику из {total}.",
+        "rank_info_sub": "\n🏆 Ваше место {rank}-е в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
         "btn_admin_prices": "💰 Настройка цен",
@@ -442,6 +449,13 @@ TEXTS = {
         "btn_admin_backup": "💾 Бэкап",
         "btn_admin_logs": "📜 Логи",
         "btn_main_menu_back": "🔙 Главное меню",
+        "btn_support": "🆘 Поддержка",
+        "support_title": "🆘 *Техническая поддержка*\n\nОпишите вашу проблему одним сообщением (можно прикрепить фото).\nАдминистратор ответит вам в ближайшее время.",
+        "support_sent": "✅ Сообщение отправлено в поддержку!",
+        "support_reply_template": "🔔 *Ответ от поддержки:*\n\n{text}",
+        "admin_support_alert": "🆘 *Новый тикет*\nПользователь: {user} (`{id}`)\n\n{text}",
+        "admin_reply_hint": "↩️ Ответьте на это сообщение (Reply), чтобы написать пользователю.",
+        "admin_reply_sent": "✅ Ответ отправлен пользователю.",
         "admin_menu_text": "👮‍♂️ *Админ панель*\n\nВыберите действие:",
         "btn_admin_promo_new": "➕ Создать новый",
         "btn_admin_promo_list": "📜 Список активных",
@@ -887,6 +901,11 @@ def check_promo(code, tg_id):
     conn.close()
     return days
 
+def save_support_ticket(tg_id, text):
+    """Saves a new support ticket (optional, if we want history)"""
+    # For now we just forward, but let's log it
+    logging.info(f"Support ticket from {tg_id}: {text}")
+
 def redeem_promo_db(code, tg_id):
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
@@ -1212,7 +1231,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
-        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')]
+        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')],
+        [InlineKeyboardButton(t("btn_support", lang), callback_data='support_menu')]
     ]
     if tg_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
@@ -1266,7 +1286,8 @@ async def show_main_menu_query(query, context, lang):
         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
-        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')]
+        [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')],
+        [InlineKeyboardButton(t("btn_support", lang), callback_data='support_menu')]
     ]
     if tg_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
@@ -1315,7 +1336,20 @@ async def show_main_menu_query(query, context, lang):
     #          logging.error(f"Failed to send welcome photo (query): {e}")
     #          await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
     # else:
-    await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+    
+    # Try edit first, if fail (e.g. was photo), send new
+    try:
+        await context.bot.edit_message_text(chat_id=query.from_user.id, message_id=query.message.message_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+    except Exception:
+        await query.message.delete()
+        await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+
+async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    await show_main_menu_query(query, context, lang)
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4333,6 +4367,105 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['admin_action'] = None
             return
 
+    # --- Support Logic ---
+    if action == 'awaiting_support_message':
+        if not text and not update.message.photo: return
+        
+        # Forward to admin via Support Bot
+        user = update.message.from_user
+        user_display = f"@{user.username}" if user.username else user.first_name
+        
+        text_content = text or "[Photo]"
+        
+        alert_text = t("admin_support_alert", "ru").format(user=user_display, id=tg_id, text=text_content)
+        
+        # Access Support Bot
+        support_bot = context.bot_data.get('support_bot')
+        
+        # Logging for debug
+        logging.info(f"Support Message from {tg_id}. Bot data keys: {list(context.bot_data.keys())}")
+        
+        if support_bot:
+            try:
+                logging.info(f"Attempting to send support message to ADMIN_ID: {ADMIN_ID} via Support Bot")
+                if update.message.photo:
+                    await support_bot.send_photo(chat_id=ADMIN_ID, photo=update.message.photo[-1].file_id, caption=alert_text, parse_mode='Markdown')
+                else:
+                    await support_bot.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode='Markdown')
+                    
+                # Send hint to admin
+                await support_bot.send_message(chat_id=ADMIN_ID, text=t("admin_reply_hint", "ru"))
+                
+                await update.message.reply_text(t("support_sent", lang))
+                save_support_ticket(tg_id, text)
+            except Exception as e:
+                logging.error(f"Failed to forward support message via support bot: {e}")
+                # Fallback to main bot if support bot fails (e.g. admin didn't start it)
+                try:
+                    logging.info("Fallback: Sending via Main Bot")
+                    if update.message.photo:
+                         await context.bot.send_photo(chat_id=ADMIN_ID, photo=update.message.photo[-1].file_id, caption=alert_text, parse_mode='Markdown')
+                    else:
+                         await context.bot.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode='Markdown')
+                    await update.message.reply_text(t("support_sent", lang))
+                except Exception as ex:
+                    logging.error(f"Fallback failed too: {ex}")
+                    await update.message.reply_text(t("error_generic", lang))
+        else:
+             # Fallback to main bot if support bot not linked (should not happen)
+             logging.error("Support bot not found in context! Falling back to Main Bot.")
+             try:
+                 if update.message.photo:
+                     await context.bot.send_photo(chat_id=ADMIN_ID, photo=update.message.photo[-1].file_id, caption=alert_text, parse_mode='Markdown')
+                 else:
+                     await context.bot.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode='Markdown')
+                 await update.message.reply_text(t("support_sent", lang))
+             except Exception as ex:
+                 logging.error(f"Main bot fallback failed: {ex}")
+                 await update.message.reply_text(t("error_generic", lang))
+            
+        context.user_data['admin_action'] = None
+        return
+
+    # --- Admin Reply Logic (Legacy/Main Bot fallback) ---
+    if tg_id == ADMIN_ID and update.message.reply_to_message:
+        # Check if replying to a forwarded message or our alert
+        # We need to extract the original user ID from the alert text
+        # Alert format: ... User: @name (`123456789`) ...
+        
+        reply_text = update.message.reply_to_message.caption or update.message.reply_to_message.text
+        if not reply_text: return
+        
+        import re
+        # Look for (`123456789`) pattern
+        match = re.search(r'\(`(\d+)`\)', reply_text)
+        if match:
+            target_user_id = match.group(1)
+            
+            try:
+                # Send anonymous reply
+                target_lang = get_lang(target_user_id)
+                reply_body = t("support_reply_template", target_lang).format(text=text)
+                
+                await context.bot.send_message(chat_id=target_user_id, text=reply_body, parse_mode='Markdown')
+                await update.message.reply_text(t("admin_reply_sent", "ru"))
+                
+            except Exception as e:
+                await update.message.reply_text(f"❌ Failed to send reply: {e}")
+        return
+
+    if action == 'awaiting_search_user':
+        if not text: return
+        tg_id_search = text.strip()
+        
+        if not tg_id_search.isdigit():
+            await update.message.reply_text(t("search_error_digit", lang))
+            return
+            
+        context.user_data['admin_action'] = None
+        await admin_user_db_detail(update, context, tg_id_search)
+        return
+
     if context.user_data.get('awaiting_promo'):
         if not text: return
         tg_id = str(update.message.from_user.id)
@@ -4409,38 +4542,41 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer(ok=True)
 
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # CRITICAL: Record payment IMMEDIATELY to prevent loss in case of crash later
     try:
         payment = update.message.successful_payment
         payload = payment.invoice_payload
         tg_id = str(update.message.from_user.id)
         
-        log_action(f"DEBUG: Processing payment for user {tg_id}. Payload: {payload}, Amount: {payment.total_amount}")
-        
+        # 1. Immediate DB Insert (Fail-safe)
+        try:
+            conn = sqlite3.connect(BOT_DB_PATH)
+            cursor = conn.cursor()
+            # Determine plan amount safely
+            amount = payment.total_amount
+            cursor.execute("INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)", 
+                           (tg_id, amount, int(time.time()), payload))
+            conn.commit()
+            conn.close()
+            log_action(f"SUCCESS: Transaction recorded for {tg_id} (Amount: {amount})")
+        except Exception as db_e:
+            log_action(f"CRITICAL DB ERROR: Failed to save transaction for {tg_id}: {db_e}")
+            # Even if DB fails, we try to proceed, but this is bad.
+            
         current_prices = get_prices()
         plan = current_prices.get(payload)
         
         if not plan:
             log_action(f"ERROR: Plan not found for payload: {payload}. User {tg_id} paid {payment.total_amount}.")
-            # Fallback: try to find by amount if payload fails? 
-            # For now just notify admin
             try:
                 await context.bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ ERROR: Unknown Plan Paid!\nUser: {tg_id}\nPayload: {payload}\nAmount: {payment.total_amount}")
             except: pass
+            # Try to recover based on amount if possible, or return
+            # But we already saved tx, so admin can check.
             return
 
         lang = get_lang(tg_id)
         days_to_add = plan['days']
-        
-        # Record transaction
-        try:
-            conn = sqlite3.connect(BOT_DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)", 
-                           (tg_id, plan['amount'], int(time.time()), payload))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            log_action(f"ERROR: Failed to save transaction to DB: {e}")
         
         log_action(f"ACTION: User {tg_id} (@{update.message.from_user.username}) purchased subscription: {payload} ({plan['amount']} XTR).")
         
@@ -4461,7 +4597,19 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
             plan_name = t(f"plan_{payload}", admin_lang)
             admin_msg = f"💰 *Новая продажа!*\n\n👤 Пользователь: @{buyer_username} (`{tg_id}`)\n💳 Тариф: {plan_name}\n💸 Сумма: {plan['amount']} Stars"
             
-            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
+            # Send via Support Bot first, then fallback to Main Bot
+            support_bot = context.bot_data.get('support_bot')
+            sent = False
+            if support_bot:
+                try:
+                    await support_bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
+                    sent = True
+                except Exception as e:
+                    logging.error(f"Failed to send sales notification via support bot: {e}")
+            
+            if not sent:
+                await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
+                
         except Exception as e:
             logging.error(f"Failed to notify admin: {e}")
 
@@ -4492,6 +4640,12 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     pass # User might have blocked bot
         except Exception as e:
             logging.error(f"Error checking referral bonus: {e}")
+            
+    except Exception as e:
+        log_action(f"CRITICAL ERROR in successful_payment: {e}")
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ CRITICAL PAYMENT ERROR: {e}")
+        except: pass
             
     except Exception as e:
         log_action(f"CRITICAL ERROR in successful_payment: {e}")
@@ -4566,11 +4720,14 @@ async def add_days_to_user(tg_id, days_to_add, context):
             VALUES (?, ?, ?, 0, 0, ?, 0, 0, 0, 0)
         """, (INBOUND_ID, 1, f"tg_{tg_id}", new_expiry))
 
+    # Stop X-UI to prevent overwrite
+    subprocess.run(["systemctl", "stop", "x-ui"])
+    
     cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(settings), INBOUND_ID))
     conn.commit()
     conn.close()
     
-    subprocess.run(["systemctl", "restart", "x-ui"])
+    subprocess.run(["systemctl", "start", "x-ui"])
 
 async def process_subscription(tg_id, days_to_add, update, context, lang, is_callback=False):
     try:
@@ -4657,6 +4814,9 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
             user_client['updated_at'] = current_time_ms
             clients[client_index] = user_client
             
+            # IMPORTANT: Assign updated clients list back to settings (was missing for update case)
+            settings['clients'] = clients
+            
             msg_key = "success_extended"
             if days_to_add < 0:
                 msg_key = "success_updated"
@@ -4735,11 +4895,14 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                  except Exception as e:
                      logging.error(f"Error updating client_traffics for existing user: {e}")
 
+        # Stop X-UI to prevent overwrite
+        subprocess.run(["systemctl", "stop", "x-ui"])
+
         cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(settings), INBOUND_ID))
         conn.commit()
         conn.close()
         
-        subprocess.run(["systemctl", "restart", "x-ui"])
+        subprocess.run(["systemctl", "start", "x-ui"])
         
         if new_expiry == 0:
             if lang == 'ru':
@@ -4753,8 +4916,8 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
         
         keyboard = [
             [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config')],
-            [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
-            [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
+            [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions'),
+             InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -5828,6 +5991,30 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_poll_menu')]])
     )
 
+async def support_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    try:
+        await query.edit_message_text(
+            t("support_title", lang),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        # If message cannot be edited (e.g. it has a photo), delete and send new
+        await query.message.delete()
+        await context.bot.send_message(
+            chat_id=tg_id,
+            text=t("support_title", lang),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+            parse_mode='Markdown'
+        )
+        
+    context.user_data['admin_action'] = 'awaiting_support_message'
+
 async def detect_suspicious_activity(context: ContextTypes.DEFAULT_TYPE):
     """
     Background task to analyze logs and store suspicious events (Multi-IP).
@@ -5987,22 +6174,244 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(admin_flash_menu, pattern='^admin_flash_menu$'))
     application.add_handler(CallbackQueryHandler(admin_flash_select, pattern='^admin_flash_sel_'))
     
+    application.add_handler(CallbackQueryHandler(support_menu, pattern='^support_menu$'))
+    
     application.add_handler(MessageHandler(~filters.COMMAND, handle_message))
     
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
 
-if __name__ == '__main__':
+SUPPORT_TOKEN = "8062902239:AAF5IFxjHtu1Nka3lYO2e4UdTClIxW_Xjsc"
+
+async def admin_bot_start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler for /start command in Support Bot.
+    Shows status and info for Admin.
+    """
+    if update.message.chat_id != int(ADMIN_ID):
+        await update.message.reply_text("⛔ Доступ запрещен. Этот бот только для администратора.")
+        return
+
+    text = (
+        "🤖 *Панель Поддержки (Admin Side)*\n\n"
+        "✅ Бот активен и готов пересылать сообщения.\n"
+        "📩 Все тикеты от пользователей будут приходить сюда.\n\n"
+        "ℹ️ *Как отвечать:*\n"
+        "Просто сделайте **Reply (Ответить)** на сообщение пользователя, чтобы отправить ему ответ.\n\n"
+        f"🆔 Ваш Admin ID: `{ADMIN_ID}`"
+    )
+    await update.message.reply_text(text, parse_mode='Markdown')
+
+async def admin_bot_reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handles replies from Admin in the Admin Bot.
+    Should forward text to User via Main Bot.
+    """
+    if update.message.chat_id != int(ADMIN_ID):
+        return
+
+    # Check if replying to an alert
+    if update.message.reply_to_message:
+        reply_text = update.message.reply_to_message.caption or update.message.reply_to_message.text or ""
+        import re
+        # Look for (`123456789`) pattern
+        match = re.search(r'\(`(\d+)`\)', reply_text)
+        if match:
+            target_user_id = match.group(1)
+            text_to_send = update.message.text or ""
+            
+            # If photo
+            photo = update.message.photo[-1].file_id if update.message.photo else None
+            
+            if not text_to_send and not photo:
+                return
+
+            try:
+                # Use Main Bot instance to send message
+                # We need access to main_application.bot
+                main_bot = context.bot_data.get('main_bot')
+                if main_bot:
+                    target_lang = get_lang(target_user_id)
+                    
+                    if text_to_send:
+                        reply_body = t("support_reply_template", target_lang).format(text=text_to_send)
+                        await main_bot.send_message(chat_id=target_user_id, text=reply_body, parse_mode='Markdown')
+                    
+                    if photo:
+                        caption = t("support_reply_template", target_lang).format(text="") if not text_to_send else None
+                        await main_bot.send_photo(chat_id=target_user_id, photo=photo, caption=caption, parse_mode='Markdown')
+                        
+                    await update.message.reply_text(t("admin_reply_sent", "ru"))
+                else:
+                    await update.message.reply_text("❌ Error: Main bot not linked.")
+                
+            except Exception as e:
+                await update.message.reply_text(f"❌ Failed to send reply: {e}")
+
+async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Background task to check for missing Star transactions (every minute).
+    Recovers payments that were successful in Telegram but missing in local DB.
+    """
+    try:
+        # 1. Fetch recent Star Transactions from Telegram
+        # We fetch last 20 to be efficient.
+        try:
+            # Try using the wrapper method if available (v20+)
+            txs = await context.bot.get_star_transactions(limit=20)
+        except Exception:
+             # Fallback: Try raw API if wrapper fails or method not found
+             return 
+
+        if not txs:
+            return
+
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        
+        # 2. Get recent local transactions to compare
+        cursor.execute("SELECT tg_id, amount, date, plan_id FROM transactions ORDER BY id DESC LIMIT 50")
+        local_rows = cursor.fetchall()
+        
+        def is_tx_processed(tg_id, amount, date):
+            # Heuristic match: User + Amount + Date within 120s
+            for row in local_rows:
+                lid, lamt, ldate, lplan = row[0], row[1], row[2], row[3]
+                if str(lid) == str(tg_id) and int(lamt) == int(amount):
+                    if abs(ldate - date) < 120:
+                        return True
+            return False
+
+        current_prices = get_prices()
+        
+        for tx in txs:
+            # Filter for incoming payments (source is User)
+            if not tx.source: continue
+            
+            tg_id = str(tx.source.id)
+            amount = tx.amount
+            date = int(tx.date.timestamp())
+            
+            # Safety: Skip very recent transactions (< 60s) to avoid race with webhook
+            if (time.time() - date) < 60:
+                continue
+                
+            if is_tx_processed(tg_id, amount, date):
+                continue
+                
+            # --- FOUND MISSING TRANSACTION ---
+            log_action(f"WARNING: Found MISSING payment: User {tg_id}, Amount {amount}, Date {date}. Recovering...")
+            
+            # Identify Plan
+            plan_id = "unknown"
+            # Try to match amount to current prices
+            for pid, pdata in current_prices.items():
+                if pdata['amount'] == amount:
+                    plan_id = pid
+                    break
+            
+            # Fallback heuristics if prices changed
+            if plan_id == "unknown":
+                if amount >= 900: plan_id = "1_year"
+                elif amount >= 250: plan_id = "3_months"
+                elif amount >= 100: plan_id = "1_month"
+                
+            # 1. Insert into DB immediately
+            try:
+                cursor.execute("INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)", 
+                               (tg_id, amount, date, plan_id))
+                conn.commit()
+            except Exception as e:
+                log_action(f"ERROR saving missing tx: {e}")
+                continue 
+            
+            # 2. Update User Subscription (X-UI)
+            days = 0
+            if plan_id in current_prices:
+                days = current_prices[plan_id]['days']
+            elif plan_id == "1_year": days = 365
+            elif plan_id == "3_months": days = 90
+            elif plan_id == "1_month": days = 30
+            
+            if days > 0:
+                await add_days_to_user(tg_id, days, context)
+                
+                # 3. Notify User
+                try:
+                    lang = get_lang(tg_id)
+                    # "Payment Restored" message
+                    msg_text = f"✅ *Payment Restored!*\n\nWe found a missing payment of {amount} Stars.\nYour subscription has been extended by {days} days."
+                    if lang == 'ru':
+                        msg_text = f"✅ *Платеж восстановлен!*\n\nМы обнаружили потерянный платеж на {amount} Stars.\nВаша подписка продлена на {days} дн."
+                        
+                    await context.bot.send_message(chat_id=tg_id, text=msg_text, parse_mode='Markdown')
+                except: pass
+                
+                # 4. Notify Admin
+                try:
+                    admin_msg = f"⚠️ **RESTORED MISSING PAYMENT**\nUser: `{tg_id}`\nAmount: {amount}\nPlan: {plan_id}\nAdded: {days} days"
+                    await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
+                except: pass
+                
+        conn.close()
+
+    except Exception as e:
+        logging.error(f"Error in check_missed_transactions: {e}")
+
+async def main():
     init_db()
-    application = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    register_handlers(application)
+    # 1. Main Bot App
+    app_main = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    register_handlers(app_main)
     
-    job_queue = application.job_queue
+    # Job Queue for Main Bot
+    job_queue = app_main.job_queue
     job_queue.run_repeating(check_expiring_subscriptions, interval=86400, first=10)
-    job_queue.run_repeating(log_traffic_stats, interval=3600, first=5) # Every hour
-    job_queue.run_repeating(cleanup_flash_messages, interval=60, first=10) # Every minute
-    job_queue.run_repeating(detect_suspicious_activity, interval=300, first=30) # Every 5 minutes check for suspicious users
+    job_queue.run_repeating(log_traffic_stats, interval=3600, first=5)
+    job_queue.run_repeating(cleanup_flash_messages, interval=60, first=10)
+    job_queue.run_repeating(detect_suspicious_activity, interval=300, first=30)
+    job_queue.run_repeating(check_missed_transactions, interval=60, first=30)
     
-    print("Bot started...")
-    application.run_polling()
+    # 2. Support Bot App
+    app_support = ApplicationBuilder().token(SUPPORT_TOKEN).build()
+    
+    # Register Handler for Support Bot
+    # Only needs to handle messages from Admin
+    app_support.add_handler(CommandHandler('start', admin_bot_start_handler))
+    app_support.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, admin_bot_reply_handler))
+    
+    # Cross-link bots
+    # We need Main Bot to be able to send via Support Bot (to Admin)
+    # And Support Bot to send via Main Bot (to User)
+    
+    # Actually, Main Bot sends via Support Bot to Admin
+    # In `handle_message` of Main Bot, we need access to `app_support.bot`
+    app_main.bot_data['support_bot'] = app_support.bot
+    
+    # In `admin_bot_reply_handler`, we need `app_main.bot`
+    app_support.bot_data['main_bot'] = app_main.bot
+
+    # Initialize and Start
+    await app_main.initialize()
+    await app_support.initialize()
+    
+    await app_main.start()
+    await app_support.start()
+    
+    await app_main.updater.start_polling()
+    await app_support.updater.start_polling()
+    
+    print("🤖 Both Bots Started!")
+    print(f"Main Bot: @{(await app_main.bot.get_me()).username}")
+    print(f"Support Bot: @{(await app_support.bot.get_me()).username}")
+    
+    # Keep alive
+    stop_event = asyncio.Event()
+    await stop_event.wait()
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
