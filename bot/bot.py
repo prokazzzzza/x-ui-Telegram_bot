@@ -161,19 +161,19 @@ TEXTS = {
         "sub_expired": "⚠️ Subscription Expired\n\nYour subscription has expired. Please buy a new plan to restore access.",
         "sub_active": "✅ Your Subscription is Active\n\n📅 Expires: {expiry}\n\nKey:\n`{link}`",
         "sub_not_found": "❌ No Subscription Found\n\nYou don't have an active subscription. Please visit the shop.",
-        "stats_title": "📊 <b>Your Stats</b>\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
+        "stats_title": "📊 Your Stats\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
         "stats_no_sub": "No stats found. Subscription required.",
-        "expiry_warning": "⚠️ <b>Subscription Expiring Soon!</b>\n\nYour VPN subscription will expire in less than <b>24</b> hours.\nPlease renew it to avoid service interruption.",
+        "expiry_warning": "⚠️ Subscription Expiring Soon!\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
         "btn_renew": "💎 Renew Now",
         "btn_instructions": "📚 Setup Instructions",
         "lang_sel": "Language selected: English 🇬🇧",
-        "trial_used": "⚠️ <b>Trial Already Used</b>\n\nYou have already used your trial period.\nActivated: <b>{date}</b>",
-        "trial_activated": "🎉 <b>Trial Activated!</b>\n\nYou have received <b>3</b> days of free access.\nCheck '🚀 My Config' to connect.",
-        "ref_title": "👥 <b>Referral Program</b>\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n<code>{link}</code>\n\n🎁 You have invited: <b>{count}</b> users.",
-        "promo_prompt": "🎁 <b>Redeem Promo Code</b>\n\nPlease enter your promo code:",
-        "promo_success": "✅ <b>Promo Code Redeemed!</b>\n\nAdded <b>{days}</b> days to your subscription.",
-        "promo_invalid": "❌ <b>Invalid or Expired Code</b>",
-        "promo_used": "⚠️ <b>Code Already Used</b>",
+        "trial_used": "⚠️ Trial Already Used\n\nYou have already used your trial period.\nActivated: {date}",
+        "trial_activated": "🎉 Trial Activated!\n\nYou have received 3 days of free access.\nCheck '🚀 My Config' to connect.",
+        "ref_title": "👥 Referral Program\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n<code>{link}</code>\n\n🎁 You have invited: {count} users.",
+        "promo_prompt": "🎁 Redeem Promo Code\n\nPlease enter your promo code:",
+        "promo_success": "✅ Promo Code Redeemed!\n\nAdded {days} days to your subscription.",
+        "promo_invalid": "❌ Invalid or Expired Code",
+        "promo_used": "⚠️ Code Already Used",
         "instr_menu": "📚 *Setup Instructions*\n\nChoose your device:",
         "btn_android": "📱 Android (v2RayTun)",
         "btn_ios": "🍎 iOS (V2Box)",
@@ -306,8 +306,8 @@ TEXTS = {
         "btn_flash_delete_all": "🧨 Delete All Flash",
         "flash_select_prompt": "⚡ Selected Code: `{code}`\n\nEnter message lifetime in minutes (e.g., 60).\nMessage will be deleted for all users after this time.",
         "flash_broadcast_start": "⏳ Starting Flash Broadcast (ALL)...",
-        "flash_msg_title": "🔥 <b>CATCH THE PROMO CODE!</b> 🔥",
-        "flash_msg_body": "Hurry to redeem the secret code!\n\n👇 Click to reveal:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ <b>Expires at {time}</b>\n(in {dur} min)",
+        "flash_msg_title": "🔥 CATCH THE PROMO CODE! 🔥",
+        "flash_msg_body": "Hurry to redeem the secret code!\n\n👇 Click to reveal:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ Expires at {time}\n(in {dur} min)",
         "flash_complete": "✅ Flash broadcast complete.\n\n📤 Sent: {sent}\n🚫 Failed: {blocked}\n⏱ Lifetime: {dur} min.",
         "flash_delete_success": "✅ Force deleted {count} messages.",
         "search_prompt": "🔍 *Search User*\n\nSend *Telegram ID* to search in database.",
@@ -349,29 +349,29 @@ TEXTS = {
         "remaining_hours": "⏳ Remaining: {hours} hours",
         "error_invalid_id": "❌ Error: Invalid ID",
         "status_unbound": "Unbound",
-        "sub_active_html": "✅ <b>Your subscription is active</b>\n\n📅 Expires: {expiry}",
-        "sub_recommendation": "\n\n👇 <b>Subscription recommended</b>\n        (Tap link to copy)\n\n📋 <b>Subscription Link:</b>\n<code>{link}</code>\n\n🔑 <b>Access Key:</b> (Tap to reveal)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
+        "sub_active_html": "✅ Your subscription is active\n\n📅 Expires: {expiry}",
+        "sub_recommendation": "\n\n👇 Subscription recommended\n        (Tap link to copy)\n\n📋 Subscription Link:\n<code>{link}</code>\n\n🔑 Access Key: (Tap to reveal)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
         "expiry_unlimited": "Unlimited",
-        "stats_your_title": "📊 <b>Your Statistics</b>",
-        "stats_today": "📅 <b>Today:</b>",
-        "stats_week": "📅 <b>This Week:</b>",
-        "stats_month": "📅 <b>This Month:</b>",
-        "stats_total": "📦 <b>Total:</b>",
-        "stats_expires": "⏳ <b>Expires:</b>",
+        "stats_your_title": "📊 Your Statistics",
+        "stats_today": "📅 Today:",
+        "stats_week": "📅 This Week:",
+        "stats_month": "📅 This Month:",
+        "stats_total": "📦 Total:",
+        "stats_expires": "⏳ Expires:",
         "unlimited_text": "♾️ Unlimited"
     },
     "ru": {
         "error_invalid_id": "❌ Ошибка: Некорректный ID",
         "status_unbound": "Не привязан",
-        "sub_active_html": "✅ <b>Ваша подписка активна</b>\n\n📅 Истекает: {expiry}",
-        "sub_recommendation": "\n\n👇 <b>Рекомендуется использовать подписку</b>\n        (Нажмите на ссылку для копирования)\n\n📋 <b>Ссылка подписки:</b>\n<code>{link}</code>\n\n🔑 <b>Ключ доступа:</b> (Нажмите чтобы развернуть)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
+        "sub_active_html": "✅ Ваша подписка активна\n\n📅 Истекает: {expiry}",
+        "sub_recommendation": "\n\n👇 Рекомендуется использовать подписку\n        (Нажмите на ссылку для копирования)\n\n📋 Ссылка подписки:\n<code>{link}</code>\n\n🔑 Ключ доступа: (Нажмите чтобы развернуть)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
         "expiry_unlimited": "Безлимит",
-        "stats_your_title": "📊 <b>Ваша статистика</b>",
-        "stats_today": "📅 <b>За сегодня:</b>",
-        "stats_week": "📅 <b>За неделю:</b>",
-        "stats_month": "📅 <b>За месяц:</b>",
-        "stats_total": "📦 <b>Всего:</b>",
-        "stats_expires": "⏳ <b>Истекает:</b>",
+        "stats_your_title": "📊 Ваша статистика",
+        "stats_today": "📅 За сегодня:",
+        "stats_week": "📅 За неделю:",
+        "stats_month": "📅 За месяц:",
+        "stats_total": "📦 Всего:",
+        "stats_expires": "⏳ Истекает:",
         "unlimited_text": "♾️ Безлимит",
         "welcome": "Добро пожаловать в Maxi-VPN! 🛡️\n\nПожалуйста, выберите язык:",
         "main_menu": "🚀 Maxi-VPN — Твой пропуск в свободный интернет!\n\n⚡️ Высокая скорость, анонимность и доступ к любым сервисам.\n💎 Оплата в один клик через Telegram Stars.",
@@ -385,10 +385,10 @@ TEXTS = {
         "btn_back": "🔙 Назад",
         "btn_how_to_buy_stars": "⭐️ Как купить Звезды?",
         "how_to_buy_stars_text": "⭐️ **Как купить Telegram Stars?**\n\nTelegram Stars — это внутренняя валюта для оплаты цифровых товаров.\n\n1. **Через @PremiumBot:** Самый выгодный способ. Просто запустите бота и выберите пакет звезд.\n2. **В приложении:** При оплате выберите покупку звезд через Apple/Google (может быть дороже).\n3. **Fragment:** Можно купить звезды за TON на платформе Fragment.\n\nПосле покупки звезд вернитесь сюда и выберите тариф!",
-        "label_1_month": "Подписка на <b>1</b> месяц",
-        "label_3_months": "Подписка на <b>3</b> месяца",
-        "label_6_months": "Подписка на <b>6</b> месяцев",
-        "label_1_year": "Подписка на <b>1</b> год",
+        "label_1_month": "Подписка на 1 месяц",
+        "label_3_months": "Подписка на 3 месяца",
+        "label_6_months": "Подписка на 6 месяцев",
+        "label_1_year": "Подписка на 1 год",
         "invoice_title": "Maxi_VPN Подписка",
         "success_created": "✅ *Успешно!* Подписка создана.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
         "success_extended": "✅ *Успешно!* Подписка продлена.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
@@ -397,19 +397,19 @@ TEXTS = {
         "sub_expired": "⚠️ *Подписка истекла*\n\nВаша подписка закончилась. Пожалуйста, купите новый план для восстановления доступа.",
         "sub_active": "✅ *Ваша подписка активна*\n\n📅 Истекает: {expiry}\n\nКлюч:\n`{link}`",
         "sub_not_found": "❌ *Подписка не найдена*\n\nУ вас нет активной подписки. Пожалуйста, перейдите в магазин.",
-        "stats_title": "📊 *Ваша статистика*\n\n⬇️ Скачано: <b>{down:.2f} GB</b>\n⬆️ Загружено: <b>{up:.2f} GB</b>\n📦 Всего: <b>{total:.2f} GB</b>",
+        "stats_title": "📊 *Ваша статистика*\n\n⬇️ Скачано: {down:.2f} GB\n⬆️ Загружено: {up:.2f} GB\n📦 Всего: {total:.2f} GB",
         "stats_no_sub": "Статистика не найдена. Требуется подписка.",
-        "expiry_warning": "⚠️ *Подписка скоро истекает!*\n\nВаша VPN подписка истечет менее чем через <b>24</b> часа.\nПожалуйста, продлите её, чтобы избежать отключения.",
+        "expiry_warning": "⚠️ *Подписка скоро истекает!*\n\nВаша VPN подписка истечет менее чем через 24 часа.\nПожалуйста, продлите её, чтобы избежать отключения.",
         "btn_renew": "💎 Продлить сейчас",
         "btn_instructions": "📚 Инструкция по настройке",
         "btn_qrcode": "📱 QR код",
         "btn_lang": "🌐 Язык",
         "lang_sel": "Выбран язык: Русский 🇷🇺",
-        "trial_used": "⚠️ *Пробный период уже использован*\n\nВы уже активировали свои 3 дня бесплатно.\nДата активации: <b>{date}</b>",
-        "trial_activated": "🎉 *Пробный период активирован!*\n\nВам начислено <b>3</b> дня доступа.\nНажмите '🚀 Мой конфиг' для подключения.",
-        "ref_title": "👥 *Реферальная программа*\n\nПриглашайте друзей и получайте бонусы!\n\n🔗 Ваша ссылка:\n`{link}`\n\n🎁 Вы пригласили: <b>{count}</b> пользователей.",
+        "trial_used": "⚠️ *Пробный период уже использован*\n\nВы уже активировали свои 3 дня бесплатно.\nДата активации: {date}",
+        "trial_activated": "🎉 *Пробный период активирован!*\n\nВам начислено 3 дня доступа.\nНажмите '🚀 Мой конфиг' для подключения.",
+        "ref_title": "👥 *Реферальная программа*\n\nПриглашайте друзей и получайте бонусы!\n\n🔗 Ваша ссылка:\n`{link}`\n\n🎁 Вы пригласили: {count} пользователей.",
         "promo_prompt": "🎁 *Активация промокода*\n\nПожалуйста, отправьте боту ваш промокод:",
-        "promo_success": "✅ *Промокод активирован!*\n\nДобавлено <b>{days}</b> дней к вашей подписке.",
+        "promo_success": "✅ *Промокод активирован!*\n\nДобавлено {days} дней к вашей подписке.",
         "promo_invalid": "❌ *Неверный или истекший код*",
         "promo_used": "⚠️ *Код уже использован вами*",
         "instr_menu": "📚 *Инструкция по настройке*\n\nВыберите ваше устройство:",
@@ -419,19 +419,19 @@ TEXTS = {
         "instr_android": "📱 *Настройка Android*\n\n1. Скачайте *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* из Google Play.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте v2RayTun -> нажмите 'Import' -> 'Import from Clipboard'.\n4. Нажмите кнопку подключения.",
         "instr_ios": "🍎 *Настройка iOS*\n\n1. Скачайте *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* из App Store.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте V2Box, он должен автоматически предложить добавить ключ.\n4. Нажмите 'Import', выберите сервер и сдвиньте переключатель для подключения.",
         "instr_pc": "💻 *Настройка PC*\n\n1. Установите *[AmneziaVPN](https://amnezia.org/)* или *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте приложение и вставьте ключ (Import from Clipboard).\n4. Подключитесь.",
-        "plan_1_month": "<b>1</b> Месяц",
-        "plan_3_months": "<b>3</b> Месяца",
-        "plan_6_months": "<b>6</b> Месяцев",
-        "plan_1_year": "<b>1</b> Год",
-        "plan_trial": "Пробный (<b>3</b> дня)",
+        "plan_1_month": "1 Месяц",
+        "plan_3_months": "3 Месяца",
+        "plan_6_months": "6 Месяцев",
+        "plan_1_year": "1 Год",
+        "plan_trial": "Пробный (3 дня)",
         "plan_manual": "Ручная",
         "plan_unlimited": "Безлимит",
         "sub_type_unknown": "Неизвестно",
-        "stats_sub_type": "💳 Тариф: <b>{plan}</b>",
-        "remaining_days": "⏳ Осталось: <b>{days}</b> дн.",
-        "remaining_hours": "⏳ Осталось: <b>{hours}</b> ч.",
-        "rank_info_traffic": "\n🏆 Вы загрузили данных через VPN: <code>{traffic}</code>\nВы занимаете <b>{rank}</b>-е место в рейтинге по трафику из <b>{total}</b>.",
-        "rank_info_sub": "\n🏆 Вы занимаете <b>{rank}</b>-е место в рейтинге подписок из <b>{total}</b>.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
+        "stats_sub_type": "💳 Тариф: {plan}",
+        "remaining_days": "⏳ Осталось: {days} дн.",
+        "remaining_hours": "⏳ Осталось: {hours} ч.",
+        "rank_info_traffic": "\n🏆 Вы загрузили данных через VPN: <code>{traffic}</code>\nВы занимаете {rank}-е место в рейтинге по трафику из {total}.",
+        "rank_info_sub": "\n🏆 Вы занимаете {rank}-е место в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
         "btn_admin_prices": "💰 Настройка цен",
@@ -554,17 +554,17 @@ TEXTS = {
         "promos_menu_title": "🎁 *Управление промокодами*\n\nВыберите действие:",
         "promo_list_empty": "📜 *Список промокодов*\n\nНет активных промокодов.",
         "promo_list_title": "📜 *Активные промокоды*\n\n",
-        "promo_item_days": "⏳ Срок: <b>{days}</b> дн.",
-        "promo_item_used": "👥 Использовано: <b>{used}</b> / <b>{limit}</b>",
+        "promo_item_days": "⏳ Срок: {days} дн.",
+        "promo_item_used": "👥 Использовано: {used} / {limit}",
         "promo_create_prompt": "🎁 *Создать промокод*\n\nОтправьте детали промокода в формате:\n`CODE DAYS LIMIT`\n\nПример: `NEWYEAR 30 100`\n(LIMIT 0 = безлимит)",
-        "promo_created": "✅ Промокод <code>{code}</code> создан на <b>{days}</b> дн. (<b>{limit}</b> активаций).",
+        "promo_created": "✅ Промокод <code>{code}</code> создан на {days} дн. ({limit} активаций).",
         "promo_format_error": "❌ Неверный формат. Используйте: `КОД ДНИ ЛИМИТ`",
         "flash_menu_title": "⚡ *Flash Промокод*\n\nВыберите промокод, который хотите отправить во временной рассылке:",
         "btn_flash_delete_all": "🧨 Удалить все Flash",
         "flash_select_prompt": "⚡ Выбран промокод: `{code}`\n\nВведите время жизни сообщения в минутах (например: 60).\nПо истечении этого времени сообщение будет удалено у всех пользователей.",
         "flash_broadcast_start": "⏳ Запуск Flash-рассылки (ВСЕМ)...",
-        "flash_msg_title": "🔥 <b>УСПЕЙ ПОЙМАТЬ ПРОМОКОД!</b> 🔥",
-        "flash_msg_body": "Успей активировать секретный промокод!\n\n👇 Нажми, чтобы увидеть:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ <b>Предложение сгорит в {time}</b>\n(через {dur} мин)",
+        "flash_msg_title": "🔥 УСПЕЙ ПОЙМАТЬ ПРОМОКОД! 🔥",
+        "flash_msg_body": "Успей активировать секретный промокод!\n\n👇 Нажми, чтобы увидеть:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ Предложение сгорит в {time}\n(через {dur} мин)",
         "flash_complete": "✅ Flash-рассылка завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}\n⏱ Время жизни: {dur} мин.",
         "flash_delete_success": "✅ Принудительно удалено {count} сообщений.",
         "search_prompt": "🔍 *Поиск пользователя*\n\nОтправьте *Telegram ID* пользователя для поиска в базе данных.",
@@ -3230,7 +3230,7 @@ async def admin_promo_user_detail(update: Update, context: ContextTypes.DEFAULT_
     
     # Use HTML for safety with names
     safe_name = html.escape(name)
-    text = f"👤 <b>Промокоды пользователя</b>\n{safe_name}\n<code>{tg_id}</code>\n\n"
+    text = f"👤 Промокоды пользователя\n{safe_name}\n<code>{tg_id}</code>\n\n"
     
     if not rows:
         text += "Нет использованных промокодов."
@@ -3496,16 +3496,41 @@ async def admin_sales_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Fetch client comments map (tg_id -> comment)
+        client_map = {}
+        try:
+            conn_xui = sqlite3.connect(DB_PATH)
+            cursor_xui = conn_xui.cursor()
+            cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+            row_xui = cursor_xui.fetchone()
+            conn_xui.close()
+            
+            if row_xui:
+                settings = json.loads(row_xui[0])
+                clients = settings.get('clients', [])
+                for c in clients:
+                    cid = str(c.get('tgId', ''))
+                    comment = c.get('comment', '') or c.get('_comment', '') or c.get('remark', '')
+                    if cid and comment:
+                        client_map[cid] = comment
+        except Exception as e:
+            logging.error(f"Error fetching client comments: {e}")
+
         text = t("sales_log_title", lang)
         
         for row in rows:
-            tg_id, amount, date_ts, plan_id = row
+            tg_id_tx, amount, date_ts, plan_id = row
             date_str = datetime.datetime.fromtimestamp(date_ts, tz=TIMEZONE).strftime("%d.%m %H:%M")
             
             # Localize plan name
             plan_display = TEXTS[lang].get(f"plan_{plan_id}", plan_id)
             
-            text += f"📅 `{date_str}` | 🆔 `{tg_id}`\n💳 {plan_display} | 💰 {amount} XTR\n\n"
+            # Get name from map
+            user_name = client_map.get(tg_id_tx, "Unknown")
+            # If name is unknown, try to find in user_prefs? 
+            # (Optional, but user specifically asked for comment cells)
+            
+            text += f"📅 `{date_str}` | 🆔 `{tg_id_tx}`\n👤 {user_name}\n💳 {plan_display} | 💰 {amount} XTR\n\n"
             
         await query.edit_message_text(
             text,
@@ -4032,7 +4057,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 end_time_str = datetime.datetime.fromtimestamp(delete_at, tz=TIMEZONE).strftime("%H:%M")
                 
                 # Make code copyable by clicking on it inside spoiler (using monospaced font)
-                msg_text = f"🔥 <b>УСПЕЙ ПОЙМАТЬ ПРОМОКОД!</b> 🔥\n\nУспей активировать секретный промокод!\n\n👇 Нажми, чтобы увидеть:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ <b>Предложение сгорит в {end_time_str}</b>\n(через {duration} мин)"
+                msg_text = f"🔥 УСПЕЙ ПОЙМАТЬ ПРОМОКОД! 🔥\n\nУспей активировать секретный промокод!\n\n👇 Нажми, чтобы увидеть:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ Предложение сгорит в {end_time_str}\n(через {duration} мин)"
                 
                 conn = sqlite3.connect(BOT_DB_PATH)
                 cursor = conn.cursor()
@@ -4358,88 +4383,95 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer(ok=True)
 
 async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    payment = update.message.successful_payment
-    payload = payment.invoice_payload
-    current_prices = get_prices()
-    plan = current_prices.get(payload)
-    
-    if not plan:
-        return
-
-    tg_id = str(update.message.from_user.id)
-    lang = get_lang(tg_id)
-    days_to_add = plan['days']
-    
-    # Record transaction
-    conn = sqlite3.connect(BOT_DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)", 
-                   (tg_id, plan['amount'], int(time.time()), payload))
-    conn.commit()
-    conn.close()
-    
-    log_action(f"ACTION: User {tg_id} (@{update.message.from_user.username}) purchased subscription: {payload} ({plan['amount']} XTR).")
-    
-    # Celebration animation for Payment
-    import asyncio
-    msg = await update.message.reply_text("🎆")
-    await asyncio.sleep(1.0)
-    await msg.edit_text("🎆 🎇")
-    await asyncio.sleep(0.75)
-    await msg.edit_text("🎆 🎇 ✨")
-    await asyncio.sleep(0.5)
-    await msg.edit_text("🎉 ОПЛАТА ПРОШЛА УСПЕШНО! 🎉")
-
-    # Notify Admin
     try:
-        admin_lang = get_lang(ADMIN_ID)
-        buyer_username = update.message.from_user.username or "NoUsername"
-        plan_name = t(f"plan_{payload}", admin_lang)
-        admin_msg = f"💰 *Новая продажа!*\n\n👤 Пользователь: @{buyer_username} (`{tg_id}`)\n💳 Тариф: {plan_name}\n💸 Сумма: {plan['amount']} Stars"
+        payment = update.message.successful_payment
+        payload = payment.invoice_payload
+        tg_id = str(update.message.from_user.id)
         
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
-    except Exception as e:
-        logging.error(f"Failed to notify admin: {e}")
-
-    await process_subscription(tg_id, days_to_add, update, context, lang)
-    
-    # Check Referral Bonus (7 days for referrer)
-    conn = sqlite3.connect(BOT_DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT referrer_id FROM user_prefs WHERE tg_id=?", (tg_id,))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if row and row[0]:
-        referrer_id = row[0]
-        # Grant 7 days to referrer
-        try:
-            # We need to process subscription for referrer. 
-            # Note: process_subscription usually expects 'update' to reply to.
-            # But here we are processing for someone else (referrer).
-            # We need a separate function or modify process_subscription to support 'silent' or 'notify_user' mode.
-            # Let's call process_subscription but we can't pass 'update' because it points to 'payer'.
-            # We will refactor logic slightly.
-            
-            # Actually, process_subscription uses 'update.message.reply_text' or 'edit_message_text'.
-            # If we pass update, it replies to payer.
-            # We need to notify referrer separately.
-            
-            await add_days_to_user(referrer_id, 7, context)
-            
-            # Notify referrer
-            ref_lang = get_lang(referrer_id)
-            msg_text = f"🎉 **Referral Bonus!**\n\nUser you invited has purchased a subscription.\nYou received +7 days!"
-            if ref_lang == 'ru':
-                msg_text = f"🎉 **Реферальный бонус!**\n\nПриглашенный вами пользователь купил подписку.\nВам начислено +7 дней!"
-                
+        log_action(f"DEBUG: Processing payment for user {tg_id}. Payload: {payload}, Amount: {payment.total_amount}")
+        
+        current_prices = get_prices()
+        plan = current_prices.get(payload)
+        
+        if not plan:
+            log_action(f"ERROR: Plan not found for payload: {payload}. User {tg_id} paid {payment.total_amount}.")
+            # Fallback: try to find by amount if payload fails? 
+            # For now just notify admin
             try:
-                await context.bot.send_message(chat_id=referrer_id, text=msg_text, parse_mode='Markdown')
-            except:
-                pass # User might have blocked bot
-                
+                await context.bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ ERROR: Unknown Plan Paid!\nUser: {tg_id}\nPayload: {payload}\nAmount: {payment.total_amount}")
+            except: pass
+            return
+
+        lang = get_lang(tg_id)
+        days_to_add = plan['days']
+        
+        # Record transaction
+        try:
+            conn = sqlite3.connect(BOT_DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)", 
+                           (tg_id, plan['amount'], int(time.time()), payload))
+            conn.commit()
+            conn.close()
         except Exception as e:
-            logging.error(f"Error granting referral bonus: {e}")
+            log_action(f"ERROR: Failed to save transaction to DB: {e}")
+        
+        log_action(f"ACTION: User {tg_id} (@{update.message.from_user.username}) purchased subscription: {payload} ({plan['amount']} XTR).")
+        
+        # Celebration animation for Payment
+        import asyncio
+        msg = await update.message.reply_text("🎆")
+        await asyncio.sleep(1.0)
+        await msg.edit_text("🎆 🎇")
+        await asyncio.sleep(0.75)
+        await msg.edit_text("🎆 🎇 ✨")
+        await asyncio.sleep(0.5)
+        await msg.edit_text("🎉 ОПЛАТА ПРОШЛА УСПЕШНО! 🎉")
+
+        # Notify Admin
+        try:
+            admin_lang = get_lang(ADMIN_ID)
+            buyer_username = update.message.from_user.username or "NoUsername"
+            plan_name = t(f"plan_{payload}", admin_lang)
+            admin_msg = f"💰 *Новая продажа!*\n\n👤 Пользователь: @{buyer_username} (`{tg_id}`)\n💳 Тариф: {plan_name}\n💸 Сумма: {plan['amount']} Stars"
+            
+            await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
+        except Exception as e:
+            logging.error(f"Failed to notify admin: {e}")
+
+        await process_subscription(tg_id, days_to_add, update, context, lang)
+        
+        # Check Referral Bonus (7 days for referrer)
+        try:
+            conn = sqlite3.connect(BOT_DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT referrer_id FROM user_prefs WHERE tg_id=?", (tg_id,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row and row[0]:
+                referrer_id = row[0]
+                # Grant 7 days to referrer
+                await add_days_to_user(referrer_id, 7, context)
+                
+                # Notify referrer
+                ref_lang = get_lang(referrer_id)
+                msg_text = f"🎉 **Referral Bonus!**\n\nUser you invited has purchased a subscription.\nYou received +7 days!"
+                if ref_lang == 'ru':
+                    msg_text = f"🎉 **Реферальный бонус!**\n\nПриглашенный вами пользователь купил подписку.\nВам начислено +7 дней!"
+                    
+                try:
+                    await context.bot.send_message(chat_id=referrer_id, text=msg_text, parse_mode='Markdown')
+                except:
+                    pass # User might have blocked bot
+        except Exception as e:
+            logging.error(f"Error checking referral bonus: {e}")
+            
+    except Exception as e:
+        log_action(f"CRITICAL ERROR in successful_payment: {e}")
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ CRITICAL PAYMENT ERROR: {e}")
+        except: pass
 
 async def add_days_to_user(tg_id, days_to_add, context):
     # Simplified version of process_subscription for background tasks
