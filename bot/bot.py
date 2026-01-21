@@ -528,7 +528,7 @@ TEXTS = {
         "leaderboard_title_traffic": "🏆 *Рейтинг по трафику (Месяц)* (Стр. {page}/{total})\n\nТоп пользователей по потреблению в этом месяце:",
         "leaderboard_title_sub": "🏆 *Рейтинг подписок* (Стр. {page}/{total})\n\nТоп пользователей по длительности подписки:",
         "leaderboard_empty": "Нет данных.",
-        "suspicious_title": "⚠️ *Пользователи с мульти-подключениями*\n(>1 IP за последние 10 мин)\n\n",
+        "suspicious_title": "⚠️ *История мульти-подключений* (Стр. {page}/{total})\n\n",
         "suspicious_empty": "✅ Подозрительных активностей не обнаружено.",
         "suspicious_entry": "📧 `{email}`\n🔌 IP: {count}\n{ips}\n\n",
         "status_yes": "✅ Да",
@@ -2043,10 +2043,10 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("SELECT COUNT(*) FROM user_prefs")
     total_users = cursor.fetchone()[0]
     
-    cursor.execute("SELECT SUM(amount) FROM transactions")
+    cursor.execute("SELECT SUM(amount) FROM transactions WHERE tg_id != '369456269'")
     total_revenue = cursor.fetchone()[0] or 0
     
-    cursor.execute("SELECT COUNT(*) FROM transactions")
+    cursor.execute("SELECT COUNT(*) FROM transactions WHERE tg_id != '369456269'")
     total_sales = cursor.fetchone()[0]
     
     # Get trial users and paid users
@@ -2966,7 +2966,7 @@ async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_T
             page = int(parts[2])
         except: page = 0
         
-    ITEMS_PER_PAGE = 10
+    ITEMS_PER_PAGE = 20
     offset = page * ITEMS_PER_PAGE
     
     conn = sqlite3.connect(BOT_DB_PATH)
@@ -2988,11 +2988,31 @@ async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_T
     rows = cursor.fetchall()
     conn.close()
     
-    text = t("suspicious_title", lang)
+    text = t("suspicious_title", lang).format(page=page+1, total=total_pages)
     
     if not rows:
         text += t("suspicious_empty", lang)
     else:
+        # Fetch client comments map (email -> comment)
+        client_map = {}
+        try:
+            conn_xui = sqlite3.connect(DB_PATH)
+            cursor_xui = conn_xui.cursor()
+            cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+            row_xui = cursor_xui.fetchone()
+            conn_xui.close()
+            
+            if row_xui:
+                settings = json.loads(row_xui[0])
+                clients = settings.get('clients', [])
+                for c in clients:
+                    email = c.get('email', '')
+                    comment = c.get('comment', '') or c.get('_comment', '') or c.get('remark', '')
+                    if email and comment:
+                        client_map[email] = comment
+        except Exception as e:
+            logging.error(f"Error fetching client comments for suspicious: {e}")
+
         for row in rows:
             email, ip_str, last_seen, count = row
             time_str = datetime.datetime.fromtimestamp(last_seen, tz=TIMEZONE).strftime("%Y-%m-%d %H:%M")
@@ -3000,8 +3020,14 @@ async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_T
             # Format IPs: try to ensure flags are present if string already has them, otherwise just display
             # The background task stores formatted string "🇺🇸 1.2.3.4, 🇩🇪 5.6.7.8"
             
+            # Get name from map
+            user_name = client_map.get(email, "")
+            user_info_str = ""
+            if user_name:
+                user_info_str = f"👤 {user_name}\n"
+            
             # Text entry
-            text += f"📧 `{email}`\n⏱ {time_str} | 🔢 {count} x\n🔌 {ip_str}\n\n"
+            text += f"📧 `{email}`\n{user_info_str}⏱ {time_str} | 🔢 {count} x\n🔌 {ip_str}\n\n"
             
     # Pagination
     keyboard = []
@@ -3484,7 +3510,7 @@ async def admin_sales_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         conn = sqlite3.connect(BOT_DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT tg_id, amount, date, plan_id FROM transactions ORDER BY date DESC LIMIT 20")
+        cursor.execute("SELECT tg_id, amount, date, plan_id FROM transactions WHERE tg_id != '369456269' ORDER BY date DESC LIMIT 20")
         rows = cursor.fetchall()
         conn.close()
         
