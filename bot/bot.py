@@ -171,7 +171,7 @@ TEXTS = {
         "trial_activated": "🎉 Trial Activated!\n\nYou have received 3 days of free access.\nCheck '🚀 My Config' to connect.",
         "ref_title": "👥 Referral Program\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n<code>{link}</code>\n\n🎁 You have invited: {count} users.",
         "promo_prompt": "🎁 Redeem Promo Code\n\nPlease enter your promo code:",
-        "promo_success": "✅ Promo Code Redeemed!\n\nAdded {days} days to your subscription.",
+        "promo_success": "✅ Promo Code Redeemed! 😊\n\nAdded {days} days to your subscription.",
         "promo_invalid": "❌ Invalid or Expired Code",
         "promo_used": "⚠️ Code Already Used",
         "instr_menu": "📚 *Setup Instructions*\n\nChoose your device:",
@@ -416,7 +416,7 @@ TEXTS = {
         "trial_activated": "🎉 *Пробный период активирован!*\n\nВам начислено 3 дня доступа.\nНажмите '🚀 Мой конфиг' для подключения.",
         "ref_title": "👥 *Реферальная программа*\n\nПриглашайте друзей и получайте бонусы!\n\n🔗 Ваша ссылка:\n`{link}`\n\n🎁 Вы пригласили: {count} пользователей.",
         "promo_prompt": "🎁 *Активация промокода*\n\nПожалуйста, отправьте боту ваш промокод:",
-        "promo_success": "✅ *Промокод активирован!*\n\nДобавлено {days} дней к вашей подписке.",
+        "promo_success": "✅ *Промокод активирован!* 😊\n\nДобавлено {days} дней к вашей подписке.",
         "promo_invalid": "❌ *Неверный или истекший код*",
         "promo_used": "⚠️ *Код уже использован вами*",
         "instr_menu": "📚 *Инструкция по настройке*\n\nВыберите ваше устройство:",
@@ -3891,6 +3891,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = str(update.message.from_user.id)
     lang = get_lang(tg_id)
     text = update.message.text
+    action = None
     
     # Admin actions
     if tg_id == ADMIN_ID:
@@ -4421,8 +4422,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      await context.bot.send_message(chat_id=ADMIN_ID, text=alert_text, parse_mode='Markdown')
                  await update.message.reply_text(t("support_sent", lang))
              except Exception as ex:
-                 logging.error(f"Main bot fallback failed: {ex}")
-                 await update.message.reply_text(t("error_generic", lang))
+                logging.error(f"Main bot fallback failed: {ex}")
+                await update.message.reply_text(t("error_generic", lang))
             
         context.user_data['admin_action'] = None
         return
@@ -4496,7 +4497,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              await asyncio.sleep(0.5)
              await msg.edit_text("🎆 🎇 ✨")
              await asyncio.sleep(0.5)
-             await msg.edit_text("🎉 ПРОМОКОД АКТИВИРОВАН! 🎉")
+             await msg.edit_text("🎉 ПРОМОКОД АКТИВИРОВАН! 😊")
              
         context.user_data['awaiting_promo'] = False
         return
