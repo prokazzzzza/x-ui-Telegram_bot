@@ -4705,8 +4705,9 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
              email = user_client.get('email')
              if email:
                  try:
-                     conn.execute("UPDATE client_traffics SET expiry_time=? WHERE email=?", (new_expiry, email))
-                 except: pass
+                     conn.execute("UPDATE client_traffics SET expiry_time=?, enable=1 WHERE email=?", (new_expiry, email))
+                 except Exception as e:
+                     logging.error(f"Error updating client_traffics for existing user: {e}")
 
         cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(settings), INBOUND_ID))
         conn.commit()
