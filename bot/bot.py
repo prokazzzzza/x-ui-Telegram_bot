@@ -309,6 +309,12 @@ TEXTS = {
         "promo_create_prompt": "🎁 *Create Promo Code*\n\nSend details in format:\n`CODE DAYS LIMIT`\n\nExample: `NEWYEAR 30 100`\n(LIMIT 0 = unlimited)",
         "promo_created": "✅ Promo `{code}` created for {days} days ({limit} uses).",
         "promo_format_error": "❌ Invalid format. Use: `CODE DAYS LIMIT`",
+        "promo_delete_confirm": "❓ Are you sure you want to delete promo `{code}`?\nUsers will no longer be able to use it.",
+        "promo_deleted": "✅ Promo deleted.",
+        "promo_not_found": "❌ Promo not found.",
+        "btn_delete": "Delete",
+        "btn_yes": "Yes",
+        "btn_no": "No",
         "flash_menu_title": "⚡ *Flash Promo*\n\nSelect a promo code to broadcast temporarily:",
         "btn_flash_delete_all": "🧨 Delete All Flash",
         "flash_select_prompt": "⚡ Selected Code: `{code}`\n\nEnter message lifetime in minutes (e.g., 60).\nMessage will be deleted for all users after this time.",
@@ -573,6 +579,12 @@ TEXTS = {
         "promo_create_prompt": "🎁 *Создать промокод*\n\nОтправьте детали промокода в формате:\n`CODE DAYS LIMIT`\n\nПример: `NEWYEAR 30 100`\n(LIMIT 0 = безлимит)",
         "promo_created": "✅ Промокод <code>{code}</code> создан на {days} дн. ({limit} активаций).",
         "promo_format_error": "❌ Неверный формат. Используйте: `КОД ДНИ ЛИМИТ`",
+        "promo_delete_confirm": "❓ Вы уверены, что хотите удалить промокод `{code}`?\nПользователи больше не смогут его использовать.",
+        "promo_deleted": "✅ Промокод удален.",
+        "promo_not_found": "❌ Промокод не найден.",
+        "btn_delete": "Удалить",
+        "btn_yes": "Да",
+        "btn_no": "Нет",
         "flash_menu_title": "⚡ *Flash Промокод*\n\nВыберите промокод, который хотите отправить во временной рассылке:",
         "btn_flash_delete_all": "🧨 Удалить все Flash",
         "flash_select_prompt": "⚡ Выбран промокод: `{code}`\n\nВведите время жизни сообщения в минутах (например: 60).\nПо истечении этого времени сообщение будет удалено у всех пользователей.",
@@ -3162,20 +3174,68 @@ async def admin_promo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = t("promo_list_title", lang)
+    keyboard = []
+    
     for r in rows:
         code, days, max_uses, used_count = r
         limit_str = "♾️" if max_uses <= 0 else f"{max_uses}"
         text += f"🏷 `{code}`\n{t('promo_item_days', lang).format(days=days)}\n{t('promo_item_used', lang).format(used=used_count, limit=limit_str)}\n\n"
-        
+        # Add delete button for each promo
+        keyboard.append([InlineKeyboardButton(f"🗑 {t('btn_delete', lang)} {code}", callback_data=f'admin_revoke_menu_{code}')])
+
     # Split if too long (simple check)
     if len(text) > 4000:
         text = text[:4000] + "\n...(обрезано)"
         
+    keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data='admin_promos_menu')])
+        
     await query.edit_message_text(
         text,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='admin_promos_menu')]]),
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
+
+async def admin_revoke_promo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    # data: admin_revoke_menu_CODE
+    code = query.data[len("admin_revoke_menu_"):]
+    
+    text = t("promo_delete_confirm", lang).format(code=code)
+    
+    keyboard = [
+        [InlineKeyboardButton(t("btn_yes", lang), callback_data=f'admin_revoke_act_{code}')],
+        [InlineKeyboardButton(t("btn_no", lang), callback_data='admin_promo_list')]
+    ]
+    
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_revoke_promo_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    # data: admin_revoke_act_CODE
+    code = query.data[len("admin_revoke_act_"):]
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM promo_codes WHERE code=?", (code,))
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    if deleted > 0:
+        await query.answer(t("promo_deleted", lang), show_alert=True)
+    else:
+        await query.answer(t("promo_not_found", lang), show_alert=True)
+        
+    # Refresh list
+    await admin_promo_list(update, context)
 
 async def admin_promo_uses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4484,9 +4544,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              log_action(f"ACTION: User {tg_id} (@{username}) redeemed promo code: {actual_code} ({days} days).")
              redeem_promo_db(actual_code, tg_id)
              
-             # Send success message immediately
-             await update.message.reply_text(t("promo_success", lang).format(days=days), parse_mode='Markdown')
-             
              await process_subscription(tg_id, days, update, context, lang)
              
              # Celebration animation
@@ -4497,7 +4554,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              await asyncio.sleep(0.5)
              await msg.edit_text("🎆 🎇 ✨")
              await asyncio.sleep(0.5)
-             await msg.edit_text("🎉 ПРОМОКОД АКТИВИРОВАН! 😊")
+             # Replace animation with the detailed success message
+             await msg.edit_text(t("promo_success", lang).format(days=days), parse_mode='Markdown')
              
         context.user_data['awaiting_promo'] = False
         return
