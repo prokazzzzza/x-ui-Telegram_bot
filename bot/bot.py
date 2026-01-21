@@ -881,25 +881,25 @@ def check_promo(code, tg_id):
     cursor = conn.cursor()
         
     # Check code existence and limit
-    cursor.execute("SELECT days, max_uses, used_count FROM promo_codes WHERE code=?", (code,))
+    cursor.execute("SELECT days, max_uses, used_count, code FROM promo_codes WHERE code=? COLLATE NOCASE", (code,))
     row = cursor.fetchone()
     if not row:
         conn.close()
-        return None # Invalid
+        return None, None # Invalid
         
-    days, max_uses, used_count = row
+    days, max_uses, used_count, actual_code = row
     if max_uses > 0 and used_count >= max_uses:
         conn.close()
-        return None # Expired/Max used
+        return None, None # Expired/Max used
         
     # Check if user used it
-    cursor.execute("SELECT 1 FROM user_promos WHERE tg_id=? AND code=?", (str(tg_id), code))
+    cursor.execute("SELECT 1 FROM user_promos WHERE tg_id=? AND code=?", (str(tg_id), actual_code))
     if cursor.fetchone():
         conn.close()
-        return "USED"
+        return "USED", actual_code
         
     conn.close()
-    return days
+    return days, actual_code
 
 def save_support_ticket(tg_id, text):
     """Saves a new support ticket (optional, if we want history)"""
@@ -1344,12 +1344,7 @@ async def show_main_menu_query(query, context, lang):
         await query.message.delete()
         await context.bot.send_message(chat_id=query.from_user.id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
-async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    tg_id = str(query.from_user.id)
-    lang = get_lang(tg_id)
-    await show_main_menu_query(query, context, lang)
+
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1423,6 +1418,10 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
+    
+    # Clear states
+    context.user_data['awaiting_promo'] = False
+    context.user_data['admin_action'] = None
     
     keyboard = [
         [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
@@ -1574,6 +1573,7 @@ async def enter_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  parse_mode='Markdown'
              )
     context.user_data['awaiting_promo'] = True
+    context.user_data['admin_action'] = None
 
 async def show_qrcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4472,7 +4472,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = get_lang(tg_id)
         code = text.strip()
         
-        days = check_promo(code, tg_id)
+        days, actual_code = check_promo(code, tg_id)
         
         if days == "USED":
              await update.message.reply_text(t("promo_used", lang))
@@ -4480,8 +4480,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              await update.message.reply_text(t("promo_invalid", lang))
         else:
              username = update.message.from_user.username or update.message.from_user.first_name
-             log_action(f"ACTION: User {tg_id} (@{username}) redeemed promo code: {code} ({days} days).")
-             redeem_promo_db(code, tg_id)
+             log_action(f"ACTION: User {tg_id} (@{username}) redeemed promo code: {actual_code} ({days} days).")
+             redeem_promo_db(actual_code, tg_id)
              
              # Send success message immediately
              await update.message.reply_text(t("promo_success", lang).format(days=days), parse_mode='Markdown')
