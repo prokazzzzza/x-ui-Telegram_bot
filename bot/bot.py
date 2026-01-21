@@ -1488,21 +1488,17 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
-    # Always show rank if user has a sub (days_left > 0) OR if rank is top 10?
-    # User said: "not all users...".
-    # Logic was: if rank_sub and rank_sub > 0
-    # Maybe rank_sub is None if user is not found in clients list?
-    # If user has no subscription (expiry=0 or expired), get_user_rank_subscription returns days=-1 or skips them.
     
-    if rank_sub and rank_sub > 0:
+    # Always show rank if valid
+    if rank_sub is not None and rank_sub > 0:
         text += t("rank_info_sub", lang).format(rank=rank_sub, total=total_sub)
+    elif days_left > 0:
+         # If has active sub but not ranked (should not happen if logic is correct, unless total=0)
+         pass
     else:
-        # If no rank (e.g. no sub), maybe encourage them?
-        # But user specifically asked about the message: "Your place 4 of 12".
-        # This implies they WANT to see it even if they are low rank?
-        # If rank_sub is returned, it means they are in the list.
-        # If they are unlimited (0), they are skipped in calculation.
-        pass
+         # No active sub or unlimited, maybe show encouragement
+         if days_left == 0: # Unlimited or expired
+             pass
 
     # Revert to text-only main menu
     try:
