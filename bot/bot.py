@@ -397,7 +397,7 @@ TEXTS = {
         "shop_title": "🛒 *Выберите план:*\n\nБезопасная оплата через Telegram Stars.",
         "btn_back": "🔙 Назад",
         "btn_how_to_buy_stars": "⭐️ Как купить Звезды?",
-        "how_to_buy_stars_text": "⭐️ **Как купить Telegram Stars?**\n\nTelegram Stars — это внутренняя валюта для оплаты цифровых товаров.\n\n1. **Через @PremiumBot:** Самый выгодный способ. Просто запустите бота и выберите пакет звезд.\n2. **В приложении:** При оплате выберите покупку звезд через Apple/Google (может быть дороже).\n3. **Fragment:** Можно купить звезды за TON на платформе Fragment.\n\nПосле покупки звезд вернитесь сюда и выберите тариф!",
+        "how_to_buy_stars_text": "⭐️ **Как купить Telegram Stars?**\n\nTelegram Stars — это внутренняя валюта для оплаты цифровых товаров в телеграме\n1. **Через оффицаильного бота телеграма @PremiumBot:** Просто запустите бота и выберите пакет звезд.",
         "label_1_month": "Подписка на 1 месяц",
         "label_3_months": "Подписка на 3 месяца",
         "label_6_months": "Подписка на 6 месяцев",
@@ -1121,12 +1121,10 @@ def get_user_rank_subscription(target_email):
             expiry = c.get('expiryTime', 0)
             email = c.get('email', '')
             
-            # Exclude unlimited (0)
+            # Unlimited (0) gets top priority
             if expiry == 0:
-                continue
-                
-            # Calculate remaining days
-            if expiry > current_time_ms:
+                days = 36500 # ~100 years
+            elif expiry > current_time_ms:
                 remaining_ms = expiry - current_time_ms
                 days = remaining_ms / (1000 * 3600 * 24)
             else:
@@ -2672,10 +2670,8 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif sort_type == 'sub':
             expiry = c.get('expiryTime', 0)
             if expiry == 0:
-                item['sort_val'] = -1 # Unlimited at bottom? Or exclude? User said "exclude unlimited"
-                # But we might want to show them separately? 
-                # User said: "учавствуют только пользователи, у которых не стоит неограниченное"
-                continue 
+                item['sort_val'] = 36500 # Unlimited at top
+                item['display_val'] = "♾️"
             elif expiry > current_time_ms:
                 remaining_ms = expiry - current_time_ms
                 days = remaining_ms / (1000 * 3600 * 24)
