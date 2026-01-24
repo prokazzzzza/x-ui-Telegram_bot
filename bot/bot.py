@@ -75,6 +75,7 @@ SNI = os.getenv("SNI")
 SID = os.getenv("SID")
 TIMEZONE = ZoneInfo("Europe/Moscow")
 LOG_FILE = "/usr/local/x-ui/bot/bot.log"
+REF_BONUS_DAYS = int(os.getenv("REF_BONUS_DAYS", 7))
 
 ACCESS_LOG_PATH = "/usr/local/x-ui/access.log"
 
@@ -165,11 +166,12 @@ TEXTS = {
         "stats_no_sub": "No stats found. Subscription required.",
         "expiry_warning": "⚠️ Subscription Expiring Soon!\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
         "btn_renew": "💎 Renew Now",
+        "btn_qrcode": "📱 QR code",
         "btn_instructions": "📚 Setup Instructions",
         "lang_sel": "Language selected: English 🇬🇧",
         "trial_used": "⚠️ Trial Already Used\n\nYou have already used your trial period.\nActivated: {date}",
         "trial_activated": "🎉 Trial Activated!\n\nYou have received 3 days of free access.\nCheck '🚀 My Config' to connect.",
-        "ref_title": "👥 Referral Program\n\nInvite friends and get bonuses!\n\n🔗 Your Link:\n<code>{link}</code>\n\n🎁 You have invited: {count} users.",
+        "ref_title": "👥 <b>Referral Program</b>\n\nInvite friends and get bonuses!\n10% of their deposits will be returned to you!\n\n🔗 Your Link:\n<code>{link}</code>\n\n🎁 You have invited: {count} users.",
         "promo_prompt": "🎁 Redeem Promo Code\n\nPlease enter your promo code:",
         "promo_success": "✅ Promo Code Redeemed! 😊\n\nAdded {days} days to your subscription.",
         "promo_invalid": "❌ Invalid or Expired Code",
@@ -197,6 +199,9 @@ TEXTS = {
         "btn_admin_prices": "💰 Pricing",
         "btn_admin_promos": "🎁 Promo Codes",
         "btn_suspicious": "⚠️ Multi-IP",
+        "suspicious_title": "⚠️ *Multi-IP History* (Page {page}/{total})\n\n",
+        "suspicious_empty": "✅ No suspicious activity found.",
+        "suspicious_entry": "📧 `{email}`\n🔌 IP: {count}\n{ips}\n\n",
         "btn_support": "🆘 Support",
         "support_title": "🆘 *Support*\n\nDescribe your problem in one message (you can attach a photo).\nAdministrator will answer you as soon as possible.",
         "support_sent": "✅ Message sent to support!",
@@ -420,7 +425,7 @@ TEXTS = {
         "lang_sel": "Выбран язык: Русский 🇷🇺",
         "trial_used": "⚠️ *Пробный период уже использован*\n\nВы уже активировали свои 3 дня бесплатно.\nДата активации: {date}",
         "trial_activated": "🎉 *Пробный период активирован!*\n\nВам начислено 3 дня доступа.\nНажмите '🚀 Мой конфиг' для подключения.",
-        "ref_title": "👥 *Реферальная программа*\n\nПриглашайте друзей и получайте бонусы!\n\n🔗 Ваша ссылка:\n`{link}`\n\n🎁 Вы пригласили: {count} пользователей.",
+        "ref_title": "👥 <b>Реферальная программа</b>\n\nПриглашайте друзей и получайте бонусы!\n10% от их пополнений будет возвращаться Вам!\n\n🔗 Ваша ссылка:\n<code>{link}</code>\n\n🎁 Вы пригласили: {count} пользователей.",
         "promo_prompt": "🎁 *Активация промокода*\n\nПожалуйста, отправьте боту ваш промокод:",
         "promo_success": "✅ *Промокод активирован!* 😊\n\nДобавлено {days} дней к вашей подписке.",
         "promo_invalid": "❌ *Неверный или истекший код*",
@@ -661,6 +666,21 @@ def init_db():
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN last_name TEXT")
     except: pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN balance INTEGER DEFAULT 0")
+    except: pass
+    
+    # Referral Bonuses Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS referral_bonuses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            referrer_id TEXT,
+            referred_id TEXT,
+            amount INTEGER,
+            type TEXT,
+            date INTEGER
+        )
+    ''')
     
     # Promo tables
     cursor.execute('''
@@ -733,6 +753,16 @@ def init_db():
     ''')
     # Index for fast lookup
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_flash_delete ON flash_messages(delete_at)")
+
+    # Flash Delivery Errors Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS flash_delivery_errors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            error_message TEXT,
+            timestamp INTEGER
+        )
+    ''')
     
     # Suspicious Events Table
     cursor.execute('''
@@ -861,10 +891,13 @@ def get_user_data(tg_id):
 def set_referrer(tg_id, referrer_id):
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
-    # Only set if not exists
-    cursor.execute("INSERT OR IGNORE INTO user_prefs (tg_id, referrer_id) VALUES (?, ?)", (str(tg_id), str(referrer_id)))
-    # If exists but referrer is null, update? No, usually first touch counts. 
-    # But insert or ignore handles 'new' users.
+    # Try to insert new user with referrer
+    try:
+        cursor.execute("INSERT INTO user_prefs (tg_id, referrer_id) VALUES (?, ?)", (str(tg_id), str(referrer_id)))
+    except sqlite3.IntegrityError:
+        # User exists, update referrer ONLY if it's currently NULL or empty
+        cursor.execute("UPDATE user_prefs SET referrer_id=? WHERE tg_id=? AND (referrer_id IS NULL OR referrer_id = '')", (str(referrer_id), str(tg_id)))
+    
     conn.commit()
     conn.close()
     
@@ -1563,23 +1596,42 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link = f"https://t.me/{bot_username}?start={tg_id}"
         count = count_referrals(tg_id)
         
+        # Get balance
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT balance FROM user_prefs WHERE tg_id=?", (tg_id,))
+        row = cursor.fetchone()
+        balance = row[0] if row else 0
+        conn.close()
+        
         text = t("ref_title", lang).format(link=link, count=count)
+        text += f"\n\n💰 Balance: {balance} Stars" if lang == 'en' else f"\n\n💰 Баланс: {balance} Stars"
+        
+        keyboard = [
+            [InlineKeyboardButton("📜 My Referrals" if lang == 'en' else "📜 Мои рефералы", callback_data='my_referrals')],
+            [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
+        ]
         
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
     except Exception as e:
         logging.error(f"Referral error for {tg_id}: {e}")
         # Try sending without markdown if that was the issue
         try:
-            # Fallback text without markdown formatting if possible, or just raw
-            # But here we just try HTML or plain text
-            await query.message.delete()
+            # Try to delete the old message (ignore if not found)
+            try:
+                await query.message.delete()
+            except:
+                pass
+            
+            # Remove HTML tags for fallback
+            clean_text = text.replace('<b>', '').replace('</b>', '').replace('<code>', '').replace('</code>', '').replace('`', '')
             await context.bot.send_message(
                  chat_id=tg_id,
-                 text=text.replace('`', ''), # Remove code blocks for safety in fallback
+                 text=clean_text,
                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]])
             )
         except Exception as e2:
@@ -1609,6 +1661,42 @@ async def enter_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
              )
     context.user_data['awaiting_promo'] = True
     context.user_data['admin_action'] = None
+
+async def my_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get total count
+    cursor.execute("SELECT COUNT(*) FROM user_prefs WHERE referrer_id=?", (tg_id,))
+    total_count = cursor.fetchone()[0]
+    
+    # Get last 10 referrals
+    cursor.execute("SELECT tg_id, first_name, username FROM user_prefs WHERE referrer_id=? ORDER BY ROWID DESC LIMIT 10", (tg_id,))
+    rows = cursor.fetchall()
+    
+    conn.close()
+    
+    title = "📜 My Referrals" if lang == 'en' else "📜 Мои рефералы"
+    text = f"*{title}*\n\n"
+    text += f"Total invited: {total_count}\n\n" if lang == 'en' else f"Всего приглашено: {total_count}\n\n"
+    
+    if rows:
+        for r in rows:
+            uid, fname, uname = r
+            name = fname or uid
+            if uname: name += f" (@{uname})"
+            text += f"👤 {name}\n"
+    else:
+        text += "List is empty." if lang == 'en' else "Список пуст."
+        
+    keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data='referral')]]
+    
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def show_qrcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2637,16 +2725,32 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Prepare data based on sort type
     current_time_ms = int(time.time() * 1000)
     
-    # Pre-fetch traffic stats for efficiency if sorting by traffic
-    traffic_map = {}
-    if sort_type == 'traffic':
-        conn_stats = sqlite3.connect(DB_PATH)
-        cursor_stats = conn_stats.cursor()
-        cursor_stats.execute("SELECT email, down FROM client_traffics WHERE inbound_id=?", (INBOUND_ID,))
+    # Prepare data based on sort type
+    current_time_ms = int(time.time() * 1000)
+    
+    # Pre-fetch traffic and expiry stats from DB (client_traffics)
+    # We fetch this for BOTH sort types to ensure data is fresh
+    db_stats_map = {}
+    
+    conn_stats = sqlite3.connect(DB_PATH)
+    cursor_stats = conn_stats.cursor()
+    try:
+        # Fetch up, down, expiry_time
+        cursor_stats.execute("SELECT email, up, down, expiry_time FROM client_traffics WHERE inbound_id=?", (INBOUND_ID,))
         rows = cursor_stats.fetchall()
-        conn_stats.close()
         for r in rows:
-            if r[0]: traffic_map[r[0]] = r[1] or 0
+            if r[0]: 
+                up = r[1] or 0
+                down = r[2] or 0
+                expiry = r[3] or 0
+                db_stats_map[r[0]] = {
+                    'traffic': up + down,
+                    'expiry': expiry
+                }
+    except Exception as e:
+        logging.error(f"Error fetching client_traffics: {e}")
+    finally:
+        conn_stats.close()
 
     for c in clients:
         email = c.get('email', '')
@@ -2663,14 +2767,46 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'display_val': ""
         }
         
+        # Get DB stats
+        db_stats = db_stats_map.get(email, {})
+        
         if sort_type == 'traffic':
-            traffic = traffic_map.get(email, 0)
+            traffic_db = db_stats.get('traffic', 0)
+            traffic_json = (c.get('up', 0) or 0) + (c.get('down', 0) or 0)
+            traffic = max(traffic_db, traffic_json)
+            
             item['sort_val'] = traffic
             item['display_val'] = format_traffic(traffic)
         elif sort_type == 'sub':
-            expiry = c.get('expiryTime', 0)
+            # Compare expiry from JSON and DB
+            expiry_json = c.get('expiryTime', 0)
+            expiry_db = db_stats.get('expiry', 0)
+            
+            # Use max expiry (assuming extension increases time)
+            # Use 0 (unlimited) if EITHER is 0? 
+            # No, if one is 0 (unlimited) and other is timestamp, 0 usually wins (unlimited).
+            # But wait, 0 means unlimited. Timestamp means limited.
+            # If I changed from limited to unlimited, 0 is newer.
+            # If I changed from unlimited to limited, timestamp is newer.
+            # We can't know which is newer without `updated_at` (which might be in JSON).
+            # Let's assume JSON (inbounds) is the "Config" (Intention) and DB (client_traffics) is "State".
+            # Usually X-UI syncs Config -> State.
+            # So JSON should be preferred for Expiry?
+            # But user says it's outdated. That implies JSON is OLDER than reality?
+            # If JSON is older, then DB must be newer.
+            # So let's try to trust DB if it differs?
+            # However, 0 vs timestamp is tricky.
+            # Let's just use max() for now, but handle 0 carefully.
+            # If expiry_json == 0, use 0. (Config says unlimited).
+            # If expiry_db == 0, use 0. (DB says unlimited).
+            
+            if expiry_json == 0 or expiry_db == 0:
+                expiry = 0
+            else:
+                expiry = max(expiry_json, expiry_db)
+            
             if expiry == 0:
-                item['sort_val'] = 36500 # Unlimited at top
+                item['sort_val'] = 36500 * 24 * 3600 * 1000 # Put unlimited at top (large number)
                 item['display_val'] = "♾️"
             elif expiry > current_time_ms:
                 remaining_ms = expiry - current_time_ms
@@ -3569,6 +3705,48 @@ async def admin_flash_select(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode='Markdown'
     )
 
+async def admin_flash_errors(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, error_message FROM flash_delivery_errors")
+    rows = cursor.fetchall()
+    
+    # Also fetch user names if possible (from user_prefs)
+    cursor.execute("SELECT tg_id, first_name, username FROM user_prefs")
+    user_rows = cursor.fetchall()
+    conn.close()
+    
+    user_map = {u[0]: (u[1], u[2]) for u in user_rows} # id -> (name, username)
+    
+    text = "📉 *Недоставленные сообщения:*\n\n"
+    if not rows:
+        text += "Список пуст."
+    else:
+        for r in rows:
+            uid, err = r
+            name_info = user_map.get(uid)
+            name_str = f"`{uid}`"
+            if name_info:
+                fn = name_info[0] or ""
+                un = f"@{name_info[1]}" if name_info[1] else ""
+                name_str = f"{fn} {un} (`{uid}`)"
+                
+            # Simplify error
+            err_clean = str(err)
+            if "Forbidden" in err_clean: err_clean = "Бот заблокирован"
+            elif "chat not found" in err_clean.lower(): err_clean = "Чат не найден"
+            
+            text += f"👤 {name_str}\n❌ {err_clean}\n\n"
+            
+    # Split if too long
+    if len(text) > 4000:
+        text = text[:4000] + "\n...(обрезано)"
+        
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data='admin_flash_menu')]]))
+
 async def cleanup_flash_messages(context: ContextTypes.DEFAULT_TYPE):
     try:
         current_ts = int(time.time())
@@ -4162,6 +4340,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 conn = sqlite3.connect(BOT_DB_PATH)
                 cursor = conn.cursor()
                 
+                # Clear previous flash errors
+                cursor.execute("DELETE FROM flash_delivery_errors")
+                
                 users = []
                 # Sync X-UI
                 try:
@@ -4219,12 +4400,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception as e:
                          if "Forbidden" in str(e) or "blocked" in str(e):
                              blocked += 1
+                         
+                         # Log delivery error
+                         try:
+                             cursor.execute("INSERT INTO flash_delivery_errors (user_id, error_message, timestamp) VALUES (?, ?, ?)", 
+                                            (str(user_id), str(e), int(time.time())))
+                         except: pass
+                         
                          pass
                 
                 conn.commit()
                 conn.close()
                 
-                await status_msg.edit_text(f"✅ Flash-рассылка завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}\n⏱ Время жизни: {duration} мин.")
+                result_text = f"✅ Flash-рассылка завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}\n⏱ Время жизни: {duration} мин."
+                keyboard = []
+                if blocked > 0:
+                    keyboard.append([InlineKeyboardButton("📉 Показать недоставленные", callback_data='admin_flash_errors')])
+                
+                await status_msg.edit_text(result_text, reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None)
                 
                 context.user_data['admin_action'] = None
                 context.user_data['flash_code'] = None
@@ -4705,19 +4898,42 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             if row and row[0]:
                 referrer_id = row[0]
-                # Grant 7 days to referrer
-                await add_days_to_user(referrer_id, 7, context)
+                # Grant bonus days to referrer
+                await add_days_to_user(referrer_id, REF_BONUS_DAYS, context)
                 
                 # Notify referrer
                 ref_lang = get_lang(referrer_id)
-                msg_text = f"🎉 **Referral Bonus!**\n\nUser you invited has purchased a subscription.\nYou received +7 days!"
+                msg_text = f"🎉 **Referral Bonus!**\n\nUser you invited has purchased a subscription.\nYou received +{REF_BONUS_DAYS} days!"
                 if ref_lang == 'ru':
-                    msg_text = f"🎉 **Реферальный бонус!**\n\nПриглашенный вами пользователь купил подписку.\nВам начислено +7 дней!"
+                    msg_text = f"🎉 **Реферальный бонус!**\n\nПриглашенный вами пользователь купил подписку.\nВам начислено +{REF_BONUS_DAYS} дней!"
                     
                 try:
                     await context.bot.send_message(chat_id=referrer_id, text=msg_text, parse_mode='Markdown')
                 except:
                     pass # User might have blocked bot
+            
+            # 10% Cashback Logic
+            cashback_amount = int(payment.total_amount * 0.10)
+            if cashback_amount > 0 and row and row[0]:
+                referrer_id = row[0]
+                conn = sqlite3.connect(BOT_DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("UPDATE user_prefs SET balance = balance + ? WHERE tg_id=?", (cashback_amount, referrer_id))
+                cursor.execute("INSERT INTO referral_bonuses (referrer_id, referred_id, amount, type, date) VALUES (?, ?, ?, 'cashback', ?)", 
+                               (referrer_id, tg_id, cashback_amount, int(time.time())))
+                conn.commit()
+                conn.close()
+                
+                # Notify referrer about cashback
+                cb_lang = get_lang(referrer_id)
+                cb_text = f"💰 **Cashback!**\n\n+ {cashback_amount} Stars (10%) from referral purchase!"
+                if cb_lang == 'ru':
+                    cb_text = f"💰 **Кэшбэк!**\n\n+ {cashback_amount} Stars (10%) от покупки реферала!"
+                
+                try:
+                    await context.bot.send_message(chat_id=referrer_id, text=cb_text, parse_mode='Markdown')
+                except: pass
+
         except Exception as e:
             logging.error(f"Error checking referral bonus: {e}")
             
@@ -6122,30 +6338,59 @@ async def detect_suspicious_activity(context: ContextTypes.DEFAULT_TYPE):
             conn.close()
             return
 
-        # Analysis Logic (Same as before)
-        analysis = {}
+        # Analysis Logic (Sliding Window - 60 seconds)
+        # We look for overlapping usage within a 60-second window
+        user_logs = {}
         for row in rows:
             email, ip, ts, cc = row
-            minute_bucket = ts // 60
-            if email not in analysis: analysis[email] = {}
-            if minute_bucket not in analysis[email]: analysis[email][minute_bucket] = set()
-            analysis[email][minute_bucket].add((ip, cc))
-            
+            if email not in user_logs: user_logs[email] = []
+            user_logs[email].append({'ip': ip, 'ts': ts, 'cc': cc})
+
         suspicious_users = []
-        for email, minutes in analysis.items():
-            detected_ips = set()
-            simultaneous_minutes = 0
-            for minute, ips_set in minutes.items():
-                if len(ips_set) > 1:
-                    simultaneous_minutes += 1
-                    for ip_data in ips_set:
-                        detected_ips.add(ip_data)
+        window = 60  # 60 seconds
+
+        for email, logs in user_logs.items():
+            logs.sort(key=lambda x: x['ts'])
             
-            if simultaneous_minutes > 0:
+            detected_ips = set()
+            start = 0
+            current_window_ips = {}
+            has_suspicious = False
+            intensity_score = 0
+            
+            for end in range(len(logs)):
+                current_log = logs[end]
+                ip = current_log['ip']
+                current_window_ips[ip] = current_window_ips.get(ip, 0) + 1
+                
+                while logs[end]['ts'] - logs[start]['ts'] > window:
+                    remove_ip = logs[start]['ip']
+                    current_window_ips[remove_ip] -= 1
+                    if current_window_ips[remove_ip] == 0:
+                        del current_window_ips[remove_ip]
+                    start += 1
+                
+                if len(current_window_ips) > 1:
+                    has_suspicious = True
+                    intensity_score += 1
+                    for ip_key in current_window_ips:
+                        # Find cc for this IP from current logs
+                        # (Optimized: we could cache this, but searching small list is fine)
+                        cc = next((l['cc'] for l in logs if l['ip'] == ip_key), None)
+                        detected_ips.add((ip_key, cc))
+            
+            if has_suspicious:
+                # Use intensity_score as 'minutes' count equivalent
+                # To prevent crazy high numbers, we can cap it or scale it.
+                # But 'count' in DB is just an integer. Let's use 1 per detection cycle 
+                # plus a fraction of intensity to show severity? 
+                # Or just use 1 to keep it simple and consistent with "events".
+                # Actually, let's use a minimum of 1.
+                
                 suspicious_users.append({
                     'email': email,
                     'ips': detected_ips,
-                    'minutes': simultaneous_minutes
+                    'minutes': max(1, intensity_score // 5) # Heuristic: 5 suspicious logs ~ 1 "unit" of suspicion
                 })
         
         # Save to DB
@@ -6204,6 +6449,7 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(try_trial, pattern='^try_trial$'))
     application.add_handler(CallbackQueryHandler(enter_promo, pattern='^enter_promo$'))
     application.add_handler(CallbackQueryHandler(referral, pattern='^referral$'))
+    application.add_handler(CallbackQueryHandler(my_referrals, pattern='^my_referrals$'))
     application.add_handler(CallbackQueryHandler(show_qrcode, pattern='^show_qrcode$'))
     application.add_handler(CallbackQueryHandler(instructions, pattern='^instructions$'))
     application.add_handler(CallbackQueryHandler(show_instruction, pattern='^instr_'))
@@ -6253,6 +6499,7 @@ def register_handlers(application):
     
     application.add_handler(CallbackQueryHandler(admin_flash_menu, pattern='^admin_flash_menu$'))
     application.add_handler(CallbackQueryHandler(admin_flash_select, pattern='^admin_flash_sel_'))
+    application.add_handler(CallbackQueryHandler(admin_flash_errors, pattern='^admin_flash_errors$'))
     
     application.add_handler(CallbackQueryHandler(support_menu, pattern='^support_menu$'))
     
