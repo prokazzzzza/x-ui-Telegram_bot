@@ -376,7 +376,10 @@ TEXTS = {
         "stats_month": "📅 This Month:",
         "stats_total": "📦 Total:",
         "stats_expires": "⏳ Expires:",
-        "unlimited_text": "♾️ Unlimited"
+        "unlimited_text": "♾️ Unlimited",
+        "live_monitor_starting": "Starting Live Monitor...",
+        "trial_expiring": "⚠️ **Your Trial ends in 24h!**\n\nDon't lose your secure connection. Subscribe now to keep access! 🚀",
+        "trial_expired": "❌ **Your Trial has expired**\n\nWe hope you enjoyed the speed! 🚀\n\nGet full unlimited access starting from just 80 Star/month.\n\n👇 **Tap below to renew:**"
     },
     "ru": {
         "error_invalid_id": "❌ Ошибка: Некорректный ID",
@@ -391,6 +394,9 @@ TEXTS = {
         "stats_total": "📦 Всего:",
         "stats_expires": "⏳ Истекает:",
         "unlimited_text": "♾️ Безлимит",
+        "live_monitor_starting": "Запуск Live мониторинга...",
+        "trial_expiring": "⚠️ **Ваш пробный период истекает через 24ч!**\n\nНе теряйте доступ к защищенному соединению. Оформите подписку сейчас! 🚀",
+        "trial_expired": "❌ **Ваш пробный период истек**\n\nНадеемся, вам понравилась скорость! 🚀\n\nПолучите полный безлимитный доступ всего от 80 Star/месяц.\n\n👇 **Нажмите ниже, чтобы продлить:**",
         "welcome": "Добро пожаловать в Maxi-VPN! 🛡️\n\nПожалуйста, выберите язык:",
         "main_menu": "🚀 Maxi-VPN — Твой пропуск в свободный интернет!\n\n⚡️ Высокая скорость, анонимность и доступ к любым сервисам.\n💎 Оплата в один клик через Telegram Stars.",
         "btn_buy": "💎 Купить подписку",
@@ -669,6 +675,16 @@ def init_db():
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN balance INTEGER DEFAULT 0")
     except: pass
+    
+    # Notifications Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+            tg_id TEXT,
+            type TEXT,
+            date INTEGER,
+            PRIMARY KEY (tg_id, type)
+        )
+    ''')
     
     # Referral Bonuses Table
     cursor.execute('''
@@ -5842,30 +5858,134 @@ async def check_expiring_subscriptions(context: ContextTypes.DEFAULT_TYPE):
         current_time = time.time() * 1000
         one_day_ms = 24 * 60 * 60 * 1000
         
+        # Connect to Bot DB for notifications
+        conn_bot = sqlite3.connect(BOT_DB_PATH)
+        cursor_bot = conn_bot.cursor()
+        
         for client in clients:
             expiry_time = client.get('expiryTime', 0)
-            tg_id = client.get('tgId')
+            tg_id = str(client.get('tgId', ''))
             
-            if expiry_time > 0 and tg_id:
+            if expiry_time > 0 and tg_id and tg_id.isdigit():
                 time_left = expiry_time - current_time
                 
-                if 0 < time_left <= one_day_ms:
-                     try:
-                        # Fetch user lang
-                        user_lang = get_lang(tg_id)
-                        await context.bot.send_message(
-                            chat_id=tg_id,
-                            text=t("expiry_warning", user_lang),
-                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_renew", user_lang), callback_data='shop')]]),
-                            parse_mode='HTML'
-                        )
-                        logging.info(f"Sent expiry warning to {tg_id}")
-                     except Exception as ex:
-                        logging.warning(f"Failed to send warning to {tg_id}: {ex}")
+                # Check if it's a Trial User (heuristic: trial_used=1 in prefs)
+                is_trial = False
+                cursor_bot.execute("SELECT trial_used FROM user_prefs WHERE tg_id=?", (tg_id,))
+                pref = cursor_bot.fetchone()
+                if pref and pref[0]:
+                    # Check if they have any paid transactions
+                    cursor_bot.execute("SELECT 1 FROM transactions WHERE tg_id=?", (tg_id,))
+                    if not cursor_bot.fetchone():
+                        is_trial = True
 
+                # Warning: 24h before
+                if 0 < time_left <= one_day_ms:
+                    # Check if already sent warning
+                    cursor_bot.execute("SELECT date FROM notifications WHERE tg_id=? AND type='expiry_warning_24h'", (tg_id,))
+                    notif = cursor_bot.fetchone()
+                    
+                    should_send = True
+                    if notif:
+                        # If sent more than 20 hours ago, maybe send again? No, once per cycle.
+                        # We assume expiry time changes if renewed.
+                        # But if expiry time is same, we shouldn't spam.
+                        # Let's check if the stored date is recent (< 24h ago)
+                        if (time.time() - notif[0]) < 86400:
+                            should_send = False
+                    
+                    if should_send:
+                        try:
+                            user_lang = get_lang(tg_id)
+                            msg_key = "trial_expiring" if is_trial else "expiry_warning"
+                            
+                            await context.bot.send_message(
+                                chat_id=tg_id,
+                                text=t(msg_key, user_lang),
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_renew", user_lang), callback_data='shop')]]),
+                                parse_mode='Markdown'
+                            )
+                            # Record notification
+                            cursor_bot.execute("INSERT OR REPLACE INTO notifications (tg_id, type, date) VALUES (?, ?, ?)", 
+                                               (tg_id, 'expiry_warning_24h', int(time.time())))
+                            conn_bot.commit()
+                            logging.info(f"Sent expiry warning to {tg_id}")
+                        except Exception as ex:
+                            logging.warning(f"Failed to send warning to {tg_id}: {ex}")
+
+        conn_bot.close()
         conn.close()
     except Exception as e:
         logging.error(f"Error in check_expiring_subscriptions: {e}")
+
+async def check_expired_trials(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Check for users whose trial expired recently and encourage them to buy.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        
+        if not row:
+            conn.close()
+            return
+            
+        settings = json.loads(row[0])
+        clients = settings.get('clients', [])
+        
+        current_time = time.time() * 1000
+        
+        conn_bot = sqlite3.connect(BOT_DB_PATH)
+        cursor_bot = conn_bot.cursor()
+        
+        for client in clients:
+            expiry_time = client.get('expiryTime', 0)
+            tg_id = str(client.get('tgId', ''))
+            
+            if expiry_time > 0 and tg_id and tg_id.isdigit():
+                # Check if expired
+                if expiry_time < current_time:
+                    # Check if expired RECENTLY (e.g., within last 24 hours)
+                    # We don't want to spam old users.
+                    # Expiry time is in ms.
+                    ms_since_expiry = current_time - expiry_time
+                    hours_since_expiry = ms_since_expiry / (1000 * 3600)
+                    
+                    if 0 < hours_since_expiry < 48: # Window of 48h after expiry
+                        # Check if Trial User
+                        cursor_bot.execute("SELECT trial_used FROM user_prefs WHERE tg_id=?", (tg_id,))
+                        pref = cursor_bot.fetchone()
+                        
+                        if pref and pref[0]: # Has used trial
+                            # Check if PAID user (don't annoy paid users who expired)
+                            cursor_bot.execute("SELECT 1 FROM transactions WHERE tg_id=?", (tg_id,))
+                            if not cursor_bot.fetchone():
+                                # Pure Trial user who expired recently.
+                                
+                                # Check if already notified
+                                cursor_bot.execute("SELECT date FROM notifications WHERE tg_id=? AND type='trial_expired_followup'", (tg_id,))
+                                if not cursor_bot.fetchone():
+                                    try:
+                                        user_lang = get_lang(tg_id)
+                                        await context.bot.send_message(
+                                            chat_id=tg_id,
+                                            text=t("trial_expired", user_lang),
+                                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_buy", user_lang), callback_data='shop')]]),
+                                            parse_mode='Markdown'
+                                        )
+                                        cursor_bot.execute("INSERT OR REPLACE INTO notifications (tg_id, type, date) VALUES (?, ?, ?)", 
+                                                           (tg_id, 'trial_expired_followup', int(time.time())))
+                                        conn_bot.commit()
+                                        logging.info(f"Sent trial expired followup to {tg_id}")
+                                    except Exception as ex:
+                                        logging.warning(f"Failed to send trial followup to {tg_id}: {ex}")
+
+        conn_bot.close()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Error in check_expired_trials: {e}")
 
 async def watch_access_log(app):
     """
@@ -6711,7 +6831,8 @@ async def main():
     
     # Job Queue for Main Bot
     job_queue = app_main.job_queue
-    job_queue.run_repeating(check_expiring_subscriptions, interval=86400, first=10)
+    job_queue.run_repeating(check_expiring_subscriptions, interval=3600, first=10) # Changed to hourly
+    job_queue.run_repeating(check_expired_trials, interval=3600, first=20) # New job
     job_queue.run_repeating(log_traffic_stats, interval=3600, first=5)
     job_queue.run_repeating(cleanup_flash_messages, interval=60, first=10)
     job_queue.run_repeating(detect_suspicious_activity, interval=300, first=30)
