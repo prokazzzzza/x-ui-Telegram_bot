@@ -11,6 +11,8 @@ import asyncio
 import math
 import html
 import qrcode
+import random
+import string
 from io import BytesIO
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
@@ -130,6 +132,8 @@ load_config_from_db()
 
 # Prices in Telegram Stars (XTR)
 PRICES = {
+    "1_week": {"amount": 40, "days": 7},
+    "2_weeks": {"amount": 60, "days": 14},
     "1_month": {"amount": 1, "days": 30},
     "3_months": {"amount": 3, "days": 90},
     "1_year": {"amount": 5, "days": 365}
@@ -150,7 +154,12 @@ TEXTS = {
         "btn_back": "🔙 Back",
         "btn_how_to_buy_stars": "⭐️ How to buy Stars?",
         "how_to_buy_stars_text": "⭐️ **How to buy Telegram Stars?**\n\nTelegram Stars is a digital currency for payments.\n\n1. **Via @PremiumBot:** The best way. Just start the bot and choose a stars package.\n2. **In-app:** Purchase via Apple/Google (might be more expensive).\n3. **Fragment:** Buy with TON on Fragment.\n\nAfter buying stars, come back here and select a plan!",
+        "label_1_week": "1 Week Subscription",
+        "label_2_weeks": "2 Weeks Subscription",
         "label_1_month": "1 Month Subscription",
+        "label_3_months": "3 Months Subscription",
+        "label_6_months": "6 Months Subscription",
+        "label_1_year": "1 Year Subscription",
         "label_3_months": "3 Months Subscription",
         "label_6_months": "6 Months Subscription",
         "label_1_year": "1 Year Subscription",
@@ -183,6 +192,8 @@ TEXTS = {
         "instr_android": "📱 *Android Setup*\n\n1. Install *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* from Google Play.\n2. Copy your key from '🚀 My Config'.\n3. Open v2RayTun -> Tap 'Import' -> 'Import from Clipboard'.\n4. Tap the connection button.",
         "instr_ios": "🍎 *iOS Setup*\n\n1. Install *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* from App Store.\n2. Copy your key from '🚀 My Config'.\n3. Open V2Box, it should detect the key automatically.\n4. Tap 'Import' and then swipe to connect.",
         "instr_pc": "💻 *PC Setup*\n\n1. Install *[AmneziaVPN](https://amnezia.org/)* or *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Copy your key from '🚀 My Config'.\n3. Open the app and paste the key (Import from Clipboard).\n4. Connect.",
+        "plan_1_week": "1 Week",
+        "plan_2_weeks": "2 Weeks",
         "plan_1_month": "1 Month",
         "plan_3_months": "3 Months",
         "plan_6_months": "6 Months",
@@ -409,6 +420,8 @@ TEXTS = {
         "btn_back": "🔙 Назад",
         "btn_how_to_buy_stars": "⭐️ Как купить Звезды?",
         "how_to_buy_stars_text": "⭐️ **Как купить Telegram Stars?**\n\nTelegram Stars — это внутренняя валюта для оплаты цифровых товаров в телеграме\n\n1. **Через оффицаильного бота телеграма @PremiumBot**\nПросто запустите бота и выберите пакет звезд для покупки.\nПосле возвращайтесь и оформляйте подписку.",
+        "label_1_week": "Подписка на 1 неделю",
+        "label_2_weeks": "Подписка на 2 недели",
         "label_1_month": "Подписка на 1 месяц",
         "label_3_months": "Подписка на 3 месяца",
         "label_6_months": "Подписка на 6 месяцев",
@@ -443,6 +456,8 @@ TEXTS = {
         "instr_android": "📱 *Настройка Android*\n\n1. Скачайте *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* из Google Play.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте v2RayTun -> нажмите 'Import' -> 'Import from Clipboard'.\n4. Нажмите кнопку подключения.",
         "instr_ios": "🍎 *Настройка iOS*\n\n1. Скачайте *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* из App Store.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте V2Box, он должен автоматически предложить добавить ключ.\n4. Нажмите 'Import', выберите сервер и сдвиньте переключатель для подключения.",
         "instr_pc": "💻 *Настройка PC*\n\n1. Установите *[AmneziaVPN](https://amnezia.org/)* или *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте приложение и вставьте ключ (Import from Clipboard).\n4. Подключитесь.",
+        "plan_1_week": "1 Неделя",
+        "plan_2_weeks": "2 Недели",
         "plan_1_month": "1 Месяц",
         "plan_3_months": "3 Месяца",
         "plan_6_months": "6 Месяцев",
@@ -749,14 +764,18 @@ def init_db():
     cursor.execute("SELECT COUNT(*) FROM prices")
     if cursor.fetchone()[0] == 0:
         cursor.executemany("INSERT INTO prices (key, amount, days) VALUES (?, ?, ?)", [
+            ("1_week", 40, 7),
+            ("2_weeks", 60, 14),
             ("1_month", 1, 30),
             ("3_months", 3, 90),
             ("6_months", 450, 180),
             ("1_year", 5, 365)
         ])
     else:
-        # Ensure 6_months exists
+        # Ensure new plans exist
         cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("6_months", 450, 180))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("1_week", 40, 7))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("2_weeks", 60, 14))
 
     # Flash Messages Table
     cursor.execute('''
@@ -1430,8 +1449,8 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_prices = get_prices()
     
     keyboard = []
-    # Order: 1_month, 3_months, 6_months, 1_year
-    order = ["1_month", "3_months", "6_months", "1_year"]
+    # Order: 1_week, 2_weeks, 1_month, 3_months, 6_months, 1_year
+    order = ["1_week", "2_weeks", "1_month", "3_months", "6_months", "1_year"]
     
     for key in order:
         if key in current_prices:
@@ -1806,14 +1825,19 @@ async def backup_db(context: ContextTypes.DEFAULT_TYPE = None):
             os.makedirs(backup_dir)
             
         timestamp = datetime.datetime.now(TIMEZONE).strftime("%Y-%m-%d_%H-%M-%S")
+        created_files = []
         
         # Backup Bot DB
         if os.path.exists(BOT_DB_PATH):
-            shutil.copy2(BOT_DB_PATH, f"{backup_dir}/bot_data_{timestamp}.db")
+            dest = f"{backup_dir}/bot_data_{timestamp}.db"
+            shutil.copy2(BOT_DB_PATH, dest)
+            created_files.append(dest)
             
         # Backup X-UI DB
         if os.path.exists(DB_PATH):
-            shutil.copy2(DB_PATH, f"{backup_dir}/x-ui_{timestamp}.db")
+            dest = f"{backup_dir}/x-ui_{timestamp}.db"
+            shutil.copy2(DB_PATH, dest)
+            created_files.append(dest)
             
         # Cleanup old backups (keep last 20 files)
         files = sorted([os.path.join(backup_dir, f) for f in os.listdir(backup_dir)], key=os.path.getmtime)
@@ -1822,10 +1846,30 @@ async def backup_db(context: ContextTypes.DEFAULT_TYPE = None):
                 os.remove(f)
                 
         logging.info(f"Backup completed: {timestamp}")
-        return True
+        return created_files
     except Exception as e:
         logging.error(f"Backup failed: {e}")
-        return False
+        return []
+
+async def send_backup_to_admin_job(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Scheduled job to create and send backup to admin.
+    """
+    files = await backup_db(context)
+    if files:
+        for file_path in files:
+            try:
+                await context.bot.send_document(
+                    chat_id=ADMIN_ID, 
+                    document=open(file_path, 'rb'),
+                    caption=f"📦 Backup: {os.path.basename(file_path)}"
+                )
+            except Exception as e:
+                logging.error(f"Failed to send backup {file_path}: {e}")
+    else:
+        try:
+            await context.bot.send_message(chat_id=ADMIN_ID, text="❌ Automatic Backup Failed (No files created).")
+        except: pass
 
 async def admin_view_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1882,10 +1926,19 @@ async def admin_create_backup(update: Update, context: ContextTypes.DEFAULT_TYPE
     lang = get_lang(tg_id)
     await query.answer(t("backup_starting", lang))
     
-    success = await backup_db()
+    files = await backup_db()
     
-    if success:
+    if files:
         await context.bot.send_message(chat_id=query.from_user.id, text=t("backup_success", lang))
+        # Also send files
+        for file_path in files:
+            try:
+                await context.bot.send_document(
+                    chat_id=query.from_user.id, 
+                    document=open(file_path, 'rb'),
+                    caption=f"📦 Backup: {os.path.basename(file_path)}"
+                )
+            except: pass
     else:
         await context.bot.send_message(chat_id=query.from_user.id, text=t("backup_error", lang))
 
@@ -2166,7 +2219,7 @@ async def admin_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_prices = get_prices()
     
     keyboard = []
-    order = ["1_month", "3_months", "6_months", "1_year"]
+    order = ["1_week", "2_weeks", "1_month", "3_months", "6_months", "1_year"]
     
     for key in order:
         if key in current_prices:
@@ -2193,6 +2246,8 @@ async def admin_edit_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['admin_action'] = 'awaiting_price_amount'
     
     labels = {
+        "1_week": t("plan_1_week", lang),
+        "2_weeks": t("plan_2_weeks", lang),
         "1_month": t("plan_1_month", lang),
         "3_months": t("plan_3_months", lang),
         "6_months": t("plan_6_months", lang),
@@ -4320,8 +4375,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Let's show the menu again
                     current_prices = get_prices()
                     keyboard = []
-                    order = ["1_month", "3_months", "6_months", "1_year"]
+                    order = ["1_week", "2_weeks", "1_month", "3_months", "6_months", "1_year"]
                     labels = {
+                        "1_week": "1 Неделя",
+                        "2_weeks": "2 Недели",
                         "1_month": "1 Месяц",
                         "3_months": "3 Месяца",
                         "6_months": "6 Месяцев",
@@ -6778,6 +6835,8 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
                 if amount >= 900: plan_id = "1_year"
                 elif amount >= 250: plan_id = "3_months"
                 elif amount >= 100: plan_id = "1_month"
+                elif amount >= 60: plan_id = "2_weeks"
+                elif amount >= 40: plan_id = "1_week"
                 
             # 1. Insert into DB immediately
             try:
@@ -6795,6 +6854,8 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
             elif plan_id == "1_year": days = 365
             elif plan_id == "3_months": days = 90
             elif plan_id == "1_month": days = 30
+            elif plan_id == "2_weeks": days = 14
+            elif plan_id == "1_week": days = 7
             
             if days > 0:
                 await add_days_to_user(tg_id, days, context)
@@ -6822,6 +6883,103 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
         import traceback
         logging.error(f"Error in check_missed_transactions: {e}\n{traceback.format_exc()}")
 
+async def check_winback_users(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Check for users whose subscription expired 3-7 days ago and send them a promo code.
+    Runs daily.
+    
+    Logic:
+    1. Find users expired between 3 and 7 days ago.
+    2. Check if this specific expiration event has been handled (using expiry timestamp).
+    3. Ensure it wasn't just a trial expiration (check if they have payment history).
+    4. Send promo.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row: return
+        
+        settings = json.loads(row[0])
+        clients = settings.get('clients', [])
+        
+        current_time_ms = int(time.time() * 1000)
+        day_ms = 24 * 3600 * 1000
+        
+        # Range: Expired between 3 and 7 days ago
+        threshold_start = current_time_ms - (7 * day_ms)
+        threshold_end = current_time_ms - (3 * day_ms)
+        
+        conn_bot = sqlite3.connect(BOT_DB_PATH)
+        cursor_bot = conn_bot.cursor()
+        
+        # Get list of users who have EVER paid (to avoid sending win-back to trial abusers)
+        cursor_bot.execute("SELECT DISTINCT tg_id FROM transactions")
+        paid_users = set(row[0] for row in cursor_bot.fetchall())
+        
+        for client in clients:
+            expiry = client.get('expiryTime', 0)
+            tg_id = str(client.get('tgId', ''))
+            
+            if not tg_id or expiry == 0: continue
+            
+            # Filter 1: Must be a paid user (Retention strategy is for paying customers)
+            if tg_id not in paid_users:
+                continue
+            
+            # Filter 2: Check if in range (3-7 days ago)
+            if threshold_start < expiry < threshold_end:
+                
+                # Filter 3: Check if THIS specific expiry event was already handled.
+                # We use a unique key: winback_{expiry_timestamp}
+                notification_key = f"winback_{expiry}"
+                
+                cursor_bot.execute("SELECT 1 FROM notifications WHERE tg_id=? AND type=?", (tg_id, notification_key))
+                if cursor_bot.fetchone():
+                    continue
+                    
+                # Send Win-back
+                try:
+                    # Generate unique promo code
+                    suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+                    code = f"WB{suffix}"
+                    
+                    # Create promo in DB (3 days bonus)
+                    cursor_bot.execute("INSERT OR IGNORE INTO promo_codes (code, days, max_uses) VALUES (?, ?, ?)", (code, 3, 1))
+                    
+                    lang = get_lang(tg_id)
+                    msg_text = (
+                        "👋 **We miss you!**\n\n"
+                        "Your subscription expired recently. We'd love to see you back!\n"
+                        f"🎁 Here is a special gift: **3 Days Free Access**\n\n"
+                        f"👇 Activate code: `{code}`"
+                    )
+                    if lang == 'ru':
+                        msg_text = (
+                            "👋 **Мы скучаем!**\n\n"
+                            "Ваша подписка недавно истекла. Возвращайтесь!\n"
+                            f"🎁 Ваш подарок: **3 дня бесплатно**\n\n"
+                            f"👇 Активируйте код: `{code}`"
+                        )
+                    
+                    await context.bot.send_message(chat_id=tg_id, text=msg_text, parse_mode='Markdown')
+                    
+                    # Mark as sent for THIS expiry timestamp
+                    cursor_bot.execute("INSERT INTO notifications (tg_id, type, date) VALUES (?, ?, ?)", 
+                                       (tg_id, notification_key, int(time.time())))
+                    conn_bot.commit()
+                    logging.info(f"Sent Win-back to {tg_id} for expiry {expiry}")
+                    
+                except Exception as e:
+                    logging.error(f"Failed to send winback to {tg_id}: {e}")
+                    
+        conn_bot.close()
+    except Exception as e:
+        logging.error(f"Error in check_winback_users: {e}")
+
 async def main():
     init_db()
     
@@ -6837,6 +6995,11 @@ async def main():
     job_queue.run_repeating(cleanup_flash_messages, interval=60, first=10)
     job_queue.run_repeating(detect_suspicious_activity, interval=300, first=30)
     job_queue.run_repeating(check_missed_transactions, interval=60, first=30)
+    
+    # New jobs for Backup and Winback (Daily)
+    # Run backup at ~4 AM (assuming start time is arbitrary, we just set interval=24h)
+    job_queue.run_repeating(send_backup_to_admin_job, interval=86400, first=14400) # 24h, first run after 4h
+    job_queue.run_repeating(check_winback_users, interval=86400, first=18000) # 24h, first run after 5h
     
     # Initialize Main Bot
     await app_main.initialize()
