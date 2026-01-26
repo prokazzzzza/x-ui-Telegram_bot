@@ -3,12 +3,13 @@ import sqlite3
 import os
 import sys
 import json
-import time
 import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock
+import importlib
+from unittest.mock import MagicMock, AsyncMock
 
-# Add bot directory to path
-sys.path.append('/usr/local/x-ui/bot')
+bot_path = "/usr/local/x-ui/bot"
+if bot_path not in sys.path:
+    sys.path.append(bot_path)
 
 # Mock environment variables before importing bot
 os.environ['BOT_TOKEN'] = 'test_token'
@@ -19,10 +20,14 @@ os.environ['REF_BONUS_DAYS'] = '7'
 TEST_BOT_DB = '/tmp/test_bot_data.db'
 TEST_XUI_DB = '/tmp/test_xui.db'
 
-# Patch DB paths in bot module
-import bot
-bot.BOT_DB_PATH = TEST_BOT_DB
-bot.DB_PATH = TEST_XUI_DB
+def _load_bot():
+    module = importlib.import_module("bot")
+    module.BOT_DB_PATH = TEST_BOT_DB
+    module.DB_PATH = TEST_XUI_DB
+    return module
+
+
+bot = _load_bot()
 
 class TestReferralSystem(unittest.TestCase):
     def setUp(self):

@@ -3,3 +3,5 @@ python-dotenv
 qrcode[pil]
 apscheduler
 requests
+ruff
+mypy

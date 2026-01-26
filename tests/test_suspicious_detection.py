@@ -1,7 +1,4 @@
 
-import sqlite3
-import time
-import os
 import sys
 
 def analyze_suspicious_v2(rows, window=60):
@@ -13,7 +10,8 @@ def analyze_suspicious_v2(rows, window=60):
     user_logs = {}
     for row in rows:
         email, ip, ts, cc = row
-        if email not in user_logs: user_logs[email] = []
+        if email not in user_logs:
+            user_logs[email] = []
         user_logs[email].append({'ip': ip, 'ts': ts, 'cc': cc})
         
     suspicious_users = []
@@ -63,7 +61,7 @@ def analyze_suspicious_v2(rows, window=60):
                 suspicious_count += 1
                 for ip_key in current_window_ips:
                     # Find cc for this ip (naive)
-                    cc = next((l['cc'] for l in logs if l['ip'] == ip_key), None)
+                    cc = next((log_entry['cc'] for log_entry in logs if log_entry['ip'] == ip_key), None)
                     detected_ips.add((ip_key, cc))
                     
         if has_suspicious:

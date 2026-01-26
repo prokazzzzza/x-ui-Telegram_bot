@@ -10,12 +10,50 @@ import os
 import asyncio
 import math
 import html
-import qrcode
+import importlib
 import random
 import string
+from typing import Optional, Any, Dict, Protocol, TypeAlias, TypedDict
 from io import BytesIO
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
+from telegram import Update as TelegramUpdate, CallbackQuery as TelegramCallbackQuery, Message as TelegramMessage, PreCheckoutQuery as TelegramPreCheckoutQuery, SuccessfulPayment as TelegramSuccessfulPayment, User as TelegramUser, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButtonRequestUsers
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, PreCheckoutQueryHandler, MessageHandler, filters
+
+qrcode = importlib.import_module("qrcode")
+
+class BotContext(Protocol):
+    user_data: Dict[str, Any]
+    chat_data: Dict[str, Any]
+    bot_data: Dict[str, Any]
+    bot: Any
+    args: list[str]
+
+class ContextTypes:
+    DEFAULT_TYPE: TypeAlias = BotContext
+
+class Message(TelegramMessage):
+    from_user: TelegramUser
+    successful_payment: TelegramSuccessfulPayment
+
+class CallbackQuery(TelegramCallbackQuery):
+    data: str
+    message: Message
+
+class Update(TelegramUpdate):
+    callback_query: CallbackQuery
+    message: Message
+    pre_checkout_query: TelegramPreCheckoutQuery
+
+class LogEntry(TypedDict):
+    ip: str
+    ts: int
+    cc: Optional[str]
+
+class SuspiciousUser(TypedDict):
+    email: str
+    ips: set[tuple[str, Optional[str]]]
+    minutes: int
 
 # Load environment variables
 load_dotenv()
@@ -48,12 +86,10 @@ logging.basicConfig(
     ]
 )
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButtonRequestUsers
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, PreCheckoutQueryHandler, MessageHandler, filters
-
 # Config
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID")
+ADMIN_ID = os.getenv("ADMIN_ID") or ""
+ADMIN_ID_INT: Optional[int] = int(ADMIN_ID) if ADMIN_ID and ADMIN_ID.isdigit() else None
 
 if not TOKEN:
     logging.error("BOT_TOKEN not found in environment variables")
@@ -67,11 +103,8 @@ BOT_DB_PATH = "/usr/local/x-ui/bot/bot_data.db"
 INBOUND_ID = 1
 PUBLIC_KEY = os.getenv("PUBLIC_KEY")
 IP = os.getenv("HOST_IP")
-PORT = os.getenv("HOST_PORT")
-if PORT:
-    PORT = int(PORT)
-else:
-    PORT = None
+PORT_STR = os.getenv("HOST_PORT")
+PORT: Optional[int] = int(PORT_STR) if PORT_STR and PORT_STR.isdigit() else None
     
 SNI = os.getenv("SNI")
 SID = os.getenv("SID")
@@ -160,9 +193,6 @@ TEXTS = {
         "label_3_months": "3 Months Subscription",
         "label_6_months": "6 Months Subscription",
         "label_1_year": "1 Year Subscription",
-        "label_3_months": "3 Months Subscription",
-        "label_6_months": "6 Months Subscription",
-        "label_1_year": "1 Year Subscription",
         "invoice_title": "Maxi_VPN Subscription",
         "success_created": "✅ Success! Subscription created.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
         "success_extended": "✅ Success! Subscription extended.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
@@ -204,6 +234,7 @@ TEXTS = {
         "sub_type_unknown": "Unknown",
         "stats_sub_type": "💳 Plan: {plan}",
         "rank_info_traffic": "\n🏆 You downloaded {traffic} via VPN.\nYour rank: #{rank} of {total}.",
+        "traffic_info": "\n🏆 You downloaded {traffic} via VPN.",
         "rank_info_sub": "\n🏆 Your Rank (Subscription): #{rank} of {total}\n(Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
@@ -388,7 +419,6 @@ TEXTS = {
         "stats_total": "📦 Total:",
         "stats_expires": "⏳ Expires:",
         "unlimited_text": "♾️ Unlimited",
-        "live_monitor_starting": "Starting Live Monitor...",
         "trial_expiring": "⚠️ **Your Trial ends in 24h!**\n\nDon't lose your secure connection. Subscribe now to keep access! 🚀",
         "trial_expired": "❌ **Your Trial has expired**\n\nWe hope you enjoyed the speed! 🚀\n\nGet full unlimited access starting from just 80 Star/month.\n\n👇 **Tap below to renew:**"
     },
@@ -470,6 +500,7 @@ TEXTS = {
         "remaining_days": "⏳ Осталось: {days} дн.",
         "remaining_hours": "⏳ Осталось: {hours} ч.",
         "rank_info_traffic": "\n🏆 Загружено данных через VPN: <code>{traffic}</code>\nВы занимаете {rank}-е место в рейтинге по трафику из {total}.",
+        "traffic_info": "\n🏆 Загружено данных через VPN: <code>{traffic}</code>",
         "rank_info_sub": "\n🏆 Ваше место {rank}-е в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
@@ -651,8 +682,7 @@ TEXTS = {
         "logs_read_error": "Ошибка при чтении логов.",
         "backup_starting": "Создание резервной копии...",
         "backup_success": "✅ Резервная копия успешно создана в папке backups/",
-        "backup_error": "❌ Ошибка при создании резервной копии. См. логи.",
-        "live_monitor_starting": "Запуск Live мониторинга..."
+        "backup_error": "❌ Ошибка при создании резервной копии. См. логи."
     }
 }
 
@@ -1128,7 +1158,7 @@ def get_user_rank_traffic(target_email):
         cursor = conn.cursor()
         
         # Get all clients from client_traffics to match Panel stats
-        cursor.execute("SELECT email, down FROM client_traffics WHERE inbound_id=?", (INBOUND_ID,))
+        cursor.execute("SELECT email, up, down FROM client_traffics WHERE inbound_id=?", (INBOUND_ID,))
         rows = cursor.fetchall()
         conn.close()
         
@@ -1139,16 +1169,20 @@ def get_user_rank_traffic(target_email):
         user_traffic = 0
         
         for r in rows:
-            email, down = r
-            if down is None: down = 0
+            email, up, down = r
+            if up is None:
+                up = 0
+            if down is None:
+                down = 0
+            traffic = up + down
             
             leaderboard.append({
                 'email': email,
-                'traffic': down
+                'traffic': traffic
             })
             
             if email == target_email:
-                user_traffic = down
+                user_traffic = traffic
                 
         # Sort descending
         leaderboard.sort(key=lambda x: x['traffic'], reverse=True)
@@ -1166,6 +1200,29 @@ def get_user_rank_traffic(target_email):
     except Exception as e:
         logging.error(f"Error calculating rank: {e}")
         return None, 0, 0
+
+def get_user_total_traffic(target_email: str) -> int:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT up, down FROM client_traffics WHERE inbound_id=? AND email=?",
+            (INBOUND_ID, target_email)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return 0
+        up, down = row
+        up_val = up if up is not None else 0
+        down_val = down if down is not None else 0
+        return up_val + down_val
+    except Exception as e:
+        logging.error(f"Error getting total traffic: {e}")
+        return 0
+
+def is_subscription_active(enable: bool, expiry_ms: int, current_time_ms: int) -> bool:
+    return bool(enable) and (expiry_ms == 0 or expiry_ms > current_time_ms)
 
 def get_user_rank_subscription(target_email):
     try:
@@ -1225,6 +1282,35 @@ def get_user_rank_subscription(target_email):
 
 def t(key, lang="en"):
     return TEXTS.get(lang, TEXTS["en"]).get(key, key)
+
+def format_expiry_display(expiry_ms: int, lang: str, now_ms: Optional[int] = None, unlimited_key: str = "expiry_unlimited") -> str:
+    if expiry_ms == 0:
+        return t(unlimited_key, lang)
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+    diff_ms = expiry_ms - now_ms
+    if diff_ms <= 0:
+        return "0 мин." if lang == "ru" else "0 min"
+    day_ms = 24 * 60 * 60 * 1000
+    hour_ms = 60 * 60 * 1000
+    minute_ms = 60 * 1000
+    days = diff_ms // day_ms
+    if days >= 365:
+        expiry_dt = datetime.datetime.fromtimestamp(expiry_ms / 1000, tz=TIMEZONE)
+        return expiry_dt.strftime("%d.%m.%Y %H:%M")
+    if days >= 2:
+        expiry_dt = datetime.datetime.fromtimestamp(expiry_ms / 1000, tz=TIMEZONE)
+        return expiry_dt.strftime("%d.%m %H:%M")
+    if days >= 1:
+        rem_hours = (diff_ms % day_ms) // hour_ms
+        rem_minutes = (diff_ms % hour_ms) // minute_ms
+        return f"{days:02d};{rem_hours:02d}:{rem_minutes:02d}"
+    hours = diff_ms // hour_ms
+    if hours >= 1:
+        rem_minutes = (diff_ms % hour_ms) // minute_ms
+        return f"{hours:02d}:{rem_minutes:02d}"
+    minutes = math.ceil(diff_ms / minute_ms)
+    return f"{minutes} мин." if lang == "ru" else f"{minutes} min"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.from_user:
@@ -1322,7 +1408,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
     rank, total, traffic_val = get_user_rank_traffic(email)
     
     # Check for legacy email (manual)
-    if not rank:
+    if rank is None or rank <= 0:
          # Try finding by tg_id in clients
          conn = sqlite3.connect(DB_PATH)
          cursor = conn.cursor()
@@ -1337,9 +1423,11 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
                      email = c.get('email', '')
                      rank, total, traffic_val = get_user_rank_traffic(email)
                      break
-    
-    if rank and rank > 0:
-        text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_val))
+    traffic_total = get_user_total_traffic(email)
+    if rank is not None and rank > 0:
+        text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_total))
+    else:
+        text += t("traffic_info", lang).format(traffic=format_traffic(traffic_total))
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
@@ -1386,7 +1474,7 @@ async def show_main_menu_query(query, context, lang):
     rank, total, traffic_val = get_user_rank_traffic(email)
     
     # Check for legacy email (manual)
-    if not rank:
+    if rank is None or rank <= 0:
          # Try finding by tg_id in clients
          conn = sqlite3.connect(DB_PATH)
          cursor = conn.cursor()
@@ -1401,9 +1489,11 @@ async def show_main_menu_query(query, context, lang):
                      email = c.get('email', '')
                      rank, total, traffic_val = get_user_rank_traffic(email)
                      break
-    
-    if rank and rank > 0:
-        text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_val))
+    traffic_total = get_user_total_traffic(email)
+    if rank is not None and rank > 0:
+        text += t("rank_info_traffic", lang).format(rank=rank, total=total, traffic=format_traffic(traffic_total))
+    else:
+        text += t("traffic_info", lang).format(traffic=format_traffic(traffic_total))
         
     # 2. Subscription Rank
     rank_sub, total_sub, days_left = get_user_rank_subscription(email)
@@ -1818,7 +1908,7 @@ async def show_qrcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Error showing QR: {e}")
         await query.message.reply_text("Error generating QR code.")
 
-async def backup_db(context: ContextTypes.DEFAULT_TYPE = None):
+async def backup_db(context: Optional[ContextTypes.DEFAULT_TYPE] = None):
     try:
         backup_dir = "/usr/local/x-ui/bot/backups"
         if not os.path.exists(backup_dir):
@@ -1947,10 +2037,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query:
         await query.answer()
         tg_id = str(query.from_user.id)
-        msg_func = query.edit_message_text
     else:
         tg_id = str(update.message.from_user.id)
-        msg_func = update.message.reply_text
 
     if tg_id != ADMIN_ID:
         return
@@ -2145,7 +2233,10 @@ async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asyncio.create_task(run_live_monitor(update, context))
 
 async def run_live_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tg_id = str(update.effective_user.id)
+    effective_user = update.effective_user
+    if not effective_user:
+        return
+    tg_id = str(effective_user.id)
     lang = get_lang(tg_id)
     
     # Run for 30 iterations * ~1 seconds = 30 seconds
@@ -2184,8 +2275,12 @@ async def run_live_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Use bot.edit_message_text because we are in background task
             # query might be stale, but message_id/chat_id are same
-            chat_id = update.effective_chat.id
-            message_id = update.effective_message.message_id
+            effective_chat = update.effective_chat
+            effective_message = update.effective_message
+            if not effective_chat or not effective_message:
+                return
+            chat_id = effective_chat.id
+            message_id = effective_message.message_id
             
             await context.bot.edit_message_text(
                 chat_id=chat_id,
@@ -2535,9 +2630,10 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             page = 0
         
     ITEMS_PER_PAGE = 10
+    current_time_ms = int(time.time() * 1000)
     
     # Special handling for 'trial' filter: source from DB + X-UI
-    display_items = []
+    display_items: list[dict[str, Any]] = []
     
     if filter_type == 'trial':
         # 1. Fetch all trial users from BOT DB
@@ -2554,6 +2650,18 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = cursor.fetchone()
         conn.close()
         
+        expiry_map = {}
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT email, expiry_time FROM client_traffics WHERE inbound_id=?", (INBOUND_ID,))
+            rows = cursor.fetchall()
+            conn.close()
+            for r in rows:
+                expiry_map[r[0]] = r[1]
+        except Exception:
+            expiry_map = {}
+
         xui_clients_map = {}
         if row:
             settings = json.loads(row[0])
@@ -2569,19 +2677,22 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if client:
                 # Exists in X-UI
                 email = client.get('email', 'Unknown')
-                status = "🟢" if client.get('enable') else "🔴"
+                enable_val = client.get('enable', False)
+                expiry_val = expiry_map.get(email, client.get('expiryTime', 0))
+                is_active = is_subscription_active(enable_val, expiry_val, current_time_ms)
+                status = "🟢" if is_active else "🔴"
                 uid = client.get('id')
                 display_items.append({
                     'label': f"{status} {email}",
                     'callback': f"admin_u_{uid}",
-                    'sort_key': email.lower()
+                    'sort_key': (0 if not is_active else 1, email.lower())
                 })
             else:
                 # Deleted from X-UI
                 display_items.append({
                     'label': f"❌ {tg_id} (Del)",
                     'callback': f"admin_db_detail_{tg_id}",
-                    'sort_key': f"zz_{tg_id}" # Bottom
+                    'sort_key': (2, tg_id)
                 })
                 
         display_items.sort(key=lambda x: x['sort_key'])
@@ -2620,10 +2731,22 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'first_name': fname,
                 'last_name': lname
             }
+
+        expiry_map = {}
+        try:
+            conn_stats = sqlite3.connect(DB_PATH)
+            cursor_stats = conn_stats.cursor()
+            cursor_stats.execute("SELECT email, expiry_time FROM client_traffics WHERE inbound_id=?", (INBOUND_ID,))
+            rows_stats = cursor_stats.fetchall()
+            conn_stats.close()
+            for r in rows_stats:
+                expiry_map[r[0]] = r[1]
+        except Exception:
+            expiry_map = {}
         
         # Filtering
         filtered_clients = []
-        current_time = int(time.time() * 1000)
+        current_time = current_time_ms
         
         # Pre-fetch online emails if needed
         online_emails = set()
@@ -2639,7 +2762,7 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 online_emails.add(r[0])
                 
         for c in clients:
-            expiry = c.get('expiryTime', 0)
+            expiry = expiry_map.get(c.get('email', ''), c.get('expiryTime', 0))
             enable = c.get('enable', False)
             
             if filter_type == 'all':
@@ -2656,10 +2779,22 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     filtered_clients.append(c)
         
         # Sort and map to display items
-        filtered_clients.sort(key=lambda x: x.get('email', '').lower())
+        def client_sort_key(c):
+            email_val = c.get('email', '').lower()
+            if filter_type == 'all':
+                expiry_val = expiry_map.get(c.get('email', ''), c.get('expiryTime', 0))
+                enable_val = c.get('enable', False)
+                is_active = is_subscription_active(enable_val, expiry_val, current_time_ms)
+                return (0 if not is_active else 1, email_val)
+            return email_val
+        
+        filtered_clients.sort(key=client_sort_key)
         
         for c in filtered_clients:
-            status = "🟢" if c.get('enable') else "🔴"
+            enable_val = c.get('enable', False)
+            expiry_val = expiry_map.get(c.get('email', ''), c.get('expiryTime', 0))
+            is_active = is_subscription_active(enable_val, expiry_val, current_time_ms)
+            status = "🟢" if is_active else "🔴"
             email = c.get('email', 'Unknown')
             uid = c.get('id')
             tg_id = str(c.get('tgId', ''))
@@ -2706,7 +2841,7 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = item['label']
         # Check if label already enriched (contains @ or ())
         if "(@" not in label and "(" not in label and "tg_" in label:
-             tg_id_str = item.get('tg_id')
+             tg_id_str = str(item.get('tg_id', ''))
              if tg_id_str and tg_id_str.isdigit():
                  try:
                      chat = await context.bot.get_chat(tg_id_str)
@@ -2839,19 +2974,23 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         
         # Get DB stats
-        db_stats = db_stats_map.get(email, {})
+        db_stats = db_stats_map.get(email)
+        expiry_db = db_stats.get('expiry') if db_stats is not None else None
+        expiry_json = c.get('expiryTime', 0)
+        expiry_effective = expiry_json if expiry_db is None else expiry_db
+        is_active = is_subscription_active(enable, expiry_effective, current_time_ms)
         
         if sort_type == 'traffic':
-            traffic_db = db_stats.get('traffic', 0)
-            traffic_json = (c.get('up', 0) or 0) + (c.get('down', 0) or 0)
-            traffic = max(traffic_db, traffic_json)
+            if db_stats is not None:
+                traffic = db_stats.get('traffic', 0)
+            else:
+                traffic = (c.get('up', 0) or 0) + (c.get('down', 0) or 0)
             
             item['sort_val'] = traffic
             item['display_val'] = format_traffic(traffic)
         elif sort_type == 'sub':
             # Compare expiry from JSON and DB
-            expiry_json = c.get('expiryTime', 0)
-            expiry_db = db_stats.get('expiry', 0)
+            expiry_db = expiry_db
             
             # Use max expiry (assuming extension increases time)
             # Use 0 (unlimited) if EITHER is 0? 
@@ -2871,7 +3010,9 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # If expiry_json == 0, use 0. (Config says unlimited).
             # If expiry_db == 0, use 0. (DB says unlimited).
             
-            if expiry_json == 0 or expiry_db == 0:
+            if expiry_db is None:
+                expiry = expiry_json
+            elif expiry_json == 0 or expiry_db == 0:
                 expiry = 0
             else:
                 expiry = max(expiry_json, expiry_db)
@@ -2888,10 +3029,11 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 item['sort_val'] = -1
                 item['display_val'] = "Expired"
                 
+        item['is_active'] = is_active
         leaderboard.append(item)
         
-    # Sort descending
-    leaderboard.sort(key=lambda x: x['sort_val'], reverse=True)
+    # Sort: inactive first, then by value desc
+    leaderboard.sort(key=lambda x: (0 if not x.get('is_active') else 1, -x['sort_val']))
     
     total_items = len(leaderboard)
     total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
@@ -2919,7 +3061,7 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for i, item in enumerate(current_items):
         rank = start + i + 1
-        status = "🟢" if item['enable'] else "🔴"
+        status = "🟢" if item.get('is_active') else "🔴"
         label_text = item['label']
         # Truncate label
         if len(label_text) > 20: label_text = label_text[:17] + "..."
@@ -3005,7 +3147,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     email = client.get('email', 'Unknown')
     
     # Get stats from client_traffics
-    cursor.execute("SELECT up, down, last_online FROM client_traffics WHERE email=?", (email,))
+    cursor.execute("SELECT up, down, last_online, expiry_time FROM client_traffics WHERE email=?", (email,))
     traffic_row = cursor.fetchone()
     conn.close()
     
@@ -3022,6 +3164,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if traffic_row[0] is not None: up = traffic_row[0]
         if traffic_row[1] is not None: down = traffic_row[1]
         if traffic_row[2] is not None: last_online = traffic_row[2]
+        if traffic_row[3] is not None: expiry_ms = traffic_row[3]
 
     # Calculations
     up_gb = up / (1024**3)
@@ -3048,14 +3191,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rank, total_users, _ = get_user_rank_traffic(email)
     rank_str = f"#{rank} / {total_users}" if rank else "?"
 
-    # Hours left
-    if expiry_ms == 0:
-        hours_left = "♾️"
-    elif expiry_ms > current_time_ms:
-        diff_ms = expiry_ms - current_time_ms
-        hours_left = f"{int(diff_ms / (1000 * 3600))}"
-    else:
-        hours_left = "0"
+    expiry_display = format_expiry_display(expiry_ms, lang, current_time_ms, "expiry_unlimited")
         
     current_time_str = datetime.datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
     
@@ -3110,7 +3246,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if chat.last_name:
                         username += f" {chat.last_name}"
                     update_user_info(tg_id_val, None, chat.first_name, chat.last_name)
-        except Exception as e:
+        except Exception:
             # logging.error(f"Failed to resolve username for {tg_id_val}: {e}")
             pass
             
@@ -3128,7 +3264,7 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {t('user_detail_sub', lang)} {sub_active_str}
 {t('user_detail_limit_ip', lang)} {limit_ip_str}
 {t('user_detail_trial', lang)} {trial_status_str}
-{t('user_detail_expires', lang)} {hours_left} {t('hours_left', lang)}
+{t('user_detail_expires', lang)} {expiry_display}
 {t('user_detail_up', lang)} ↑{up_gb:.2f}GB
 {t('user_detail_down', lang)} ↓{down_gb:.2f}GB
 {t('user_detail_total', lang)} ↑↓{total_used_gb:.2f}GB {t('user_detail_from', lang)} {limit_str}
@@ -3409,7 +3545,7 @@ async def admin_promo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         limit_str = "♾️" if max_uses <= 0 else f"{max_uses}"
         text += f"🏷 `{code}`\n{t('promo_item_days', lang).format(days=days)}\n{t('promo_item_used', lang).format(used=used_count, limit=limit_str)}\n\n"
         # Add delete button for each promo
-        keyboard.append([InlineKeyboardButton(f"🗑 {t('btn_delete', lang)} {code}", callback_data=f'admin_revoke_menu_{code}')])
+        keyboard.append([InlineKeyboardButton(f"🗑 {t('btn_delete', lang)} {code}", callback_data=f'admin_revoke_code_menu_{code}')])
 
     # Split if too long (simple check)
     if len(text) > 4000:
@@ -3423,32 +3559,30 @@ async def admin_promo_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-async def admin_revoke_promo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_revoke_promo_code_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
     
-    # data: admin_revoke_menu_CODE
-    code = query.data[len("admin_revoke_menu_"):]
+    code = query.data[len("admin_revoke_code_menu_"):]
     
     text = t("promo_delete_confirm", lang).format(code=code)
     
     keyboard = [
-        [InlineKeyboardButton(t("btn_yes", lang), callback_data=f'admin_revoke_act_{code}')],
+        [InlineKeyboardButton(t("btn_yes", lang), callback_data=f'admin_revoke_code_act_{code}')],
         [InlineKeyboardButton(t("btn_no", lang), callback_data='admin_promo_list')]
     ]
     
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-async def admin_revoke_promo_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_revoke_promo_code_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
     
-    # data: admin_revoke_act_CODE
-    code = query.data[len("admin_revoke_act_"):]
+    code = query.data[len("admin_revoke_code_act_"):]
     
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
@@ -3601,7 +3735,7 @@ async def admin_promo_user_detail(update: Update, context: ContextTypes.DEFAULT_
             
     keyboard = []
     if rows:
-        keyboard.append([InlineKeyboardButton("🗑 Аннулировать промокод", callback_data=f'admin_revoke_menu_{tg_id}')])
+        keyboard.append([InlineKeyboardButton("🗑 Аннулировать промокод", callback_data=f'admin_revoke_user_menu_{tg_id}')])
         
     keyboard.append([InlineKeyboardButton("🔙 К списку", callback_data='admin_promo_uses_0')])
     
@@ -3611,10 +3745,10 @@ async def admin_promo_user_detail(update: Update, context: ContextTypes.DEFAULT_
         parse_mode='HTML'
     )
 
-async def admin_revoke_promo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_revoke_user_promo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    tg_id = query.data.split('_')[3]
+    tg_id = query.data.split('_')[4]
     
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
@@ -3630,19 +3764,18 @@ async def admin_revoke_promo_menu(update: Update, context: ContextTypes.DEFAULT_
     keyboard = []
     for row in rows:
         code, days = row
-        keyboard.append([InlineKeyboardButton(f"{code} (-{days} дн.)", callback_data=f'admin_revoke_conf_{tg_id}_{code}')])
+        keyboard.append([InlineKeyboardButton(f"{code} (-{days} дн.)", callback_data=f'admin_revoke_user_conf_{tg_id}_{code}')])
         
     keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=f'admin_promo_u_{tg_id}')])
     
     await query.edit_message_text("🗑 *Аннулирование промокода*\n\nВыберите промокод для отмены (срок подписки уменьшится):", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-async def admin_revoke_promo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_revoke_user_promo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     parts = query.data.split('_')
-    # admin_revoke_conf_TGID_CODE
-    tg_id = parts[3]
-    code = parts[4]
+    tg_id = parts[4]
+    code = parts[5]
     
     # Get days
     days = 0
@@ -3654,18 +3787,18 @@ async def admin_revoke_promo_confirm(update: Update, context: ContextTypes.DEFAU
     conn.close()
     
     keyboard = [
-        [InlineKeyboardButton("✅ Да, аннулировать", callback_data=f'admin_revoke_act_{tg_id}_{code}')],
-        [InlineKeyboardButton("❌ Отмена", callback_data=f'admin_revoke_menu_{tg_id}')]
+        [InlineKeyboardButton("✅ Да, аннулировать", callback_data=f'admin_revoke_user_act_{tg_id}_{code}')],
+        [InlineKeyboardButton("❌ Отмена", callback_data=f'admin_revoke_user_menu_{tg_id}')]
     ]
     
     await query.edit_message_text(f"⚠️ Вы уверены, что хотите аннулировать промокод `{code}` для пользователя `{tg_id}`?\n\nСрок подписки уменьшится на {days} дней.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-async def admin_revoke_promo_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_revoke_user_promo_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     parts = query.data.split('_')
-    tg_id = parts[3]
-    code = parts[4]
+    tg_id = parts[4]
+    code = parts[5]
     
     # 1. Get days and delete from DB
     conn = sqlite3.connect(BOT_DB_PATH)
@@ -3836,7 +3969,7 @@ async def cleanup_flash_messages(context: ContextTypes.DEFAULT_TYPE):
             db_id, chat_id, msg_id = row
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-            except Exception as e:
+            except Exception:
                 # Message might be already deleted or user blocked bot
                 pass
             
@@ -3960,7 +4093,7 @@ async def admin_user_db_detail(update: Update, context: ContextTypes.DEFAULT_TYP
     if update.callback_query:
         try:
             await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-        except Exception as e:
+        except Exception:
             # Fallback if message not modified or other error
             pass
     else:
@@ -4404,7 +4537,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 duration = int(text)
                 if duration <= 0: raise ValueError
                 
-                code = context.user_data.get('flash_code')
+                flash_code = context.user_data.get('flash_code')
+                if not flash_code:
+                    await update.message.reply_text("❌ Промокод не найден. Попробуйте еще раз.")
+                    return
+                code_str = str(flash_code)
                 
                 # Start broadcasting
                 status_msg = await update.message.reply_text("⏳ Запуск Flash-рассылки (ВСЕМ)...")
@@ -4452,13 +4589,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 end_time_str = datetime.datetime.fromtimestamp(delete_at, tz=TIMEZONE).strftime("%H:%M")
                 
                 # Make code copyable by clicking on it inside spoiler (using monospaced font)
-                msg_text = f"🔥 УСПЕЙ ПОЙМАТЬ ПРОМОКОД! 🔥\n\nУспей активировать секретный промокод!\n\n👇 Нажми, чтобы увидеть:\n<tg-spoiler><code>{code}</code></tg-spoiler>\n\n⏳ Предложение сгорит в {end_time_str}\n(через {duration} мин)"
+                msg_text = f"🔥 УСПЕЙ ПОЙМАТЬ ПРОМОКОД! 🔥\n\nУспей активировать секретный промокод!\n\n👇 Нажми, чтобы увидеть:\n<tg-spoiler><code>{code_str}</code></tg-spoiler>\n\n⏳ Предложение сгорит в {end_time_str}\n(через {duration} мин)"
                 
                 conn = sqlite3.connect(BOT_DB_PATH)
                 cursor = conn.cursor()
                 
-                for user in users:
-                    user_id = user[0]
+                for user_row in users:
+                    user_id = user_row[0]
                     # Skip sender if needed, but let's send to all for test
                     
                     try:
@@ -4582,8 +4719,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             status_msg = await update.message.reply_text(f"⏳ Рассылка запущена ({target_name})...")
             
-            for user in users:
-                user_id = user[0]
+            for user_row in users:
+                user_id = str(user_row[0])
                 # Skip sending to self (admin) if desired, or keep it for verification
                 if str(user_id) == str(tg_id):
                     # We can skip the sender to avoid double notification, or just let it be
@@ -4691,6 +4828,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  
             context.user_data['poll_options'] = options
             question = context.user_data.get('poll_question')
+            if not question:
+                await update.message.reply_text("❌ Ошибка: Вопрос опроса не найден.")
+                context.user_data['admin_action'] = None
+                return
             
             # Preview by sending poll to admin
             await context.bot.send_poll(
@@ -4833,8 +4974,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
              
              await process_subscription(tg_id, days, update, context, lang)
              
-             # Celebration animation
-             import asyncio
+            # Celebration animation
              msg = await update.message.reply_text("🎆")
              await asyncio.sleep(0.5)
              await msg.edit_text("🎆 🎇")
@@ -4927,7 +5067,6 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         log_action(f"ACTION: User {tg_id} (@{update.message.from_user.username}) purchased subscription: {payload} ({plan['amount']} XTR).")
         
         # Celebration animation for Payment
-        import asyncio
         msg = await update.message.reply_text("🎆")
         await asyncio.sleep(1.0)
         await msg.edit_text("🎆 🎇")
@@ -5015,12 +5154,6 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             await context.bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ CRITICAL PAYMENT ERROR: {e}")
         except: pass
-            
-    except Exception as e:
-        log_action(f"CRITICAL ERROR in successful_payment: {e}")
-        try:
-            await context.bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ CRITICAL PAYMENT ERROR: {e}")
-        except: pass
 
 async def add_days_to_user(tg_id, days_to_add, context):
     # Simplified version of process_subscription for background tasks
@@ -5062,6 +5195,17 @@ async def add_days_to_user(tg_id, days_to_add, context):
         user_client['enable'] = True
         user_client['updated_at'] = current_time_ms
         clients[client_index] = user_client
+        email = user_client.get('email') or f"tg_{tg_id}"
+        if email:
+            try:
+                cursor.execute("UPDATE client_traffics SET expiry_time=?, enable=1 WHERE email=?", (new_expiry, email))
+                if cursor.rowcount == 0:
+                    cursor.execute("""
+                        INSERT INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset, all_time, last_online)
+                        VALUES (?, ?, ?, 0, 0, ?, 0, 0, 0, 0)
+                    """, (INBOUND_ID, 1, email, new_expiry))
+            except Exception as e:
+                logging.error(f"Error updating client_traffics in add_days_to_user: {e}")
     else:
         # Create new if not exists (rare for referral bonus but possible)
         u_uuid = str(uuid.uuid4())
@@ -5273,13 +5417,7 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
         
         subprocess.run(["systemctl", "start", "x-ui"])
         
-        if new_expiry == 0:
-            if lang == 'ru':
-                expiry_date = "Безлимит"
-            else:
-                expiry_date = "Unlimited"
-        else:
-            expiry_date = datetime.datetime.fromtimestamp(new_expiry / 1000, tz=TIMEZONE).strftime('%d.%m.%Y %H:%M')
+        expiry_date = format_expiry_display(new_expiry, lang)
         
         text = t(msg_key, lang).format(expiry=expiry_date)
         
@@ -5387,8 +5525,6 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             client_flow = user_client.get('flow', '')
             
             # Retrieve Reality Settings from Inbound Settings (row[0])
-            inbound_settings_json = json.loads(row[0])
-            stream_settings = inbound_settings_json.get('stream_settings', {})
             # Note: stream_settings might be a JSON string or dict depending on X-UI version
             # In previous tool output, we saw stream_settings as a key in row_dict, but here we only fetched 'settings' column from inbounds table.
             # Wait, the SELECT query was: SELECT settings FROM inbounds WHERE id=?
@@ -5470,26 +5606,8 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 sub_link = f"{protocol}://{IP}:{port}{path}{u_uuid}"
             
-            remaining_str = ""
-            if expiry_ms == 0:
-                expiry_str = t("expiry_unlimited", lang)
-            else:
-                expiry_str = datetime.datetime.fromtimestamp(expiry_ms / 1000, tz=TIMEZONE).strftime('%d.%m.%Y %H:%M')
-                
-                # Calculate remaining
-                diff = expiry_ms - int(time.time() * 1000)
-                if diff > 0:
-                    days = diff / (1000 * 3600 * 24)
-                    if days < 1:
-                        hours = int(diff / (1000 * 3600))
-                        if hours < 1: hours = 1
-                        remaining_str = t("remaining_hours", lang).format(hours=hours)
-                    else:
-                        remaining_str = t("remaining_days", lang).format(days=int(days))
-                
+            expiry_str = format_expiry_display(expiry_ms, lang)
             msg_text = t("sub_active_html", lang).format(expiry=expiry_str)
-            if remaining_str:
-                msg_text += f"\n{remaining_str}"
             
             msg_text += t("sub_recommendation", lang).format(link=html.escape(sub_link), key=html.escape(vless_link))
             
@@ -5691,7 +5809,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     sub_plan = t("plan_trial", lang)
 
         now = datetime.datetime.now(TIMEZONE)
-        today_str = now.strftime("%Y-%m-%d")
         
         # 1. Day (Today usage)
         # Usage = Current - (Value at start of day OR yesterday's end)
@@ -5745,12 +5862,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         conn_bot.close()
         
-        # Expiry formatting
-        if expiry_time == 0:
-            expiry_str = t("unlimited_text", lang)
-        else:
-            expiry_dt = datetime.datetime.fromtimestamp(expiry_time / 1000, tz=TIMEZONE)
-            expiry_str = expiry_dt.strftime("%d.%m.%Y %H:%M")
+        expiry_str = format_expiry_display(expiry_time, lang, unlimited_key="unlimited_text")
             
         text = f"""{t("stats_your_title", lang)}
 
@@ -6078,15 +6190,8 @@ async def watch_access_log(app):
                 
                 # Store in DB
                 try:
-                    # Resolve GeoIP
-                    import requests
                     country_code = None
                     try:
-                        # Use ip-api.com (free, no key, limited to 45 req/min)
-                        # We should cache this or only do it if not in DB.
-                        # But here we are in a loop.
-                        # Optimization: check if IP exists in DB first to avoid API call
-                        
                         def _check_ip():
                             c = sqlite3.connect(BOT_DB_PATH)
                             cur = c.cursor()
@@ -6100,12 +6205,15 @@ async def watch_access_log(app):
                         if cached_cc:
                             country_code = cached_cc
                         else:
-                             # Fetch from API
-                             # timeout 2 sec
-                             resp = requests.get(f"http://ip-api.com/json/{ip}?fields=countryCode", timeout=2)
-                             if resp.status_code == 200:
-                                 data = resp.json()
-                                 country_code = data.get('countryCode')
+                             def _fetch_country_code():
+                                 requests = __import__("requests")
+                                 resp = requests.get(f"http://ip-api.com/json/{ip}?fields=countryCode", timeout=2)
+                                 if resp.status_code == 200:
+                                     data = resp.json()
+                                     return data.get('countryCode')
+                                 return None
+                             
+                             country_code = await asyncio.get_running_loop().run_in_executor(None, _fetch_country_code)
                                  
                     except Exception as ex:
                         logging.warning(f"GeoIP failed for {ip}: {ex}")
@@ -6240,7 +6348,7 @@ async def admin_delete_client_confirm(update: Update, context: ContextTypes.DEFA
     subprocess.run(["systemctl", "restart", "x-ui"])
     
     await query.edit_message_text(
-        f"✅ Клиент успешно удален из X-UI.\nX-UI перезапущен.",
+        "✅ Клиент успешно удален из X-UI.\nX-UI перезапущен.",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 К списку", callback_data='admin_users_0')]])
     )
 
@@ -6428,6 +6536,7 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     blocked = 0
     
     status_msg = await query.edit_message_text(f"⏳ Рассылка опроса запущена ({len(all_users)} пользователей)...")
+    status_message = status_msg if not isinstance(status_msg, bool) else None
     
     # Pre-generate messages
     msg_ru, markup_ru = generate_poll_message(poll_id, 'ru')
@@ -6459,10 +6568,17 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 blocked += 1
             pass
             
-    await status_msg.edit_text(
-        f"✅ Рассылка опроса завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_poll_menu')]])
-    )
+    if status_message:
+        await status_message.edit_text(
+            f"✅ Рассылка опроса завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_poll_menu')]])
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=tg_id,
+            text=f"✅ Рассылка опроса завершена.\n\n📤 Отправлено: {sent}\n🚫 Не доставлено: {blocked}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_poll_menu')]])
+        )
 
 async def support_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -6517,21 +6633,28 @@ async def detect_suspicious_activity(context: ContextTypes.DEFAULT_TYPE):
 
         # Analysis Logic (Sliding Window - 60 seconds)
         # We look for overlapping usage within a 60-second window
-        user_logs = {}
+        user_logs: dict[str, list[LogEntry]] = {}
         for row in rows:
             email, ip, ts, cc = row
-            if email not in user_logs: user_logs[email] = []
-            user_logs[email].append({'ip': ip, 'ts': ts, 'cc': cc})
+            if not email or not ip or ts is None:
+                continue
+            email_str = str(email)
+            ip_str = str(ip)
+            ts_int = int(ts)
+            cc_val = str(cc) if cc is not None else None
+            if email_str not in user_logs:
+                user_logs[email_str] = []
+            user_logs[email_str].append({'ip': ip_str, 'ts': ts_int, 'cc': cc_val})
 
-        suspicious_users = []
+        suspicious_users: list[SuspiciousUser] = []
         window = 60  # 60 seconds
 
         for email, logs in user_logs.items():
             logs.sort(key=lambda x: x['ts'])
             
-            detected_ips = set()
+            detected_ips: set[tuple[str, Optional[str]]] = set()
             start = 0
-            current_window_ips = {}
+            current_window_ips: dict[str, int] = {}
             has_suspicious = False
             intensity_score = 0
             
@@ -6553,7 +6676,7 @@ async def detect_suspicious_activity(context: ContextTypes.DEFAULT_TYPE):
                     for ip_key in current_window_ips:
                         # Find cc for this IP from current logs
                         # (Optimized: we could cache this, but searching small list is fine)
-                        cc = next((l['cc'] for l in logs if l['ip'] == ip_key), None)
+                        cc = next((log_entry['cc'] for log_entry in logs if log_entry['ip'] == ip_key), None)
                         detected_ips.add((ip_key, cc))
             
             if has_suspicious:
@@ -6648,9 +6771,11 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(admin_promo_list, pattern='^admin_promo_list$'))
     application.add_handler(CallbackQueryHandler(admin_promo_uses, pattern='^admin_promo_uses_'))
     application.add_handler(CallbackQueryHandler(admin_promo_user_detail, pattern='^admin_promo_u_'))
-    application.add_handler(CallbackQueryHandler(admin_revoke_promo_menu, pattern='^admin_revoke_menu_'))
-    application.add_handler(CallbackQueryHandler(admin_revoke_promo_confirm, pattern='^admin_revoke_conf_'))
-    application.add_handler(CallbackQueryHandler(admin_revoke_promo_action, pattern='^admin_revoke_act_'))
+    application.add_handler(CallbackQueryHandler(admin_revoke_promo_code_menu, pattern='^admin_revoke_code_menu_'))
+    application.add_handler(CallbackQueryHandler(admin_revoke_promo_code_action, pattern='^admin_revoke_code_act_'))
+    application.add_handler(CallbackQueryHandler(admin_revoke_user_promo_menu, pattern='^admin_revoke_user_menu_'))
+    application.add_handler(CallbackQueryHandler(admin_revoke_user_promo_confirm, pattern='^admin_revoke_user_conf_'))
+    application.add_handler(CallbackQueryHandler(admin_revoke_user_promo_action, pattern='^admin_revoke_user_act_'))
     application.add_handler(CallbackQueryHandler(admin_broadcast, pattern='^admin_broadcast$'))
     application.add_handler(CallbackQueryHandler(admin_broadcast_target, pattern='^admin_broadcast_(all|en|ru|individual|toggle|page|confirm).*'))
     application.add_handler(CallbackQueryHandler(admin_poll_menu, pattern='^admin_poll_menu$'))
@@ -6692,7 +6817,7 @@ async def admin_bot_start_handler(update: Update, context: ContextTypes.DEFAULT_
     Handler for /start command in Support Bot.
     Shows status and info for Admin.
     """
-    if update.message.chat_id != int(ADMIN_ID):
+    if ADMIN_ID_INT is None or update.message.chat_id != ADMIN_ID_INT:
         await update.message.reply_text("⛔ Доступ запрещен. Этот бот только для администратора.")
         return
 
@@ -6711,7 +6836,7 @@ async def admin_bot_reply_handler(update: Update, context: ContextTypes.DEFAULT_
     Handles replies from Admin in the Admin Bot.
     Should forward text to User via Main Bot.
     """
-    if update.message.chat_id != int(ADMIN_ID):
+    if ADMIN_ID_INT is None or update.message.chat_id != ADMIN_ID_INT:
         return
 
     # Check if replying to an alert
@@ -6765,9 +6890,9 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
             result = await context.bot.get_star_transactions(limit=20)
             # In PTB v21+, returns StarTransactions object which has .transactions list
             if hasattr(result, 'transactions'):
-                txs = result.transactions
+                txs = list(result.transactions)
             else:
-                txs = result
+                txs = list(result)
         except Exception:
              # Fallback: Try raw API if wrapper fails or method not found
              return 
@@ -6785,7 +6910,7 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
         def is_tx_processed(tg_id, amount, date):
             # Heuristic match: User + Amount + Date within 120s
             for row in local_rows:
-                lid, lamt, ldate, lplan = row[0], row[1], row[2], row[3]
+                lid, lamt, ldate, _ = row
                 if str(lid) == str(tg_id) and int(lamt) == int(amount):
                     if abs(ldate - date) < 120:
                         return True

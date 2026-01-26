@@ -1,17 +1,16 @@
 import sys
-import os
+import asyncio
+import importlib
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 
-# Add bot directory to path
-sys.path.append('/usr/local/x-ui/bot')
+bot_path = "/usr/local/x-ui/bot"
+if bot_path not in sys.path:
+    sys.path.append(bot_path)
 
-# Mock sqlite3 before importing bot to avoid DB connection errors during import or execution
 sys.modules['sqlite3'] = MagicMock()
 
-import bot
-
-import asyncio
+bot = importlib.import_module("bot")
  
 @pytest.mark.asyncio
 async def test_support_full_cycle():
@@ -34,6 +33,8 @@ async def test_support_full_cycle():
     # Mock Support Bot
     support_bot = AsyncMock()
     context.bot_data['support_bot'] = support_bot
+    bot.ADMIN_ID = "123456789"
+    bot.ADMIN_ID_INT = 123456789
     
     # Mock Main Bot in Support Bot's data (for reply handler)
     # In reality, they are separate apps, but handlers receive their own context.

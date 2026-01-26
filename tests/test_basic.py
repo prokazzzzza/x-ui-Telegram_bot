@@ -1,5 +1,4 @@
 import sys
-import os
 import pytest
 
 # Add bot directory to path

@@ -1,7 +1,7 @@
 import sys
 import os
 import pytest
-from unittest.mock import MagicMock, ANY
+from unittest.mock import MagicMock
 
 # Add bot directory to path
 sys.path.append('/usr/local/x-ui/bot')
@@ -46,4 +46,5 @@ def test_handler_registration():
     
     # Check for NEW functionality
     assert has_handler_with_pattern('admin_ip_history'), "admin_ip_history handler not registered! Button will not work."
-
+    assert has_handler_with_pattern('admin_revoke_code_menu'), "admin_revoke_code_menu handler not registered"
+    assert has_handler_with_pattern('admin_revoke_user_menu'), "admin_revoke_user_menu handler not registered"

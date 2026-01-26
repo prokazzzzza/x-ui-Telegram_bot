@@ -1,6 +1,5 @@
 import sys
 import os
-import pytest
 import asyncio
 from unittest.mock import MagicMock, patch
 
@@ -34,6 +33,11 @@ def test_post_init_logic():
         
         # Mock asyncio.create_task to verify it's called
         with patch('asyncio.create_task') as mock_create_task:
+            def _consume_coroutine(coro):
+                coro.close()
+                return MagicMock()
+            
+            mock_create_task.side_effect = _consume_coroutine
             await bot.post_init(app_mock)
             
             # Verify that watch_access_log task was scheduled

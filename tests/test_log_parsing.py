@@ -1,5 +1,4 @@
 import re
-import pytest
 
 # The regex currently in bot.py (reconstructed for testing before fix)
 # log_pattern = re.compile(r'^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} (\d{1,3}(?:\.\d{1,3}){3}):\d+ accepted email:(\S+)$')

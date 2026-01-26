@@ -1,6 +1,5 @@
 import sys
 import inspect
-import pytest
 
 # Add bot directory to path
 sys.path.append('/usr/local/x-ui/bot')
