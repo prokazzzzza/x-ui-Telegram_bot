@@ -2,11 +2,12 @@ import pytest
 import sqlite3
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock, MagicMock
 
 # Add bot directory to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../bot')))
 
+import bot
 from bot import check_promo, redeem_promo_db, get_lang
 
 # Mock DB Path
@@ -107,3 +108,104 @@ def test_get_lang(setup_db):
     
     assert get_lang("111") == "en"
     assert get_lang("222") == "ru" # Default
+
+
+@pytest.mark.asyncio
+async def test_cleanup_flash_messages_deletes_row_on_success(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE flash_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id TEXT, message_id INTEGER, delete_at INTEGER)")
+    conn.execute("INSERT INTO flash_messages (chat_id, message_id, delete_at) VALUES ('1', 10, 0)")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot.delete_message = AsyncMock(return_value=True)
+
+    await bot.cleanup_flash_messages(context)
+
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM flash_messages").fetchone()[0]
+    conn.close()
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_cleanup_flash_messages_keeps_row_on_transient_error(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE flash_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id TEXT, message_id INTEGER, delete_at INTEGER)")
+    conn.execute("INSERT INTO flash_messages (chat_id, message_id, delete_at) VALUES ('1', 10, 0)")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot.delete_message = AsyncMock(side_effect=bot.TimedOut("timeout"))
+
+    await bot.cleanup_flash_messages(context)
+
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM flash_messages").fetchone()[0]
+    conn.close()
+    assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_cleanup_flash_messages_deletes_row_on_permanent_error(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE flash_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id TEXT, message_id INTEGER, delete_at INTEGER)")
+    conn.execute("INSERT INTO flash_messages (chat_id, message_id, delete_at) VALUES ('1', 10, 0)")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot.delete_message = AsyncMock(side_effect=bot.Forbidden("blocked"))
+
+    await bot.cleanup_flash_messages(context)
+
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM flash_messages").fetchone()[0]
+    conn.close()
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_flash_delete_all_clears_table(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE flash_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id TEXT, message_id INTEGER, delete_at INTEGER)")
+    conn.execute("INSERT INTO flash_messages (chat_id, message_id, delete_at) VALUES ('1', 10, 0)")
+    conn.execute("INSERT INTO flash_messages (chat_id, message_id, delete_at) VALUES ('2', 20, 0)")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+    monkeypatch.setattr(bot, "admin_flash_menu", AsyncMock())
+
+    update = MagicMock()
+    query = MagicMock()
+    update.callback_query = query
+    query.answer = AsyncMock()
+    query.message = MagicMock()
+    query.message.reply_text = AsyncMock()
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot.delete_message = AsyncMock(return_value=True)
+
+    await bot.admin_flash_delete_all(update, context)
+
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM flash_messages").fetchone()[0]
+    conn.close()
+    assert count == 0

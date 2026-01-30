@@ -2,7 +2,6 @@ import logging
 import sqlite3
 import json
 import uuid
-import subprocess
 import time
 import datetime
 import shutil
@@ -13,12 +12,15 @@ import html
 import importlib
 import random
 import string
-from typing import Optional, Any, Dict, Protocol, TypeAlias, TypedDict
+from typing import Optional, Any, Dict, Iterable, Protocol, TypeAlias, TypedDict
 from io import BytesIO
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
+import httpx
 from telegram import Update as TelegramUpdate, CallbackQuery as TelegramCallbackQuery, Message as TelegramMessage, PreCheckoutQuery as TelegramPreCheckoutQuery, SuccessfulPayment as TelegramSuccessfulPayment, User as TelegramUser, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButtonRequestUsers
+from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, PreCheckoutQueryHandler, MessageHandler, filters
+from telegram.request import HTTPXRequest
 
 qrcode = importlib.import_module("qrcode")
 
@@ -58,13 +60,15 @@ class SuspiciousUser(TypedDict):
 # Load environment variables
 load_dotenv()
 
-# Custom Logging to write new logs at the beginning of the file
 def log_action(message):
     try:
         timestamp = datetime.datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
         entry = f"{timestamp} - {message}\n"
         
         content = ""
+        log_dir = os.path.dirname(LOG_FILE)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
         if os.path.exists(LOG_FILE):
             with open(LOG_FILE, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -76,6 +80,15 @@ def log_action(message):
         print(f"LOG: {message}")
     except Exception as e:
         print(f"Logging failed: {e}")
+
+async def _systemctl(*args: str) -> None:
+    try:
+        proc = await asyncio.create_subprocess_exec("systemctl", *args)
+        await proc.wait()
+        if proc.returncode != 0:
+            logging.error(f"systemctl {' '.join(args)} failed with code {proc.returncode}")
+    except Exception as e:
+        logging.error(f"systemctl {' '.join(args)} failed: {e}")
 
 # Disable root logger file handler to avoid noise
 logging.basicConfig(
@@ -109,10 +122,12 @@ PORT: Optional[int] = int(PORT_STR) if PORT_STR and PORT_STR.isdigit() else None
 SNI = os.getenv("SNI")
 SID = os.getenv("SID")
 TIMEZONE = ZoneInfo("Europe/Moscow")
-LOG_FILE = "/usr/local/x-ui/bot/bot.log"
+LOG_DIR = os.getenv("BOT_LOG_DIR", "/usr/local/x-ui/logs")
+LOG_FILE = os.getenv("BOT_LOG_FILE", os.path.join(LOG_DIR, "bot.log"))
 REF_BONUS_DAYS = int(os.getenv("REF_BONUS_DAYS", 7))
 
 ACCESS_LOG_PATH = "/usr/local/x-ui/access.log"
+SUSPICIOUS_EVENTS_LOOKBACK_SEC = int(os.getenv("SUSPICIOUS_EVENTS_LOOKBACK_SEC", "86400"))
 
 def load_config_from_db():
     global PUBLIC_KEY, PORT, SNI, SID
@@ -292,7 +307,8 @@ TEXTS = {
         "btn_cancel": "🔙 Cancel",
         "btn_change": "(Edit)",
         "stats_header": "📊 *Statistics*",
-        "stats_users": "👥 *Bot Users:*",
+        "stats_users": "👥 *Telegram Users (Bot DB):*",
+        "stats_vpn_users": "👥 *VPN Users (3x-ui):*",
         "stats_online": "⚡ *Online Users:*",
         "stats_clients": "🔌 *Total Clients:*",
         "stats_active": "✅ *Active Clients:*",
@@ -305,7 +321,14 @@ TEXTS = {
         "btn_users_expiring": "⏳ Expiring Soon",
         "btn_users_online": "⚡ Online",
         "btn_users_trial": "🆓 Trials",
+        "btn_users_expired": "🔴 Expired",
+        "btn_cleanup_db": "🧹 Cleanup Bot DB",
+        "btn_db_audit": "🔎 DB Audit / Sync",
+        "btn_db_sync": "🧹 Sync & Clean",
         "btn_sync_nicks": "🔄 Sync Nicknames",
+        "db_audit_text": "🔎 *DB Audit*\n\nX-UI clients: {xui_clients}\nX-UI clients with TG ID: {xui_tg}\nX-UI clients without TG ID: {xui_no_tg}\n\nBot users (user_prefs): {bot_users}\nBot users not in X-UI: {bot_only}\nX-UI TG IDs missing in bot: {xui_only}\n\nTransactions total: {tx_total} ({tx_sum} ⭐️)\nTransactions not in X-UI: {tx_invalid} ({tx_invalid_sum} ⭐️)\n\nExamples:\nBot-only TG IDs: {bot_only_examples}\nX-UI clients without TG ID: {xui_no_tg_examples}\n\nChoose action below.",
+        "db_sync_confirm_text": "⚠️ *Confirm DB Sync & Cleanup*\n\nThis will:\n- delete bot users not present in X-UI\n- delete transactions not belonging to X-UI users\n- delete traffic rows for tg_* emails not present in X-UI\n\nPlanned changes:\nUsers to delete: {users_deleted}\nTransactions to delete: {tx_deleted} ({tx_deleted_sum} ⭐️)\nTraffic rows to delete: {traffic_deleted}\n\nA backup will be created automatically.",
+        "db_sync_done": "✅ Done.\n\nDeleted users: {users_deleted}\nDeleted transactions: {tx_deleted} ({tx_deleted_sum} ⭐️)\nDeleted traffic rows: {traffic_deleted}",
         "sync_start": "Syncing...",
         "sync_error_inbound": "❌ X-UI Inbound not found.",
         "sync_progress": "🔄 Syncing: {current}/{total}",
@@ -314,6 +337,7 @@ TEXTS = {
         "title_all": "All Clients",
         "title_active": "Active Clients",
         "title_expiring": "Expiring Soon (<7d)",
+        "title_expired": "Expired",
         "title_online": "Online Clients",
         "title_trial": "Used Trial (All)",
         "btn_back_stats": "🔙 Back to Stats",
@@ -404,6 +428,7 @@ TEXTS = {
         "backup_starting": "Creating backup...",
         "backup_success": "✅ Backup created successfully in backups/ folder.",
         "backup_error": "❌ Error creating backup. Check logs.",
+        "cleanup_db_done": "✅ Cleanup complete.\n\nDeleted users: {deleted}",
         "live_monitor_starting": "Starting Live Monitor...",
         "remaining_days": "⏳ Remaining: {days} days",
         "remaining_hours": "⏳ Remaining: {hours} hours",
@@ -553,7 +578,8 @@ TEXTS = {
         "btn_cancel": "🔙 Отмена",
         "btn_change": "(Изменить)",
         "stats_header": "📊 *Статистика*",
-        "stats_users": "👥 *Пользователи бота:*",
+        "stats_users": "👥 *Пользователи Telegram (бот):*",
+        "stats_vpn_users": "👥 *Пользователи VPN (3x-ui):*",
         "stats_online": "⚡ *Пользователи онлайн:*",
         "stats_clients": "🔌 *Всего клиентов:*",
         "stats_active": "✅ *Активные клиенты:*",
@@ -566,7 +592,14 @@ TEXTS = {
         "btn_users_expiring": "⏳ Скоро истекают",
         "btn_users_online": "⚡ Онлайн",
         "btn_users_trial": "🆓 Пробный период",
+        "btn_users_expired": "🔴 Истекшие",
+        "btn_cleanup_db": "🧹 Очистить базу бота",
+        "btn_db_audit": "🔎 Аудит / синхронизация БД",
+        "btn_db_sync": "🧹 Согласовать и очистить",
         "btn_sync_nicks": "🔄 Обновить ники",
+        "db_audit_text": "🔎 *Аудит БД*\n\nКлиенты X-UI: {xui_clients}\nКлиенты X-UI с TG ID: {xui_tg}\nКлиенты X-UI без TG ID: {xui_no_tg}\n\nПользователи бота (user_prefs): {bot_users}\nПользователи бота вне X-UI: {bot_only}\nTG IDs из X-UI отсутствуют в боте: {xui_only}\n\nТранзакции всего: {tx_total} ({tx_sum} ⭐️)\nТранзакции вне X-UI: {tx_invalid} ({tx_invalid_sum} ⭐️)\n\nПримеры:\nBot-only TG IDs: {bot_only_examples}\nX-UI клиенты без TG ID: {xui_no_tg_examples}\n\nВыберите действие ниже.",
+        "db_sync_confirm_text": "⚠️ *Подтвердите согласование и очистку БД*\n\nБудет выполнено:\n- удаление пользователей бота, отсутствующих в X-UI\n- удаление транзакций, не принадлежащих пользователям X-UI\n- удаление traffic-строк по email tg_*, которых нет в X-UI\n\nПлан изменений:\nУдалить пользователей: {users_deleted}\nУдалить транзакции: {tx_deleted} ({tx_deleted_sum} ⭐️)\nУдалить traffic-строк: {traffic_deleted}\n\nПеред очисткой автоматически будет создан бэкап.",
+        "db_sync_done": "✅ Готово.\n\nУдалено пользователей: {users_deleted}\nУдалено транзакций: {tx_deleted} ({tx_deleted_sum} ⭐️)\nУдалено traffic-строк: {traffic_deleted}",
         "sync_start": "Синхронизация...",
         "sync_error_inbound": "❌ X-UI Inbound not found.",
         "sync_progress": "🔄 Синхронизация: {current}/{total}",
@@ -575,6 +608,7 @@ TEXTS = {
         "title_all": "Все клиенты",
         "title_active": "Активные клиенты",
         "title_expiring": "Скоро истекают (<7д)",
+        "title_expired": "Истекшие",
         "title_online": "Онлайн клиенты",
         "title_trial": "Использовали пробный (Все)",
         "btn_back_stats": "🔙 Назад к статистике",
@@ -682,7 +716,8 @@ TEXTS = {
         "logs_read_error": "Ошибка при чтении логов.",
         "backup_starting": "Создание резервной копии...",
         "backup_success": "✅ Резервная копия успешно создана в папке backups/",
-        "backup_error": "❌ Ошибка при создании резервной копии. См. логи."
+        "backup_error": "❌ Ошибка при создании резервной копии. См. логи.",
+        "cleanup_db_done": "✅ Очистка завершена.\n\nУдалено пользователей: {deleted}"
     }
 }
 
@@ -769,6 +804,22 @@ def init_db():
             plan_id TEXT
         )
     ''')
+    try:
+        cursor.execute("ALTER TABLE transactions ADD COLUMN telegram_payment_charge_id TEXT")
+    except:
+        pass
+    try:
+        cursor.execute("ALTER TABLE transactions ADD COLUMN processed_at INTEGER")
+    except:
+        pass
+    try:
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_charge_id "
+            "ON transactions(telegram_payment_charge_id) "
+            "WHERE telegram_payment_charge_id IS NOT NULL"
+        )
+    except:
+        pass
     
     # Traffic History Table
     cursor.execute('''
@@ -779,6 +830,17 @@ def init_db():
             up INTEGER,
             down INTEGER,
             UNIQUE(email, date)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS traffic_daily_baselines (
+            email TEXT,
+            date TEXT, -- YYYY-MM-DD
+            up INTEGER,
+            down INTEGER,
+            captured_at INTEGER,
+            PRIMARY KEY (email, date)
         )
     ''')
     
@@ -881,6 +943,110 @@ def init_db():
     
     conn.commit()
     conn.close()
+
+def _transaction_dedupe_key(
+    tg_id: str,
+    amount: int,
+    date_ts: int,
+    plan_id: str,
+    charge_id: Optional[str],
+) -> tuple[Any, ...]:
+    if charge_id:
+        return ("c", charge_id)
+    return ("n", tg_id, amount, date_ts, plan_id)
+
+def _dedupe_transactions(
+    rows: Iterable[tuple[str, int, int, str, Optional[str]]],
+) -> list[tuple[str, int, int, str, Optional[str]]]:
+    seen: set[tuple[Any, ...]] = set()
+    out: list[tuple[str, int, int, str, Optional[str]]] = []
+    for tg_id, amount, date_ts, plan_id, charge_id in rows:
+        key = _transaction_dedupe_key(tg_id, amount, date_ts, plan_id, charge_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((tg_id, amount, date_ts, plan_id, charge_id))
+    return out
+
+def _get_sales_log_dedupe_window_sec() -> int:
+    raw = os.getenv("SALES_LOG_DEDUPE_WINDOW_SEC", "600")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 600
+    return max(0, value)
+
+def _get_sales_log_fuzzy_charge_dedupe_window_sec() -> int:
+    raw = os.getenv("SALES_LOG_FUZZY_CHARGE_DEDUPE_WINDOW_SEC", "60")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 60
+    return max(0, value)
+
+def _dedupe_sales_log_rows(
+    rows: Iterable[tuple[str, int, int, str, Optional[str]]],
+) -> list[tuple[str, int, int, str, Optional[str]]]:
+    window_sec = _get_sales_log_dedupe_window_sec()
+    fuzzy_charge_window_sec = _get_sales_log_fuzzy_charge_dedupe_window_sec()
+    seen_charge_ids: set[str] = set()
+    last_ts_by_key: dict[tuple[str, int], int] = {}
+    last_idx_by_key: dict[tuple[str, int], int] = {}
+    out: list[tuple[str, int, int, str, Optional[str]]] = []
+
+    for tg_id, amount, date_ts, plan_id, charge_id in rows:
+        key = (tg_id, amount)
+        last_ts = last_ts_by_key.get(key)
+        if charge_id:
+            if charge_id in seen_charge_ids:
+                continue
+            seen_charge_ids.add(charge_id)
+            active_window = fuzzy_charge_window_sec
+        else:
+            active_window = window_sec
+
+        if last_ts is not None and abs(last_ts - date_ts) <= active_window:
+            idx = last_idx_by_key.get(key)
+            if idx is not None:
+                kept_tg_id, kept_amount, kept_date_ts, kept_plan_id, kept_charge_id = out[idx]
+                kept_known = bool(kept_plan_id) and kept_plan_id != "unknown"
+                cur_known = bool(plan_id) and plan_id != "unknown"
+                if (not kept_known) and cur_known:
+                    out[idx] = (kept_tg_id, kept_amount, kept_date_ts, plan_id, kept_charge_id)
+                if kept_charge_id is None and charge_id:
+                    out[idx] = (kept_tg_id, kept_amount, kept_date_ts, kept_plan_id, charge_id)
+            continue
+        last_ts_by_key[key] = date_ts
+        last_idx_by_key[key] = len(out)
+        out.append((tg_id, amount, date_ts, plan_id, charge_id))
+
+    return out
+
+_MISSED_TX_LOG_THROTTLE: dict[str, float] = {}
+
+def _normalize_charge_id(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized if normalized else None
+    if isinstance(value, (int, float)):
+        return str(int(value))
+    normalized = str(value).strip()
+    return normalized if normalized else None
+
+def get_client_tg_id(client: Dict[str, Any]) -> Optional[str]:
+    tg_id = client.get("tgId")
+    if isinstance(tg_id, int):
+        return str(tg_id)
+    if isinstance(tg_id, str) and tg_id.isdigit():
+        return tg_id
+    email = str(client.get("email", "") or "")
+    if email.startswith("tg_"):
+        possible = email[3:].split("_", 1)[0]
+        if possible.isdigit():
+            return possible
+    return None
 
 def update_user_info(tg_id, username, first_name, last_name):
     try:
@@ -1311,6 +1477,29 @@ def format_expiry_display(expiry_ms: int, lang: str, now_ms: Optional[int] = Non
         return f"{hours:02d}:{rem_minutes:02d}"
     minutes = math.ceil(diff_ms / minute_ms)
     return f"{minutes} мин." if lang == "ru" else f"{minutes} min"
+
+def _get_user_client_expiry_ms(tg_id: str) -> Optional[int]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        settings = json.loads(row[0])
+        clients = settings.get("clients", [])
+        for client in clients:
+            if str(client.get("tgId")) == tg_id or client.get("email") == f"tg_{tg_id}":
+                expiry_raw = client.get("expiryTime", 0)
+                try:
+                    return int(expiry_raw)
+                except Exception:
+                    return 0
+        return None
+    except Exception as e:
+        logging.error(f"Failed to read user expiry from X-UI DB: {e}")
+        return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.from_user:
@@ -2366,12 +2555,6 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("SELECT COUNT(*) FROM user_prefs")
     total_users = cursor.fetchone()[0]
     
-    cursor.execute("SELECT SUM(amount) FROM transactions WHERE tg_id != '369456269'")
-    total_revenue = cursor.fetchone()[0] or 0
-    
-    cursor.execute("SELECT COUNT(*) FROM transactions WHERE tg_id != '369456269'")
-    total_sales = cursor.fetchone()[0]
-    
     # Get trial users and paid users
     cursor.execute("SELECT tg_id FROM user_prefs WHERE trial_used=1")
     trial_users = set(row[0] for row in cursor.fetchall())
@@ -2393,13 +2576,14 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Online users count (last 10 seconds for real-time accuracy)
     current_time_ms = int(time.time() * 1000)
     threshold = current_time_ms - (10 * 1000)
-    cursor.execute("SELECT COUNT(DISTINCT email) FROM client_traffics WHERE last_online > ?", (threshold,))
+    cursor.execute("SELECT COUNT(DISTINCT email) FROM client_traffics WHERE inbound_id=? AND last_online > ?", (INBOUND_ID, threshold))
     online_users = cursor.fetchone()[0]
     
     conn.close()
     
     active_subs = 0
     total_clients = 0
+    vpn_users = set()
     
     active_trials = 0
     expired_trials = 0
@@ -2412,7 +2596,9 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for client in clients:
             expiry = client.get('expiryTime', 0)
             enable = client.get('enable', False)
-            tg_id = str(client.get('tgId', ''))
+            client_tg_id = get_client_tg_id(client)
+            if client_tg_id is not None:
+                vpn_users.add(client_tg_id)
             
             # Count overall active
             if enable:
@@ -2420,7 +2606,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     active_subs += 1
             
             # Count trial stats
-            if tg_id in pure_trial_users:
+            if client_tg_id in pure_trial_users:
                 if enable and (expiry == 0 or expiry > current_time_ms):
                     active_trials += 1
                 elif enable and expiry > 0 and expiry < current_time_ms:
@@ -2437,8 +2623,50 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Re-eval for trials:
                 # if expiry > 0 and expiry < current_time_ms: expired_trials += 1
 
+    vpn_users_count = len(vpn_users)
+
+    total_revenue = 0
+    total_sales = 0
+    try:
+        conn_bot2 = sqlite3.connect(BOT_DB_PATH)
+        cursor_bot2 = conn_bot2.cursor()
+        if vpn_users:
+            vpn_list = sorted(vpn_users)
+            placeholders = ",".join(["?"] * len(vpn_list))
+            try:
+                cursor_bot2.execute(
+                    f"SELECT tg_id, amount, date, plan_id, telegram_payment_charge_id "
+                    f"FROM transactions WHERE tg_id IN ({placeholders}) AND tg_id != '369456269'",
+                    tuple(vpn_list),
+                )
+            except sqlite3.OperationalError:
+                cursor_bot2.execute(
+                    f"SELECT tg_id, amount, date, plan_id, NULL "
+                    f"FROM transactions WHERE tg_id IN ({placeholders}) AND tg_id != '369456269'",
+                    tuple(vpn_list),
+                )
+        else:
+            try:
+                cursor_bot2.execute(
+                    "SELECT tg_id, amount, date, plan_id, telegram_payment_charge_id "
+                    "FROM transactions WHERE tg_id != '369456269'"
+                )
+            except sqlite3.OperationalError:
+                cursor_bot2.execute(
+                    "SELECT tg_id, amount, date, plan_id, NULL FROM transactions WHERE tg_id != '369456269'"
+                )
+        tx_rows = cursor_bot2.fetchall()
+        conn_bot2.close()
+
+        unique_rows = _dedupe_sales_log_rows(tx_rows)
+        total_sales = len(unique_rows)
+        total_revenue = sum(r[1] for r in unique_rows)
+    except Exception as e:
+        logging.error(f"Failed to compute sales stats: {e}")
+
     text = f"{t('stats_header', lang)}\n\n" \
            f"{t('stats_users', lang)} {total_users}\n" \
+           f"{t('stats_vpn_users', lang)} {vpn_users_count}\n" \
            f"{t('stats_online', lang)} {online_users}\n" \
            f"{t('stats_clients', lang)} {total_clients}\n" \
            f"{t('stats_active', lang)} {active_subs}\n" \
@@ -2455,8 +2683,11 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(t("btn_users_online", lang), callback_data='admin_users_online_0'),
-            InlineKeyboardButton(t("btn_users_trial", lang), callback_data='admin_users_trial_0')
+            InlineKeyboardButton(t("btn_users_trial", lang), callback_data='admin_users_trial_0'),
+            InlineKeyboardButton(t("btn_users_expired", lang), callback_data='admin_users_expired_0')
         ],
+        [InlineKeyboardButton(t("btn_cleanup_db", lang), callback_data='admin_cleanup_db')],
+        [InlineKeyboardButton(t("btn_db_audit", lang), callback_data='admin_db_audit')],
         [InlineKeyboardButton(t("btn_sync_nicks", lang), callback_data='admin_sync_nicks')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
@@ -2641,7 +2872,21 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor = conn.cursor()
         cursor.execute("SELECT tg_id FROM user_prefs WHERE trial_used=1")
         trial_rows = cursor.fetchall() # [(tg_id,), ...]
+        try:
+            cursor.execute("SELECT tg_id, username, first_name, last_name FROM user_prefs WHERE trial_used=1")
+            user_prefs_rows = cursor.fetchall()
+        except Exception:
+            user_prefs_rows = []
         conn.close()
+
+        user_info_map: dict[str, dict[str, Any]] = {}
+        for row_user in user_prefs_rows:
+            tid, uname, fname, lname = row_user
+            user_info_map[str(tid)] = {
+                "username": uname,
+                "first_name": fname,
+                "last_name": lname,
+            }
         
         # 2. Fetch X-UI clients for mapping
         conn = sqlite3.connect(DB_PATH)
@@ -2671,8 +2916,8 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     xui_clients_map[tid] = c
         
         for r in trial_rows:
-            tg_id = str(r[0])
-            client = xui_clients_map.get(tg_id)
+            trial_tg_id = str(r[0])
+            client = xui_clients_map.get(trial_tg_id)
             
             if client:
                 # Exists in X-UI
@@ -2682,17 +2927,39 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 is_active = is_subscription_active(enable_val, expiry_val, current_time_ms)
                 status = "🟢" if is_active else "🔴"
                 uid = client.get('id')
+                label = f"{status} {email}"
+                if trial_tg_id in user_info_map:
+                    uinfo = user_info_map[trial_tg_id]
+                    if uinfo.get("username"):
+                        label = f"{label} (@{uinfo['username']})"
+                    elif uinfo.get("first_name"):
+                        name = str(uinfo["first_name"])
+                        if uinfo.get("last_name"):
+                            name += f" {uinfo['last_name']}"
+                        label = f"{label} ({name})"
                 display_items.append({
-                    'label': f"{status} {email}",
+                    'label': label,
                     'callback': f"admin_u_{uid}",
-                    'sort_key': (0 if not is_active else 1, email.lower())
+                    'sort_key': (0 if not is_active else 1, email.lower()),
+                    'tg_id': trial_tg_id
                 })
             else:
                 # Deleted from X-UI
+                label = f"❌ {trial_tg_id} (Del)"
+                if trial_tg_id in user_info_map:
+                    uinfo = user_info_map[trial_tg_id]
+                    if uinfo.get("username"):
+                        label = f"{label} (@{uinfo['username']})"
+                    elif uinfo.get("first_name"):
+                        name = str(uinfo["first_name"])
+                        if uinfo.get("last_name"):
+                            name += f" {uinfo['last_name']}"
+                        label = f"{label} ({name})"
                 display_items.append({
-                    'label': f"❌ {tg_id} (Del)",
-                    'callback': f"admin_db_detail_{tg_id}",
-                    'sort_key': (2, tg_id)
+                    'label': label,
+                    'callback': f"admin_db_detail_{trial_tg_id}",
+                    'sort_key': (2, trial_tg_id),
+                    'tg_id': trial_tg_id
                 })
                 
         display_items.sort(key=lambda x: x['sort_key'])
@@ -2774,6 +3041,9 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 days_7_ms = 7 * 24 * 3600 * 1000
                 if enable and expiry > current_time and expiry < (current_time + days_7_ms):
                     filtered_clients.append(c)
+            elif filter_type == 'expired':
+                if expiry > 0 and expiry < current_time:
+                    filtered_clients.append(c)
             elif filter_type == 'online':
                 if c.get('email') in online_emails:
                     filtered_clients.append(c)
@@ -2840,7 +3110,7 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         label = item['label']
         # Check if label already enriched (contains @ or ())
-        if "(@" not in label and "(" not in label and "tg_" in label:
+        if "(@" not in label and "(" not in label:
              tg_id_str = str(item.get('tg_id', ''))
              if tg_id_str and tg_id_str.isdigit():
                  try:
@@ -2866,7 +3136,7 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if page > 0:
         nav_row.append(InlineKeyboardButton("⬅️", callback_data=f'admin_users_{filter_type}_{page-1}'))
     
-    filter_icons = {'all': '👥', 'active': '🟢', 'expiring': '⏳', 'online': '⚡', 'trial': '🆓'}
+    filter_icons = {'all': '👥', 'active': '🟢', 'expiring': '⏳', 'expired': '🔴', 'online': '⚡', 'trial': '🆓'}
     nav_row.append(InlineKeyboardButton(f"{filter_icons.get(filter_type, '')} {page+1}/{total_pages}", callback_data='noop'))
     
     if page < total_pages - 1:
@@ -2880,6 +3150,7 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'all': t("title_all", lang),
         'active': t("title_active", lang),
         'expiring': t("title_expiring", lang),
+        'expired': t("title_expired", lang),
         'online': t("title_online", lang),
         'trial': t("title_trial", lang)
     }
@@ -3378,27 +3649,39 @@ async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_T
         
     ITEMS_PER_PAGE = 20
     offset = page * ITEMS_PER_PAGE
+    now_ts = int(time.time())
+    since_ts = now_ts - SUSPICIOUS_EVENTS_LOOKBACK_SEC
     
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
     
     # Get total count
-    cursor.execute("SELECT COUNT(*) FROM suspicious_events")
+    cursor.execute("SELECT COUNT(*) FROM suspicious_events WHERE last_seen > ?", (since_ts,))
     total_items = cursor.fetchone()[0]
     total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
     if total_pages == 0: total_pages = 1
+
+    if page >= total_pages:
+        page = total_pages - 1
+        offset = page * ITEMS_PER_PAGE
     
     # Get items
     cursor.execute("""
         SELECT email, ips, last_seen, count 
         FROM suspicious_events 
+        WHERE last_seen > ?
         ORDER BY last_seen DESC 
         LIMIT ? OFFSET ?
-    """, (ITEMS_PER_PAGE, offset))
+    """, (since_ts, ITEMS_PER_PAGE, offset))
     rows = cursor.fetchall()
     conn.close()
     
     text = t("suspicious_title", lang).format(page=page+1, total=total_pages)
+    lookback_hours = max(1, int(SUSPICIOUS_EVENTS_LOOKBACK_SEC // 3600))
+    if lang == "ru":
+        text += f"Период: последние {lookback_hours} ч\n\n"
+    else:
+        text += f"Period: last {lookback_hours}h\n\n"
     
     if not rows:
         text += t("suspicious_empty", lang)
@@ -3864,30 +4147,52 @@ async def admin_flash_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+def _flash_delete_is_permanent_error(err: Exception) -> bool:
+    if isinstance(err, Forbidden):
+        return True
+    if isinstance(err, BadRequest):
+        msg = str(err).lower()
+        return (
+            "chat not found" in msg
+            or "message to delete not found" in msg
+            or "message can't be deleted" in msg
+            or "message cannot be deleted" in msg
+        )
+    return False
+
 async def admin_flash_delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Удаление...")
     
     try:
-        conn = sqlite3.connect(BOT_DB_PATH)
+        conn = sqlite3.connect(BOT_DB_PATH, timeout=10)
         cursor = conn.cursor()
         cursor.execute("SELECT id, chat_id, message_id FROM flash_messages")
         rows = cursor.fetchall()
         
         deleted_count = 0
+        failed_count = 0
         for row in rows:
             db_id, chat_id, msg_id = row
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-            except:
-                pass
-            deleted_count += 1
+                deleted_count += 1
+            except Exception as e:
+                if _flash_delete_is_permanent_error(e):
+                    failed_count += 1
+                elif isinstance(e, (TimedOut, NetworkError)):
+                    failed_count += 1
+                else:
+                    failed_count += 1
             
         cursor.execute("DELETE FROM flash_messages")
         conn.commit()
         conn.close()
         
-        await query.message.reply_text(f"✅ Принудительно удалено {deleted_count} сообщений.")
+        await query.message.reply_text(
+            f"✅ Принудительно удалено: {deleted_count}\n"
+            f"⚠️ Не удалось удалить: {failed_count}"
+        )
         # Return to menu
         await admin_flash_menu(update, context)
         
@@ -3915,15 +4220,41 @@ async def admin_flash_errors(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT user_id, error_message FROM flash_delivery_errors")
-    rows = cursor.fetchall()
-    
-    # Also fetch user names if possible (from user_prefs)
-    cursor.execute("SELECT tg_id, first_name, username FROM user_prefs")
-    user_rows = cursor.fetchall()
-    conn.close()
-    
-    user_map = {u[0]: (u[1], u[2]) for u in user_rows} # id -> (name, username)
+    try:
+        cursor.execute("SELECT user_id, error_message, timestamp FROM flash_delivery_errors ORDER BY timestamp DESC")
+        raw_rows = cursor.fetchall()
+    except sqlite3.OperationalError:
+        conn.close()
+        await query.edit_message_text(
+            "📉 *Недоставленные сообщения:*\n\nСписок пуст.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="admin_flash_menu")]]),
+        )
+        return
+
+    rows: list[tuple[str, str]] = []
+    seen_users: set[str] = set()
+    for uid, err, _ts in raw_rows:
+        uid_str = str(uid)
+        if uid_str in seen_users:
+            continue
+        seen_users.add(uid_str)
+        rows.append((uid_str, str(err)))
+
+    user_map: dict[str, tuple[Optional[str], Optional[str]]] = {}
+    try:
+        cursor.execute("SELECT tg_id, first_name, username FROM user_prefs")
+        user_rows = cursor.fetchall()
+        user_map = {str(u[0]): (u[1], u[2]) for u in user_rows}
+    except sqlite3.OperationalError:
+        try:
+            cursor.execute("SELECT tg_id, username FROM user_prefs")
+            user_rows2 = cursor.fetchall()
+            user_map = {str(u[0]): (None, u[1]) for u in user_rows2}
+        except sqlite3.OperationalError:
+            user_map = {}
+    finally:
+        conn.close()
     
     text = "📉 *Недоставленные сообщения:*\n\n"
     if not rows:
@@ -3954,7 +4285,7 @@ async def admin_flash_errors(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def cleanup_flash_messages(context: ContextTypes.DEFAULT_TYPE):
     try:
         current_ts = int(time.time())
-        conn = sqlite3.connect(BOT_DB_PATH)
+        conn = sqlite3.connect(BOT_DB_PATH, timeout=10)
         cursor = conn.cursor()
         
         cursor.execute("SELECT id, chat_id, message_id FROM flash_messages WHERE delete_at <= ?", (current_ts,))
@@ -3965,22 +4296,27 @@ async def cleanup_flash_messages(context: ContextTypes.DEFAULT_TYPE):
             return
             
         deleted_count = 0
+        kept_count = 0
         for row in rows:
             db_id, chat_id, msg_id = row
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-            except Exception:
-                # Message might be already deleted or user blocked bot
-                pass
-            
-            # Remove from DB regardless of success (we tried)
-            cursor.execute("DELETE FROM flash_messages WHERE id=?", (db_id,))
-            deleted_count += 1
+                cursor.execute("DELETE FROM flash_messages WHERE id=?", (db_id,))
+                deleted_count += 1
+            except Exception as e:
+                if _flash_delete_is_permanent_error(e):
+                    cursor.execute("DELETE FROM flash_messages WHERE id=?", (db_id,))
+                    deleted_count += 1
+                else:
+                    kept_count += 1
             
         conn.commit()
         conn.close()
         if deleted_count > 0:
-            logging.info(f"Cleaned up {deleted_count} flash messages.")
+            if kept_count > 0:
+                logging.info(f"Cleaned up {deleted_count} flash messages (kept {kept_count} for retry).")
+            else:
+                logging.info(f"Cleaned up {deleted_count} flash messages.")
             
     except Exception as e:
         logging.error(f"Error in cleanup_flash_messages: {e}")
@@ -4007,8 +4343,17 @@ async def admin_sales_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         conn = sqlite3.connect(BOT_DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT tg_id, amount, date, plan_id FROM transactions WHERE tg_id != '369456269' ORDER BY date DESC LIMIT 20")
-        rows = cursor.fetchall()
+        try:
+            cursor.execute(
+                "SELECT tg_id, amount, date, plan_id, telegram_payment_charge_id "
+                "FROM transactions WHERE tg_id != '369456269' ORDER BY date DESC LIMIT 100"
+            )
+        except sqlite3.OperationalError:
+            cursor.execute(
+                "SELECT tg_id, amount, date, plan_id, NULL "
+                "FROM transactions WHERE tg_id != '369456269' ORDER BY date DESC LIMIT 100"
+            )
+        rows = _dedupe_sales_log_rows(cursor.fetchall())[:20]
         conn.close()
         
         if not rows:
@@ -4042,7 +4387,7 @@ async def admin_sales_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = t("sales_log_title", lang)
         
         for row in rows:
-            tg_id_tx, amount, date_ts, plan_id = row
+            tg_id_tx, amount, date_ts, plan_id, _charge_id = row
             date_str = datetime.datetime.fromtimestamp(date_ts, tz=TIMEZONE).strftime("%d.%m %H:%M")
             
             # Localize plan name
@@ -4145,6 +4490,312 @@ async def admin_delete_user_db(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await query.edit_message_text(f"✅ Пользователь `{tg_id}` удален из базы бота.", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 В админ панель", callback_data='admin_panel')]]))
 
+async def admin_cleanup_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = get_lang(str(query.from_user.id))
+
+    vpn_tg_ids: set[str] = set()
+    try:
+        conn_xui = sqlite3.connect(DB_PATH)
+        cursor_xui = conn_xui.cursor()
+        cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor_xui.fetchone()
+        conn_xui.close()
+        if row:
+            settings = json.loads(row[0])
+            for client in settings.get("clients", []):
+                client_tg_id = get_client_tg_id(client)
+                if client_tg_id is not None:
+                    vpn_tg_ids.add(client_tg_id)
+    except Exception:
+        vpn_tg_ids = set()
+
+    conn_bot = sqlite3.connect(BOT_DB_PATH)
+    cursor_bot = conn_bot.cursor()
+    cursor_bot.execute("SELECT DISTINCT tg_id FROM transactions")
+    tx_users = {str(r[0]) for r in cursor_bot.fetchall()}
+
+    try:
+        cursor_bot.execute(
+            """
+            SELECT tg_id
+            FROM user_prefs
+            WHERE (username IS NULL OR username = '')
+              AND (first_name IS NULL OR first_name = '')
+              AND (last_name IS NULL OR last_name = '')
+              AND (trial_used IS NULL OR trial_used = 0)
+              AND trial_activated_at IS NULL
+            """
+        )
+        candidates = [str(r[0]) for r in cursor_bot.fetchall()]
+    except Exception:
+        candidates = []
+
+    delete_ids = [tg for tg in candidates if tg not in vpn_tg_ids and tg not in tx_users]
+    if delete_ids:
+        cursor_bot.executemany("DELETE FROM user_prefs WHERE tg_id=?", [(tg,) for tg in delete_ids])
+        cursor_bot.executemany("DELETE FROM user_promos WHERE tg_id=?", [(tg,) for tg in delete_ids])
+        cursor_bot.executemany("DELETE FROM notifications WHERE tg_id=?", [(tg,) for tg in delete_ids])
+        cursor_bot.executemany("DELETE FROM referral_bonuses WHERE referrer_id=? OR referred_id=?", [(tg, tg) for tg in delete_ids])
+        conn_bot.commit()
+
+    conn_bot.close()
+
+    await query.edit_message_text(
+        t("cleanup_db_done", lang).format(deleted=len(delete_ids)),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_stats", lang), callback_data="admin_stats")]]),
+        parse_mode="Markdown",
+    )
+
+async def admin_db_audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = get_lang(str(query.from_user.id))
+
+    vpn_tg_ids: set[str] = set()
+    xui_no_tg_emails: list[str] = []
+    xui_clients_total = 0
+    try:
+        conn_xui = sqlite3.connect(DB_PATH)
+        cursor_xui = conn_xui.cursor()
+        cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor_xui.fetchone()
+        conn_xui.close()
+        if row and row[0]:
+            settings = json.loads(row[0])
+            clients = settings.get("clients", []) or []
+            xui_clients_total = len(clients)
+            for client in clients:
+                tid = get_client_tg_id(client)
+                if tid is not None:
+                    vpn_tg_ids.add(tid)
+                else:
+                    email = str(client.get("email", "") or "")
+                    if email:
+                        xui_no_tg_emails.append(email)
+    except Exception:
+        vpn_tg_ids = set()
+
+    conn_bot = sqlite3.connect(BOT_DB_PATH)
+    cursor_bot = conn_bot.cursor()
+    cursor_bot.execute("SELECT tg_id FROM user_prefs")
+    bot_users = {str(r[0]) for r in cursor_bot.fetchall() if r and r[0] is not None}
+
+    cursor_bot.execute("SELECT tg_id, amount FROM transactions")
+    tx_rows = [(str(r[0]), int(r[1] or 0)) for r in cursor_bot.fetchall() if r and r[0] is not None]
+    conn_bot.close()
+
+    bot_only = sorted(bot_users - vpn_tg_ids)
+    xui_only = sorted(vpn_tg_ids - bot_users)
+
+    tx_total = len(tx_rows)
+    tx_sum = sum(a for _, a in tx_rows)
+    tx_invalid_rows = [(tg, a) for tg, a in tx_rows if tg not in vpn_tg_ids]
+    tx_invalid = len(tx_invalid_rows)
+    tx_invalid_sum = sum(a for _, a in tx_invalid_rows)
+
+    bot_only_examples = ", ".join(bot_only[:20]) if bot_only else "—"
+    xui_no_tg_examples = ", ".join(xui_no_tg_emails[:10]) if xui_no_tg_emails else "—"
+
+    text = t("db_audit_text", lang).format(
+        xui_clients=xui_clients_total,
+        xui_tg=len(vpn_tg_ids),
+        xui_no_tg=len(xui_no_tg_emails),
+        bot_users=len(bot_users),
+        bot_only=len(bot_only),
+        xui_only=len(xui_only),
+        tx_total=tx_total,
+        tx_sum=tx_sum,
+        tx_invalid=tx_invalid,
+        tx_invalid_sum=tx_invalid_sum,
+        bot_only_examples=bot_only_examples,
+        xui_no_tg_examples=xui_no_tg_examples,
+    )
+
+    keyboard = [
+        [InlineKeyboardButton(t("btn_db_sync", lang), callback_data="admin_db_sync_confirm")],
+        [InlineKeyboardButton(t("btn_back_stats", lang), callback_data="admin_stats")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+def _db_sync_plan() -> tuple[int, int, int, int]:
+    vpn_tg_ids: set[str] = set()
+    try:
+        conn_xui = sqlite3.connect(DB_PATH)
+        cursor_xui = conn_xui.cursor()
+        cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor_xui.fetchone()
+        conn_xui.close()
+        if row and row[0]:
+            settings = json.loads(row[0])
+            for client in settings.get("clients", []) or []:
+                tid = get_client_tg_id(client)
+                if tid is not None:
+                    vpn_tg_ids.add(tid)
+    except Exception:
+        vpn_tg_ids = set()
+
+    protected_ids = set()
+    if ADMIN_ID:
+        protected_ids.add(str(ADMIN_ID))
+    protected_tx_ids = {"369456269"} | protected_ids
+
+    conn_bot = sqlite3.connect(BOT_DB_PATH)
+    cursor_bot = conn_bot.cursor()
+
+    cursor_bot.execute("SELECT tg_id FROM user_prefs")
+    bot_users = {str(r[0]) for r in cursor_bot.fetchall() if r and r[0] is not None}
+    delete_user_ids = [tg for tg in bot_users if tg not in vpn_tg_ids and tg not in protected_ids]
+    users_deleted = len(delete_user_ids)
+
+    cursor_bot.execute("SELECT id, tg_id, amount FROM transactions")
+    tx_rows = [(int(r[0]), str(r[1]), int(r[2] or 0)) for r in cursor_bot.fetchall() if r and r[0] is not None]
+    invalid_tx = [(tx_id, amount) for tx_id, tg, amount in tx_rows if tg not in vpn_tg_ids and tg not in protected_tx_ids]
+    tx_deleted = len(invalid_tx)
+    tx_deleted_sum = sum(amount for _, amount in invalid_tx)
+
+    def email_tid(email: str) -> Optional[str]:
+        if not email.startswith("tg_"):
+            return None
+        possible = email[3:].split("_", 1)[0]
+        return possible if possible.isdigit() else None
+
+    traffic_deleted = 0
+    cursor_bot.execute("SELECT email FROM traffic_history WHERE email LIKE 'tg_%'")
+    traffic_deleted += sum(
+        1
+        for (email,) in cursor_bot.fetchall()
+        if (tid := email_tid(str(email or ""))) is not None and tid not in vpn_tg_ids
+    )
+    cursor_bot.execute("SELECT email FROM traffic_daily_baselines WHERE email LIKE 'tg_%'")
+    traffic_deleted += sum(
+        1
+        for (email,) in cursor_bot.fetchall()
+        if (tid := email_tid(str(email or ""))) is not None and tid not in vpn_tg_ids
+    )
+
+    conn_bot.close()
+    return users_deleted, tx_deleted, tx_deleted_sum, traffic_deleted
+
+async def admin_db_sync_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = get_lang(str(query.from_user.id))
+
+    users_deleted, tx_deleted, tx_deleted_sum, traffic_deleted = _db_sync_plan()
+
+    text = t("db_sync_confirm_text", lang).format(
+        users_deleted=users_deleted,
+        tx_deleted=tx_deleted,
+        tx_deleted_sum=tx_deleted_sum,
+        traffic_deleted=traffic_deleted,
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton(t("btn_yes", lang), callback_data="admin_db_sync_all"),
+            InlineKeyboardButton(t("btn_no", lang), callback_data="admin_db_audit"),
+        ],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_db_sync_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = get_lang(str(query.from_user.id))
+
+    try:
+        await backup_db()
+    except Exception:
+        pass
+
+    vpn_tg_ids: set[str] = set()
+    try:
+        conn_xui = sqlite3.connect(DB_PATH)
+        cursor_xui = conn_xui.cursor()
+        cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor_xui.fetchone()
+        conn_xui.close()
+        if row and row[0]:
+            settings = json.loads(row[0])
+            for client in settings.get("clients", []) or []:
+                tid = get_client_tg_id(client)
+                if tid is not None:
+                    vpn_tg_ids.add(tid)
+    except Exception:
+        vpn_tg_ids = set()
+
+    protected_ids = set()
+    if ADMIN_ID:
+        protected_ids.add(str(ADMIN_ID))
+    protected_tx_ids = {"369456269"} | protected_ids
+
+    conn_bot = sqlite3.connect(BOT_DB_PATH)
+    cursor_bot = conn_bot.cursor()
+
+    cursor_bot.execute("SELECT id, tg_id, amount FROM transactions")
+    tx_rows = [(int(r[0]), str(r[1]), int(r[2] or 0)) for r in cursor_bot.fetchall() if r and r[0] is not None]
+    invalid_tx_ids = [tx_id for tx_id, tg, _ in tx_rows if tg not in vpn_tg_ids and tg not in protected_tx_ids]
+    tx_deleted_sum = sum(amount for tx_id, tg, amount in tx_rows if tg not in vpn_tg_ids and tg not in protected_tx_ids)
+    if invalid_tx_ids:
+        placeholders = ",".join(["?"] * len(invalid_tx_ids))
+        cursor_bot.execute(f"DELETE FROM transactions WHERE id IN ({placeholders})", tuple(invalid_tx_ids))
+        tx_deleted = int(cursor_bot.rowcount or 0)
+    else:
+        tx_deleted = 0
+
+    cursor_bot.execute("SELECT tg_id FROM user_prefs")
+    bot_users = {str(r[0]) for r in cursor_bot.fetchall() if r and r[0] is not None}
+    delete_user_ids = sorted([tg for tg in bot_users if tg not in vpn_tg_ids and tg not in protected_ids])
+    if delete_user_ids:
+        placeholders = ",".join(["?"] * len(delete_user_ids))
+        cursor_bot.execute(f"DELETE FROM user_prefs WHERE tg_id IN ({placeholders})", tuple(delete_user_ids))
+        users_deleted = int(cursor_bot.rowcount or 0)
+        cursor_bot.execute(f"DELETE FROM user_promos WHERE tg_id IN ({placeholders})", tuple(delete_user_ids))
+        cursor_bot.execute(f"DELETE FROM notifications WHERE tg_id IN ({placeholders})", tuple(delete_user_ids))
+        cursor_bot.execute(f"DELETE FROM poll_votes WHERE tg_id IN ({placeholders})", tuple(delete_user_ids))
+        cursor_bot.execute(
+            f"DELETE FROM referral_bonuses WHERE referrer_id IN ({placeholders}) OR referred_id IN ({placeholders})",
+            tuple(delete_user_ids) + tuple(delete_user_ids),
+        )
+    else:
+        users_deleted = 0
+
+    def email_tid(email: str) -> Optional[str]:
+        if not email.startswith("tg_"):
+            return None
+        possible = email[3:].split("_", 1)[0]
+        return possible if possible.isdigit() else None
+
+    traffic_deleted = 0
+    cursor_bot.execute("SELECT DISTINCT email FROM traffic_history WHERE email LIKE 'tg_%'")
+    delete_emails = []
+    for (email,) in cursor_bot.fetchall():
+        email_str = str(email or "")
+        tid = email_tid(email_str)
+        if tid is not None and tid not in vpn_tg_ids:
+            delete_emails.append(email_str)
+    if delete_emails:
+        placeholders = ",".join(["?"] * len(delete_emails))
+        cursor_bot.execute(f"DELETE FROM traffic_history WHERE email IN ({placeholders})", tuple(delete_emails))
+        traffic_deleted += int(cursor_bot.rowcount or 0)
+        cursor_bot.execute(f"DELETE FROM traffic_daily_baselines WHERE email IN ({placeholders})", tuple(delete_emails))
+        traffic_deleted += int(cursor_bot.rowcount or 0)
+
+    conn_bot.commit()
+    conn_bot.close()
+
+    await query.edit_message_text(
+        t("db_sync_done", lang).format(
+            users_deleted=users_deleted,
+            tx_deleted=tx_deleted,
+            tx_deleted_sum=tx_deleted_sum,
+            traffic_deleted=traffic_deleted,
+        ),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back_stats", lang), callback_data="admin_stats")]]),
+        parse_mode="Markdown",
+    )
+
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -4221,44 +4872,38 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data['broadcast_selected_ids'] = []
         context.user_data['broadcast_target'] = 'individual'
         
-        # Sync users from X-UI DB to Bot DB to ensure all active clients are available
+        users_by_id: dict[str, tuple[str, str, str]] = {}
+        try:
+            conn = sqlite3.connect(BOT_DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT tg_id, first_name, username FROM user_prefs")
+            for tg, first_name, username in cursor.fetchall():
+                tg_str = str(tg)
+                users_by_id[tg_str] = (tg_str, first_name or "", username or "")
+            conn.close()
+        except Exception:
+            users_by_id = {}
+
         try:
             conn_xui = sqlite3.connect(DB_PATH)
             cursor_xui = conn_xui.cursor()
             cursor_xui.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
             row = cursor_xui.fetchone()
             conn_xui.close()
-            
+
             if row:
                 settings = json.loads(row[0])
-                clients = settings.get('clients', [])
-                
-                conn_bot = sqlite3.connect(BOT_DB_PATH)
-                cursor_bot = conn_bot.cursor()
-                
+                clients = settings.get("clients", [])
                 for client in clients:
-                    tg_id_client = client.get('tgId')
-                    email = client.get('email', '')
-                    
-                    if tg_id_client:
-                        tg_id_str = str(tg_id_client)
-                        # Check if user exists
-                        cursor_bot.execute("SELECT tg_id FROM user_prefs WHERE tg_id=?", (tg_id_str,))
-                        if not cursor_bot.fetchone():
-                            # Add basic info if missing
-                            # Use email as first_name to identify user
-                            cursor_bot.execute("INSERT INTO user_prefs (tg_id, lang, first_name) VALUES (?, ?, ?)", (tg_id_str, 'ru', email))
-                
-                conn_bot.commit()
-                conn_bot.close()
-        except Exception as e:
-            logging.error(f"Error syncing users for broadcast: {e}")
-        
-        conn = sqlite3.connect(BOT_DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT tg_id, first_name, username FROM user_prefs")
-        users = cursor.fetchall()
-        conn.close()
+                    client_tg_id = get_client_tg_id(client)
+                    if client_tg_id is None:
+                        continue
+                    if client_tg_id not in users_by_id:
+                        users_by_id[client_tg_id] = (client_tg_id, "", "")
+        except Exception:
+            pass
+
+        users = list(users_by_id.values())
         
         keyboard = get_users_pagination_keyboard(users, [], 0, lang)
         await query.edit_message_text(
@@ -4443,7 +5088,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 conn.close()
                 
                 # Restart X-UI
-                subprocess.run(["systemctl", "restart", "x-ui"])
+                await _systemctl("restart", "x-ui")
                 
                 await update.message.reply_text(f"✅ *Успешно!*\nКлиент `{client_email}` перепривязан к Telegram ID `{target_tg_id}`.\n\n🔄 *Внимание:* Для корректного отображения статистики и работы подписки, бот автоматически обновил email клиента на `{client_email}`.\n\nX-UI перезапущен.", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
                 
@@ -4552,6 +5197,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # Clear previous flash errors
                 cursor.execute("DELETE FROM flash_delivery_errors")
+                conn.commit()
                 
                 users = []
                 # Sync X-UI
@@ -4786,7 +5432,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         conn.commit()
                         
                         # Restart X-UI
-                        subprocess.run(["systemctl", "restart", "x-ui"], check=False)
+                        await _systemctl("restart", "x-ui")
                         
                         await update.message.reply_text(t("limit_ip_success", lang).format(limit=new_limit if new_limit > 0 else "Unlimited"))
                     else:
@@ -5033,15 +5679,72 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         payment = update.message.successful_payment
         payload = payment.invoice_payload
         tg_id = str(update.message.from_user.id)
+        charge_id = _normalize_charge_id(getattr(payment, "telegram_payment_charge_id", None))
         
         # 1. Immediate DB Insert (Fail-safe)
+        inserted_tx_id: Optional[int] = None
         try:
             conn = sqlite3.connect(BOT_DB_PATH)
             cursor = conn.cursor()
             # Determine plan amount safely
             amount = payment.total_amount
-            cursor.execute("INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)", 
-                           (tg_id, amount, int(time.time()), payload))
+            now_ts = int(time.time())
+            msg_date = getattr(update.message, "date", None)
+            date_ts = int(msg_date.timestamp()) if isinstance(msg_date, datetime.datetime) else now_ts
+            if charge_id:
+                try:
+                    cursor.execute(
+                        "SELECT 1 FROM transactions WHERE telegram_payment_charge_id=? LIMIT 1",
+                        (charge_id,),
+                    )
+                    existing = cursor.fetchone()
+                    if existing:
+                        conn.close()
+                        log_action(f"INFO: Duplicate successful_payment ignored for {tg_id} (charge_id: {charge_id})")
+                        return
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO transactions (tg_id, amount, date, plan_id, telegram_payment_charge_id, processed_at) "
+                        "VALUES (?, ?, ?, ?, ?, NULL)",
+                        (tg_id, amount, date_ts, payload, charge_id),
+                    )
+                    inserted_tx_id = cursor.lastrowid if cursor.lastrowid else None
+                except sqlite3.OperationalError as e:
+                    if "no such column" in str(e):
+                        cursor.execute(
+                            "INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)",
+                            (tg_id, amount, date_ts, payload),
+                        )
+                        inserted_tx_id = cursor.lastrowid if cursor.lastrowid else None
+                        charge_id = None
+                    else:
+                        raise
+            else:
+                try:
+                    cursor.execute(
+                        "SELECT 1 FROM transactions "
+                        "WHERE tg_id=? AND amount=? AND plan_id=? AND date BETWEEN ? AND ? "
+                        "LIMIT 1",
+                        (tg_id, amount, payload, date_ts - 600, date_ts + 600),
+                    )
+                    if cursor.fetchone():
+                        conn.close()
+                        log_action(f"INFO: Duplicate successful_payment ignored for {tg_id} (no charge_id)")
+                        return
+                except sqlite3.OperationalError:
+                    pass
+
+                try:
+                    cursor.execute(
+                        "INSERT INTO transactions (tg_id, amount, date, plan_id, processed_at) "
+                        "VALUES (?, ?, ?, ?, NULL)",
+                        (tg_id, amount, date_ts, payload),
+                    )
+                except sqlite3.OperationalError:
+                    cursor.execute(
+                        "INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)",
+                        (tg_id, amount, date_ts, payload),
+                    )
+                inserted_tx_id = cursor.lastrowid if cursor.lastrowid else None
             conn.commit()
             conn.close()
             log_action(f"SUCCESS: Transaction recorded for {tg_id} (Amount: {amount})")
@@ -5080,10 +5783,72 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
             admin_lang = get_lang(ADMIN_ID)
             buyer_username = update.message.from_user.username or "NoUsername"
             plan_name = t(f"plan_{payload}", admin_lang)
-            admin_msg = f"💰 *Новая продажа!*\n\n👤 Пользователь: @{buyer_username} (`{tg_id}`)\n💳 Тариф: {plan_name}\n💸 Сумма: {plan['amount']} Stars"
+            now_ms = int(time.time() * 1000)
+            old_expiry_ms = _get_user_client_expiry_ms(tg_id)
+            ms_to_add = days_to_add * 24 * 60 * 60 * 1000
+
+            if admin_lang == "ru":
+                title = "💰 *Оплата подписки*"
+                type_new = "Новая подписка"
+                type_renew = "Продление"
+                type_reactivate = "Возобновление"
+                label_type = "🧾 Тип"
+                label_user = "👤 Пользователь"
+                label_plan = "💳 Тариф"
+                label_amount = "💸 Сумма"
+                label_added = "➕ Добавлено"
+                unit_days = "дн."
+                label_before = "⏳ Было"
+                label_after = "✅ Стало"
+                label_charge = "🧷 Charge"
+                fallback_expiry = "—"
+            else:
+                title = "💰 *Subscription payment*"
+                type_new = "New subscription"
+                type_renew = "Renewal"
+                type_reactivate = "Reactivation"
+                label_type = "🧾 Type"
+                label_user = "👤 User"
+                label_plan = "💳 Plan"
+                label_amount = "💸 Amount"
+                label_added = "➕ Added"
+                unit_days = "days"
+                label_before = "⏳ Before"
+                label_after = "✅ After"
+                label_charge = "🧷 Charge"
+                fallback_expiry = "—"
+
+            if old_expiry_ms is None:
+                sale_type = type_new
+                new_expiry_ms = now_ms + ms_to_add
+            elif old_expiry_ms == 0:
+                sale_type = type_renew
+                new_expiry_ms = 0
+            elif old_expiry_ms < now_ms:
+                sale_type = type_reactivate
+                new_expiry_ms = now_ms + ms_to_add
+            else:
+                sale_type = type_renew
+                new_expiry_ms = old_expiry_ms + ms_to_add
+
+            old_expiry_disp = fallback_expiry if old_expiry_ms is None else format_expiry_display(old_expiry_ms, admin_lang, now_ms=now_ms)
+            new_expiry_disp = format_expiry_display(new_expiry_ms, admin_lang, now_ms=now_ms)
+
+            admin_msg = (
+                f"{title}\n\n"
+                f"{label_type}: *{sale_type}*\n"
+                f"{label_user}: @{buyer_username} (`{tg_id}`)\n"
+                f"{label_plan}: {plan_name}\n"
+                f"{label_amount}: {payment.total_amount} Stars\n"
+                f"{label_added}: {days_to_add} {unit_days}\n"
+                f"{label_before}: {old_expiry_disp}\n"
+                f"{label_after}: {new_expiry_disp}"
+            )
+            if charge_id:
+                admin_msg += f"\n{label_charge}: `{charge_id}`"
             
             # Send via Support Bot first, then fallback to Main Bot
-            support_bot = context.bot_data.get('support_bot')
+            support_bot = context.bot_data.get('support_bot') if isinstance(context.bot_data, dict) else None
             sent = False
             if support_bot:
                 try:
@@ -5098,7 +5863,30 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             logging.error(f"Failed to notify admin: {e}")
 
-        await process_subscription(tg_id, days_to_add, update, context, lang)
+        processed_ok = await process_subscription(tg_id, days_to_add, update, context, lang)
+        if processed_ok and charge_id:
+            try:
+                conn = sqlite3.connect(BOT_DB_PATH)
+                conn.execute(
+                    "UPDATE transactions SET processed_at=? "
+                    "WHERE telegram_payment_charge_id=? AND processed_at IS NULL",
+                    (int(time.time()), charge_id),
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logging.error(f"Failed to mark transaction as processed (charge_id: {charge_id}): {e}")
+        if processed_ok and inserted_tx_id and not charge_id:
+            try:
+                conn = sqlite3.connect(BOT_DB_PATH)
+                conn.execute(
+                    "UPDATE transactions SET processed_at=? WHERE id=? AND processed_at IS NULL",
+                    (int(time.time()), inserted_tx_id),
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logging.error(f"Failed to mark transaction as processed (id: {inserted_tx_id}): {e}")
         
         # Check Referral Bonus (7 days for referrer)
         try:
@@ -5234,15 +6022,15 @@ async def add_days_to_user(tg_id, days_to_add, context):
         """, (INBOUND_ID, 1, f"tg_{tg_id}", new_expiry))
 
     # Stop X-UI to prevent overwrite
-    subprocess.run(["systemctl", "stop", "x-ui"])
+    await _systemctl("stop", "x-ui")
     
     cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(settings), INBOUND_ID))
     conn.commit()
     conn.close()
     
-    subprocess.run(["systemctl", "start", "x-ui"])
+    await _systemctl("start", "x-ui")
 
-async def process_subscription(tg_id, days_to_add, update, context, lang, is_callback=False):
+async def process_subscription(tg_id, days_to_add, update, context, lang, is_callback=False) -> bool:
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -5260,7 +6048,7 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
             else:
                 await update.message.reply_text("Error: Inbound not found.")
             conn.close()
-            return
+            return False
             
         settings = json.loads(row[0])
         clients = settings.get('clients', [])
@@ -5409,13 +6197,13 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                      logging.error(f"Error updating client_traffics for existing user: {e}")
 
         # Stop X-UI to prevent overwrite
-        subprocess.run(["systemctl", "stop", "x-ui"])
+        await _systemctl("stop", "x-ui")
 
         cursor.execute("UPDATE inbounds SET settings=? WHERE id=?", (json.dumps(settings), INBOUND_ID))
         conn.commit()
         conn.close()
         
-        subprocess.run(["systemctl", "start", "x-ui"])
+        await _systemctl("start", "x-ui")
         
         expiry_date = format_expiry_display(new_expiry, lang)
         
@@ -5439,6 +6227,7 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
         else:
              await update.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
         
+        return True
     except Exception as e:
         logging.error(f"Error processing subscription: {e}")
         if is_callback:
@@ -5450,6 +6239,7 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                       await context.bot.send_message(chat_id=tg_id, text=t("error_generic", lang))
         else:
              await update.message.reply_text(t("error_generic", lang))
+        return False
 
 async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -5809,56 +6599,53 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     sub_plan = t("plan_trial", lang)
 
         now = datetime.datetime.now(TIMEZONE)
-        
-        # 1. Day (Today usage)
-        # Usage = Current - (Value at start of day OR yesterday's end)
-        # We need the value from YESTERDAY to calculate Today's usage.
-        yesterday_str = (now - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        cursor_bot.execute("SELECT up, down FROM traffic_history WHERE email=? AND date=?", (email, yesterday_str))
-        yesterday_row = cursor_bot.fetchone()
-        
-        if yesterday_row:
-            day_up = max(0, current_up - yesterday_row[0])
-            day_down = max(0, current_down - yesterday_row[1])
-        else:
-            # If no yesterday record, assume today is first day or all current is today? 
-            # Or maybe we have a record for today that is updated hourly.
-            # But 'current' is live.
-            # If we don't have yesterday, maybe try to find max from previous days?
-            # For simplicity, if no history, show current as today (not accurate but fallback)
-            day_up = current_up
-            day_down = current_down
-            
-        # 2. Week (Last 7 days)
-        week_start = (now - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
-        cursor_bot.execute("SELECT up, down FROM traffic_history WHERE email=? AND date=?", (email, week_start))
-        week_row = cursor_bot.fetchone()
-        
-        if week_row:
-            week_up = max(0, current_up - week_row[0])
-            week_down = max(0, current_down - week_row[1])
-        else:
-            # Try to find oldest record within 7 days
-            cursor_bot.execute("SELECT up, down FROM traffic_history WHERE email=? AND date >= ? ORDER BY date ASC LIMIT 1", (email, week_start))
-            oldest_week_row = cursor_bot.fetchone()
-            if oldest_week_row:
-                week_up = max(0, current_up - oldest_week_row[0])
-                week_down = max(0, current_down - oldest_week_row[1])
-            else:
-                week_up = current_up
-                week_down = current_down
+        today_str = now.strftime("%Y-%m-%d")
 
-        # 3. Month (Last 30 days)
+        cursor_bot.execute(
+            """
+            INSERT OR IGNORE INTO traffic_daily_baselines (email, date, up, down, captured_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (email, today_str, current_up, current_down, int(time.time())),
+        )
+
+        cursor_bot.execute(
+            "SELECT up, down FROM traffic_daily_baselines WHERE email=? AND date=?",
+            (email, today_str),
+        )
+        day_row = cursor_bot.fetchone()
+        baseline_day_up = day_row[0] if day_row else current_up
+        baseline_day_down = day_row[1] if day_row else current_down
+        day_up = max(0, current_up - baseline_day_up)
+        day_down = max(0, current_down - baseline_day_down)
+
+        week_start = (now - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+        cursor_bot.execute(
+            "SELECT up, down FROM traffic_daily_baselines WHERE email=? AND date=?",
+            (email, week_start),
+        )
+        week_row = cursor_bot.fetchone()
+        if not week_row:
+            cursor_bot.execute(
+                "SELECT up, down FROM traffic_daily_baselines WHERE email=? AND date >= ? ORDER BY date ASC LIMIT 1",
+                (email, week_start),
+            )
+            week_row = cursor_bot.fetchone()
+        baseline_week_up = week_row[0] if week_row else current_up
+        baseline_week_down = week_row[1] if week_row else current_down
+        week_up = max(0, current_up - baseline_week_up)
+        week_down = max(0, current_down - baseline_week_down)
+
         month_start = (now - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-        cursor_bot.execute("SELECT up, down FROM traffic_history WHERE email=? AND date >= ? ORDER BY date ASC LIMIT 1", (email, month_start))
+        cursor_bot.execute(
+            "SELECT up, down FROM traffic_daily_baselines WHERE email=? AND date >= ? ORDER BY date ASC LIMIT 1",
+            (email, month_start),
+        )
         month_row = cursor_bot.fetchone()
-        
-        if month_row:
-            month_up = max(0, current_up - month_row[0])
-            month_down = max(0, current_down - month_row[1])
-        else:
-            month_up = current_up
-            month_down = current_down
+        baseline_month_up = month_row[0] if month_row else current_up
+        baseline_month_down = month_row[1] if month_row else current_down
+        month_up = max(0, current_up - baseline_month_up)
+        month_down = max(0, current_down - baseline_month_down)
             
         conn_bot.close()
         
@@ -6002,6 +6789,14 @@ async def log_traffic_stats(context: ContextTypes.DEFAULT_TYPE):
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(email, date) DO UPDATE SET up=excluded.up, down=excluded.down
             """, (email, today, up, down))
+
+            cursor_bot.execute(
+                """
+                INSERT OR IGNORE INTO traffic_daily_baselines (email, date, up, down, captured_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (email, today, up, down, int(time.time())),
+            )
             
         conn_bot.commit()
         conn_bot.close()
@@ -6345,7 +7140,7 @@ async def admin_delete_client_confirm(update: Update, context: ContextTypes.DEFA
     conn.close()
     
     # Restart X-UI
-    subprocess.run(["systemctl", "restart", "x-ui"])
+    await _systemctl("restart", "x-ui")
     
     await query.edit_message_text(
         "✅ Клиент успешно удален из X-UI.\nX-UI перезапущен.",
@@ -6757,6 +7552,10 @@ def register_handlers(application):
     application.add_handler(CommandHandler('admin', admin_panel))
     application.add_handler(CallbackQueryHandler(admin_panel, pattern='^admin_panel$'))
     application.add_handler(CallbackQueryHandler(admin_stats, pattern='^admin_stats$'))
+    application.add_handler(CallbackQueryHandler(admin_cleanup_db, pattern='^admin_cleanup_db$'))
+    application.add_handler(CallbackQueryHandler(admin_db_audit, pattern='^admin_db_audit$'))
+    application.add_handler(CallbackQueryHandler(admin_db_sync_confirm, pattern='^admin_db_sync_confirm$'))
+    application.add_handler(CallbackQueryHandler(admin_db_sync_all, pattern='^admin_db_sync_all$'))
     application.add_handler(CallbackQueryHandler(admin_sync_nicknames, pattern='^admin_sync_nicks$'))
     application.add_handler(CallbackQueryHandler(admin_server, pattern='^admin_server$'))
     application.add_handler(CallbackQueryHandler(admin_server_live, pattern='^admin_server_live$'))
@@ -6801,6 +7600,7 @@ def register_handlers(application):
     
     application.add_handler(CallbackQueryHandler(admin_flash_menu, pattern='^admin_flash_menu$'))
     application.add_handler(CallbackQueryHandler(admin_flash_select, pattern='^admin_flash_sel_'))
+    application.add_handler(CallbackQueryHandler(admin_flash_delete_all, pattern='^admin_flash_delete_all$'))
     application.add_handler(CallbackQueryHandler(admin_flash_errors, pattern='^admin_flash_errors$'))
     
     application.add_handler(CallbackQueryHandler(support_menu, pattern='^support_menu$'))
@@ -6902,19 +7702,6 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
 
         conn = sqlite3.connect(BOT_DB_PATH)
         cursor = conn.cursor()
-        
-        # 2. Get recent local transactions to compare
-        cursor.execute("SELECT tg_id, amount, date, plan_id FROM transactions ORDER BY id DESC LIMIT 50")
-        local_rows = cursor.fetchall()
-        
-        def is_tx_processed(tg_id, amount, date):
-            # Heuristic match: User + Amount + Date within 120s
-            for row in local_rows:
-                lid, lamt, ldate, _ = row
-                if str(lid) == str(tg_id) and int(lamt) == int(amount):
-                    if abs(ldate - date) < 120:
-                        return True
-            return False
 
         current_prices = get_prices()
         
@@ -6936,43 +7723,119 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
             
             amount = tx.amount
             date = int(tx.date.timestamp())
+            charge_id = _normalize_charge_id(getattr(tx, "id", None))
+            if not charge_id:
+                continue
             
             # Safety: Skip very recent transactions (< 60s) to avoid race with webhook
             if (time.time() - date) < 60:
                 continue
                 
-            if is_tx_processed(tg_id, amount, date):
+            cursor.execute(
+                "SELECT processed_at, plan_id FROM transactions WHERE telegram_payment_charge_id=? LIMIT 1",
+                (charge_id,),
+            )
+            existing_row = cursor.fetchone()
+            if existing_row and existing_row[0]:
                 continue
-                
-            # --- FOUND MISSING TRANSACTION ---
-            log_action(f"WARNING: Found MISSING payment: User {tg_id}, Amount {amount}, Date {date}. Recovering...")
+
+            if not existing_row:
+                reconcile_window_sec_raw = os.getenv("MISSED_TX_RECONCILE_WINDOW_SEC", "7200")
+                try:
+                    reconcile_window_sec = max(0, int(reconcile_window_sec_raw))
+                except ValueError:
+                    reconcile_window_sec = 7200
+
+                if reconcile_window_sec > 0:
+                    try:
+                        cursor.execute(
+                            "SELECT id, plan_id "
+                            "FROM transactions "
+                            "WHERE tg_id=? AND amount=? "
+                            "AND (telegram_payment_charge_id IS NULL OR telegram_payment_charge_id='') "
+                            "AND date BETWEEN ? AND ? "
+                            "ORDER BY ABS(date - ?) ASC "
+                            "LIMIT 1",
+                            (
+                                tg_id,
+                                amount,
+                                date - reconcile_window_sec,
+                                date + reconcile_window_sec,
+                                date,
+                            ),
+                        )
+                        candidate = cursor.fetchone()
+                        if candidate:
+                            candidate_id, candidate_plan_id = candidate
+                            cursor.execute(
+                                "UPDATE transactions SET telegram_payment_charge_id=? WHERE id=? "
+                                "AND (telegram_payment_charge_id IS NULL OR telegram_payment_charge_id='')",
+                                (charge_id, candidate_id),
+                            )
+                            if candidate_plan_id in (None, "", "unknown"):
+                                cursor.execute(
+                                    "UPDATE transactions SET plan_id=? WHERE id=? "
+                                    "AND (plan_id IS NULL OR plan_id='' OR plan_id='unknown')",
+                                    ("unknown", candidate_id),
+                                )
+                            conn.commit()
+                            cursor.execute(
+                                "SELECT processed_at, plan_id FROM transactions WHERE telegram_payment_charge_id=? LIMIT 1",
+                                (charge_id,),
+                            )
+                            existing_row = cursor.fetchone()
+                    except sqlite3.OperationalError:
+                        pass
+
+            should_extend = not existing_row
+
+            now_sec = time.time()
+            last_logged = _MISSED_TX_LOG_THROTTLE.get(str(charge_id))
+            if should_extend and (last_logged is None or (now_sec - last_logged) >= 300):
+                log_action(
+                    f"WARNING: Found MISSING/UNPROCESSED payment: "
+                    f"User {tg_id}, Amount {amount}, Date {date}, Charge {charge_id}. Recovering..."
+                )
+                _MISSED_TX_LOG_THROTTLE[str(charge_id)] = now_sec
             
-            # Identify Plan
-            plan_id = "unknown"
-            # Try to match amount to current prices
-            for pid, pdata in current_prices.items():
-                if pdata['amount'] == amount:
-                    plan_id = pid
-                    break
+            original_plan_id = existing_row[1] if existing_row else None
+            plan_id = original_plan_id if original_plan_id else "unknown"
+            if plan_id == "unknown":
+                for pid, pdata in current_prices.items():
+                    if pdata['amount'] == amount:
+                        plan_id = pid
+                        break
             
-            # Fallback heuristics if prices changed
             if plan_id == "unknown":
                 if amount >= 900: plan_id = "1_year"
                 elif amount >= 250: plan_id = "3_months"
                 elif amount >= 100: plan_id = "1_month"
                 elif amount >= 60: plan_id = "2_weeks"
                 elif amount >= 40: plan_id = "1_week"
+
+            if existing_row and (not original_plan_id or original_plan_id == "unknown") and plan_id != "unknown":
+                try:
+                    cursor.execute(
+                        "UPDATE transactions SET plan_id=? "
+                        "WHERE telegram_payment_charge_id=? AND (plan_id IS NULL OR plan_id='' OR plan_id='unknown')",
+                        (plan_id, charge_id),
+                    )
+                    conn.commit()
+                except Exception:
+                    pass
                 
-            # 1. Insert into DB immediately
-            try:
-                cursor.execute("INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)", 
-                               (tg_id, amount, date, plan_id))
-                conn.commit()
-            except Exception as e:
-                log_action(f"ERROR saving missing tx: {e}")
-                continue 
+            if not existing_row:
+                try:
+                    cursor.execute(
+                        "INSERT INTO transactions (tg_id, amount, date, plan_id, telegram_payment_charge_id, processed_at) "
+                        "VALUES (?, ?, ?, ?, ?, NULL)",
+                        (tg_id, amount, date, plan_id, charge_id),
+                    )
+                    conn.commit()
+                except Exception as e:
+                    log_action(f"ERROR saving missing tx: {e}")
+                    continue 
             
-            # 2. Update User Subscription (X-UI)
             days = 0
             if plan_id in current_prices:
                 days = current_prices[plan_id]['days']
@@ -6982,25 +7845,56 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
             elif plan_id == "2_weeks": days = 14
             elif plan_id == "1_week": days = 7
             
-            if days > 0:
-                await add_days_to_user(tg_id, days, context)
+            if days <= 0:
+                try:
+                    cursor.execute(
+                        "UPDATE transactions SET processed_at=? "
+                        "WHERE telegram_payment_charge_id=? AND processed_at IS NULL",
+                        (int(time.time()), charge_id),
+                    )
+                    conn.commit()
+                except Exception as e:
+                    log_action(f"ERROR marking unhandled tx as processed (charge_id: {charge_id}): {e}")
+                continue
+
+            if days > 0 and should_extend:
+                try:
+                    await add_days_to_user(tg_id, days, context)
+                    cursor.execute(
+                        "UPDATE transactions SET processed_at=? "
+                        "WHERE telegram_payment_charge_id=? AND processed_at IS NULL",
+                        (int(time.time()), charge_id),
+                    )
+                    conn.commit()
+                except Exception as e:
+                    log_action(f"ERROR applying recovered tx (charge_id: {charge_id}): {e}")
+                    continue
                 
-                # 3. Notify User
                 try:
                     lang = get_lang(tg_id)
-                    # "Payment Restored" message
                     msg_text = f"✅ *Payment Restored!*\n\nWe found a missing payment of {amount} Stars.\nYour subscription has been extended by {days} days."
                     if lang == 'ru':
                         msg_text = f"✅ *Платеж восстановлен!*\n\nМы обнаружили потерянный платеж на {amount} Stars.\nВаша подписка продлена на {days} дн."
                         
                     await context.bot.send_message(chat_id=tg_id, text=msg_text, parse_mode='Markdown')
-                except: pass
+                except:
+                    pass
                 
-                # 4. Notify Admin
                 try:
-                    admin_msg = f"⚠️ **RESTORED MISSING PAYMENT**\nUser: `{tg_id}`\nAmount: {amount}\nPlan: {plan_id}\nAdded: {days} days"
+                    admin_msg = f"⚠️ **RESTORED PAYMENT**\nUser: `{tg_id}`\nAmount: {amount}\nPlan: {plan_id}\nAdded: {days} days\nCharge: `{charge_id}`"
                     await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
-                except: pass
+                except:
+                    pass
+            if days > 0 and not should_extend:
+                try:
+                    cursor.execute(
+                        "UPDATE transactions SET processed_at=? "
+                        "WHERE telegram_payment_charge_id=? AND processed_at IS NULL",
+                        (int(time.time()), charge_id),
+                    )
+                    conn.commit()
+                except Exception as e:
+                    log_action(f"ERROR marking existing tx as processed (charge_id: {charge_id}): {e}")
                 
         conn.close()
 
@@ -7109,7 +8003,14 @@ async def main():
     init_db()
     
     # 1. Main Bot App
-    app_main = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    request = HTTPXRequest(
+        connect_timeout=10.0,
+        read_timeout=20.0,
+        write_timeout=20.0,
+        pool_timeout=5.0,
+        httpx_kwargs={"transport": httpx.AsyncHTTPTransport(local_address="0.0.0.0")},
+    )
+    app_main = ApplicationBuilder().token(TOKEN).request(request).post_init(post_init).build()
     register_handlers(app_main)
     
     # Job Queue for Main Bot
@@ -7137,7 +8038,7 @@ async def main():
     # 2. Support Bot App (Optional)
     if SUPPORT_BOT_TOKEN:
         try:
-            app_support = ApplicationBuilder().token(SUPPORT_BOT_TOKEN).build()
+            app_support = ApplicationBuilder().token(SUPPORT_BOT_TOKEN).request(request).build()
             
             # Register Handler for Support Bot
             app_support.add_handler(CommandHandler('start', admin_bot_start_handler))

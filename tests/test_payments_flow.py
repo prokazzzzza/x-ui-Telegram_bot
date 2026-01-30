@@ -30,9 +30,16 @@ def _prepare_bot_db(db_path: str) -> None:
             tg_id TEXT,
             amount INTEGER,
             date INTEGER,
-            plan_id TEXT
+            plan_id TEXT,
+            telegram_payment_charge_id TEXT,
+            processed_at INTEGER
         )
     """)
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_charge_id "
+        "ON transactions(telegram_payment_charge_id) "
+        "WHERE telegram_payment_charge_id IS NOT NULL"
+    )
     cursor.execute("INSERT INTO user_prefs (tg_id, lang) VALUES ('999', 'ru')")
     conn.commit()
     conn.close()
@@ -233,6 +240,278 @@ async def test_successful_payment_admin_notification_failure_does_not_block_subs
 
 
 @pytest.mark.asyncio
+async def test_successful_payment_is_idempotent_by_charge_id(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    _prepare_bot_db(str(db_path))
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+    monkeypatch.setattr(bot, "ADMIN_ID", "999")
+    monkeypatch.setattr(bot, "ADMIN_ID_INT", 999)
+
+    payload = "1_month"
+    monkeypatch.setattr(bot, "get_prices", lambda: {payload: {"amount": 100, "days": 30}})
+    bot.process_subscription = AsyncMock(return_value=True)
+
+    update = MagicMock()
+    update.message = MagicMock()
+    msg_mock = MagicMock()
+    msg_mock.edit_text = AsyncMock()
+    update.message.reply_text = AsyncMock(return_value=msg_mock)
+    update.message.from_user.id = 777
+    update.message.from_user.username = "user777"
+    update.message.successful_payment = MagicMock()
+    update.message.successful_payment.invoice_payload = payload
+    update.message.successful_payment.total_amount = 100
+    update.message.successful_payment.telegram_payment_charge_id = "charge-777"
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot_data = {}
+
+    await bot.successful_payment(update, context)
+    await bot.successful_payment(update, context)
+
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+    conn.close()
+    assert count == 1
+
+    assert bot.process_subscription.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_successful_payment_normalizes_int_charge_id(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    _prepare_bot_db(str(db_path))
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+    monkeypatch.setattr(bot, "ADMIN_ID", "999")
+    monkeypatch.setattr(bot, "ADMIN_ID_INT", 999)
+
+    payload = "1_month"
+    monkeypatch.setattr(bot, "get_prices", lambda: {payload: {"amount": 100, "days": 30}})
+    bot.process_subscription = AsyncMock(return_value=True)
+    monkeypatch.setattr(bot.asyncio, "sleep", AsyncMock())
+
+    update = MagicMock()
+    update.message = MagicMock()
+    msg_mock = MagicMock()
+    msg_mock.edit_text = AsyncMock()
+    update.message.reply_text = AsyncMock(return_value=msg_mock)
+    update.message.from_user.id = 779
+    update.message.from_user.username = "user779"
+    update.message.successful_payment = MagicMock()
+    update.message.successful_payment.invoice_payload = payload
+    update.message.successful_payment.total_amount = 100
+    update.message.successful_payment.telegram_payment_charge_id = 123456
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot_data = {}
+
+    await bot.successful_payment(update, context)
+    await bot.successful_payment(update, context)
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT COUNT(*), telegram_payment_charge_id FROM transactions"
+    ).fetchone()
+    conn.close()
+    assert row[0] == 1
+    assert row[1] == "123456"
+
+    assert bot.process_subscription.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_successful_payment_uses_message_date_for_transaction_date(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    _prepare_bot_db(str(db_path))
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+    monkeypatch.setattr(bot, "ADMIN_ID", "999")
+    monkeypatch.setattr(bot, "ADMIN_ID_INT", 999)
+
+    payload = "1_month"
+    monkeypatch.setattr(bot, "get_prices", lambda: {payload: {"amount": 100, "days": 30}})
+    bot.process_subscription = AsyncMock(return_value=True)
+    monkeypatch.setattr(bot.asyncio, "sleep", AsyncMock())
+
+    update = MagicMock()
+    update.message = MagicMock()
+    msg_mock = MagicMock()
+    msg_mock.edit_text = AsyncMock()
+    update.message.reply_text = AsyncMock(return_value=msg_mock)
+    update.message.from_user.id = 880
+    update.message.from_user.username = "user880"
+    update.message.date = datetime.datetime(2026, 1, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    update.message.successful_payment = MagicMock()
+    update.message.successful_payment.invoice_payload = payload
+    update.message.successful_payment.total_amount = 100
+    update.message.successful_payment.telegram_payment_charge_id = "charge-880"
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot_data = {}
+
+    await bot.successful_payment(update, context)
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT date FROM transactions WHERE telegram_payment_charge_id=?",
+        ("charge-880",),
+    ).fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == int(update.message.date.timestamp())
+
+
+@pytest.mark.asyncio
+async def test_successful_payment_is_idempotent_without_charge_id(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    _prepare_bot_db(str(db_path))
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+    monkeypatch.setattr(bot, "ADMIN_ID", "999")
+    monkeypatch.setattr(bot, "ADMIN_ID_INT", 999)
+
+    payload = "1_month"
+    monkeypatch.setattr(bot, "get_prices", lambda: {payload: {"amount": 100, "days": 30}})
+    bot.process_subscription = AsyncMock(return_value=True)
+    monkeypatch.setattr(bot.asyncio, "sleep", AsyncMock())
+
+    update = MagicMock()
+    update.message = MagicMock()
+    msg_mock = MagicMock()
+    msg_mock.edit_text = AsyncMock()
+    update.message.reply_text = AsyncMock(return_value=msg_mock)
+    update.message.from_user.id = 778
+    update.message.from_user.username = "user778"
+    update.message.successful_payment = MagicMock()
+    update.message.successful_payment.invoice_payload = payload
+    update.message.successful_payment.total_amount = 100
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot_data = {}
+
+    await bot.successful_payment(update, context)
+    await bot.successful_payment(update, context)
+
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+    conn.close()
+    assert count == 1
+
+    assert bot.process_subscription.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_check_missed_transactions_reconciles_existing_row_without_charge_id(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    _prepare_bot_db(str(db_path))
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+    monkeypatch.setattr(bot, "ADMIN_ID", "999")
+    monkeypatch.setattr(bot, "ADMIN_ID_INT", 999)
+
+    payload = "1_month"
+    monkeypatch.setattr(bot, "get_prices", lambda: {payload: {"amount": 100, "days": 30}})
+    monkeypatch.setattr(bot, "add_days_to_user", AsyncMock(return_value=True))
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    tx_dt = now - datetime.timedelta(minutes=5)
+    tx_date = int(tx_dt.timestamp())
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO transactions (tg_id, amount, date, plan_id, telegram_payment_charge_id, processed_at) "
+        "VALUES (?, ?, ?, ?, NULL, NULL)",
+        ("111", 100, tx_date, payload),
+    )
+    conn.commit()
+    conn.close()
+
+    tx = MagicMock()
+    tx.amount = 100
+    tx.date = tx_dt
+    tx.id = 55555
+    tx.source = MagicMock()
+    tx.source.user = MagicMock()
+    tx.source.user.id = 111
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot_data = {}
+    context.bot.get_star_transactions = AsyncMock(return_value=MagicMock(transactions=[tx]))
+
+    await bot.check_missed_transactions(context)
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT tg_id, amount, telegram_payment_charge_id, processed_at FROM transactions"
+    ).fetchall()
+    conn.close()
+
+    assert len(rows) == 1
+    assert rows[0][0] == "111"
+    assert rows[0][1] == 100
+    assert rows[0][2] == "55555"
+    assert rows[0][3] is not None
+
+
+@pytest.mark.asyncio
+async def test_check_missed_transactions_does_not_double_process_existing_charge(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    _prepare_bot_db(str(db_path))
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+    monkeypatch.setattr(bot, "ADMIN_ID", "999")
+    monkeypatch.setattr(bot, "ADMIN_ID_INT", 999)
+
+    payload = "1_month"
+    monkeypatch.setattr(bot, "get_prices", lambda: {payload: {"amount": 100, "days": 30}})
+    add_days_mock = AsyncMock()
+    monkeypatch.setattr(bot, "add_days_to_user", add_days_mock)
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    tx_dt = now - datetime.timedelta(minutes=5)
+    tx_date = int(tx_dt.timestamp())
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO transactions (tg_id, amount, date, plan_id, telegram_payment_charge_id, processed_at) "
+        "VALUES (?, ?, ?, ?, ?, NULL)",
+        ("111", 100, tx_date, payload, "charge-111"),
+    )
+    conn.commit()
+    conn.close()
+
+    tx = MagicMock()
+    tx.amount = 100
+    tx.date = tx_dt
+    tx.id = "charge-111"
+    tx.source = MagicMock()
+    tx.source.user = MagicMock()
+    tx.source.user.id = 111
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot_data = {}
+    context.bot.get_star_transactions = AsyncMock(return_value=MagicMock(transactions=[tx]))
+
+    await bot.check_missed_transactions(context)
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT tg_id, amount, telegram_payment_charge_id, processed_at FROM transactions"
+    ).fetchall()
+    conn.close()
+
+    assert len(rows) == 1
+    assert rows[0][0] == "111"
+    assert rows[0][1] == 100
+    assert rows[0][2] == "charge-111"
+    assert rows[0][3] is not None
+    assert add_days_mock.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_add_days_to_user_updates_client_traffics_expiry(tmp_path, monkeypatch):
     xui_db_path = tmp_path / "xui.db"
     conn = sqlite3.connect(xui_db_path)
@@ -284,7 +563,6 @@ async def test_add_days_to_user_updates_client_traffics_expiry(tmp_path, monkeyp
 
     monkeypatch.setattr(bot, "DB_PATH", str(xui_db_path))
     monkeypatch.setattr(bot, "INBOUND_ID", 1)
-    monkeypatch.setattr(bot.subprocess, "run", lambda *args, **kwargs: None)
 
     await bot.add_days_to_user("1948009078", 30, MagicMock())
 

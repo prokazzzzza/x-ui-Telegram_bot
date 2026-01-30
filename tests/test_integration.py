@@ -48,3 +48,4 @@ def test_handler_registration():
     assert has_handler_with_pattern('admin_ip_history'), "admin_ip_history handler not registered! Button will not work."
     assert has_handler_with_pattern('admin_revoke_code_menu'), "admin_revoke_code_menu handler not registered"
     assert has_handler_with_pattern('admin_revoke_user_menu'), "admin_revoke_user_menu handler not registered"
+    assert has_handler_with_pattern('admin_flash_delete_all'), "admin_flash_delete_all handler not registered! Button will not work."

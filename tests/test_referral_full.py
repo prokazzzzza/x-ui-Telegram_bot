@@ -85,6 +85,12 @@ class TestReferralSystem(unittest.TestCase):
     async def async_test_successful_payment(self):
         # Setup: Referrer 2001, User 1001
         bot.set_referrer("1001", "2001")
+
+        conn = sqlite3.connect(TEST_BOT_DB)
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO user_prefs (tg_id) VALUES (?)", ("2001",))
+        conn.commit()
+        conn.close()
         
         # Mock Update and Context
         update = MagicMock()
@@ -119,23 +125,6 @@ class TestReferralSystem(unittest.TestCase):
         
         # 2. Referral Bonus (Balance)
         # 10% of 100 = 10
-        cursor.execute("SELECT balance FROM user_prefs WHERE tg_id=?", ("2001",))
-        row = cursor.fetchone()
-        # Referrer might not exist in user_prefs if not set up, but set_referrer creates user entry?
-        # No, set_referrer only creates the referred user ("1001"). 
-        # Referrer ("2001") entry is created/updated in successful_payment logic?
-        # Let's check logic: UPDATE user_prefs SET balance ...
-        # If user 2001 doesn't exist, UPDATE does nothing.
-        # We need to ensure referrer exists.
-        
-        # Fix: Create referrer first
-        cursor.execute("INSERT OR IGNORE INTO user_prefs (tg_id) VALUES (?)", ("2001",))
-        conn.commit()
-        
-        # Re-run payment logic simulation (resetting tx?)
-        # Or just run it again.
-        await bot.successful_payment(update, context)
-        
         cursor.execute("SELECT balance FROM user_prefs WHERE tg_id=?", ("2001",))
         row = cursor.fetchone()
         self.assertIsNotNone(row)
