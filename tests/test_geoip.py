@@ -19,7 +19,7 @@ class TestGeoIP(unittest.TestCase):
         # None -> 🏳️
         self.assertEqual(bot.get_flag_emoji(None), '🏳️')
         # Invalid -> 🏳️ (or garbage, but function handles exceptions if any)
-        
+
     @patch('requests.get')
     def test_geoip_api(self, mock_get):
         # We can't easily test the async watch_access_log loop here without complex async setup.

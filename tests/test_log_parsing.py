@@ -19,21 +19,21 @@ def test_log_regex_matching():
     # 2. 'from' keyword
     # 3. 'tcp:' prefix in IP (sometimes present, e.g. tcp:109.184.31.166)
     # 4. Extra content between 'accepted' and 'email:'
-    
+
     # Let's try to define a robust regex
     # Timestamp: ^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?
     # IP: from (?:tcp:|udp:)?(\d{1,3}(?:\.\d{1,3}){3}):\d+
     # Email: email:\s*(\S+)
-    
+
     pattern = re.compile(r'^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? from (?:tcp:|udp:)?(\d{1,3}(?:\.\d{1,3}){3}):\d+ accepted .*?email:\s*(\S+)')
 
     for line in log_lines:
         match = pattern.search(line)
         assert match is not None, f"Failed to match line: {line}"
-        
+
         ip = match.group(1)
         email = match.group(2)
-        
+
         # Verify extraction
         if "31.29.179.60" in line:
             assert ip == "31.29.179.60"

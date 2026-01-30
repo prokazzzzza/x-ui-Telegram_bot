@@ -23,7 +23,7 @@ def test_handler_registration():
 
     app_mock = MagicMock()
     bot.register_handlers(app_mock)
-    
+
     # Helper to check if a handler with specific pattern was registered
     def has_handler_with_pattern(pattern_str):
         # app_mock.add_handler is called multiple times.
@@ -43,7 +43,7 @@ def test_handler_registration():
     # Check for existing handlers
     assert has_handler_with_pattern('admin_panel'), "admin_panel handler not registered"
     assert has_handler_with_pattern('admin_edit_limit_ip'), "admin_edit_limit_ip handler not registered"
-    
+
     # Check for NEW functionality
     assert has_handler_with_pattern('admin_ip_history'), "admin_ip_history handler not registered! Button will not work."
     assert has_handler_with_pattern('admin_revoke_code_menu'), "admin_revoke_code_menu handler not registered"

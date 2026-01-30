@@ -85,3 +85,21 @@ async def test_admin_flash_errors_works_without_user_name_columns(tmp_path, monk
     else:
         rendered = str(query.edit_message_text.call_args.args[0])
     assert "Недоставленные" in rendered
+
+
+def test_get_backup_sets_groups_by_timestamp(tmp_path):
+    import bot
+
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+
+    (backup_dir / "bot_data_2026-01-30_10-11-12.db").write_bytes(b"bot-db")
+    (backup_dir / "x-ui_2026-01-30_10-11-12.db").write_bytes(b"xui-db")
+    (backup_dir / "bot_data_BAD.db").write_bytes(b"bad")
+    (backup_dir / "random.txt").write_text("ignore")
+
+    sets = bot._get_backup_sets(str(backup_dir))
+    assert len(sets) == 1
+    assert sets[0]["ts"] == "2026-01-30_10-11-12"
+    assert sets[0]["bot_path"] is not None
+    assert sets[0]["xui_path"] is not None

@@ -20,29 +20,29 @@ def test_post_init_logic():
     async def run_test():
         # Mock the Application object
         app_mock = MagicMock()
-        
+
         # Mock bot methods which are awaited
         app_mock.bot.set_my_commands.return_value = asyncio.Future()
         app_mock.bot.set_my_commands.return_value.set_result(True)
-        
+
         app_mock.bot.set_my_description.return_value = asyncio.Future()
         app_mock.bot.set_my_description.return_value.set_result(True)
-        
+
         app_mock.bot.set_my_short_description.return_value = asyncio.Future()
         app_mock.bot.set_my_short_description.return_value.set_result(True)
-        
+
         # Mock asyncio.create_task to verify it's called
         with patch('asyncio.create_task') as mock_create_task:
             def _consume_coroutine(coro):
                 coro.close()
                 return MagicMock()
-            
+
             mock_create_task.side_effect = _consume_coroutine
             await bot.post_init(app_mock)
-            
+
             # Verify that watch_access_log task was scheduled
             assert mock_create_task.called
-            
+
     asyncio.run(run_test())
 
 def test_critical_handlers_exist():
@@ -56,7 +56,7 @@ def test_critical_handlers_exist():
         'admin_ip_history',
         'watch_access_log'
     ]
-    
+
     for h in handlers:
         assert hasattr(bot, h), f"Handler {h} is missing from bot module"
 

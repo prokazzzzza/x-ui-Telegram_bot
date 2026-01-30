@@ -10,7 +10,7 @@ def test_handler_functions_exist():
     This ensures we don't accidentally rename or delete them without updating registration.
     """
     import bot
-    
+
     handlers = [
         'start',
         'admin_panel',
@@ -21,7 +21,7 @@ def test_handler_functions_exist():
         'handle_poll_vote',
         'admin_ip_history'
     ]
-    
+
     for handler_name in handlers:
         assert hasattr(bot, handler_name), f"Handler function {handler_name} not found in bot module"
         assert inspect.iscoroutinefunction(getattr(bot, handler_name)), f"{handler_name} should be an async function"

@@ -102,4 +102,3 @@ async def test_admin_suspicious_users_hides_old_events(tmp_path, monkeypatch):
     sent_text = query.edit_message_text.await_args.args[0]
     assert "tg_new" in sent_text
     assert "tg_old" not in sent_text
-
