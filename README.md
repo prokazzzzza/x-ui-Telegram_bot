@@ -65,6 +65,14 @@ Production Telegram-бот для продажи подписок и админ�
 
 На Ubuntu 22.04 под root:
 
+Quick Start (одной командой, как у 3x-ui):
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/prokazzzzza/x-ui-Telegram_bot/main/install.sh)
+```
+
+Локально из репозитория:
+
 ```bash
 cd /usr/local/x-ui
 sudo bash bot/install_bot.sh
