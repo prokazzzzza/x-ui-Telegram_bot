@@ -35,6 +35,23 @@ def test_prices_structure():
     assert "amount" in bot.PRICES["1_month"]
     assert "days" in bot.PRICES["1_month"]
 
+def test_resolve_plan_label_normalizes_common_variants(monkeypatch):
+    import bot
+
+    monkeypatch.setattr(bot, "get_prices", lambda: {})
+
+    assert bot._resolve_plan_label("1_months", "ru") == "1 Месяц"
+    assert bot._resolve_plan_label("plan_1_month", "ru") == "1 Месяц"
+    assert bot._resolve_plan_label("3_month", "ru") == "3 Месяца"
+
+
+def test_resolve_plan_label_unknown_returns_not_set(monkeypatch):
+    import bot
+
+    monkeypatch.setattr(bot, "get_prices", lambda: {})
+
+    assert bot._resolve_plan_label("something_weird", "ru") == "Не указан"
+
 
 @pytest.mark.asyncio
 async def test_admin_flash_errors_works_without_user_name_columns(tmp_path, monkeypatch):

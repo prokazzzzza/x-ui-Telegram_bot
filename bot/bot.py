@@ -16,7 +16,7 @@ import re
 import platform
 import zipfile
 from collections import deque
-from typing import Optional, Any, Dict, Iterable, Protocol, TypeAlias, TypedDict
+from typing import Optional, Any, Dict, Iterable, Mapping, Protocol, TypeAlias, TypedDict
 from io import BytesIO
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
@@ -599,7 +599,7 @@ TEXTS = {
         "btn_db_sync": "🧹 Sync & Clean",
         "btn_sync_nicks": "🔄 Sync Nicknames",
         "db_audit_text": "🔎 *DB Audit*\n\nX-UI clients: {xui_clients}\nX-UI clients with TG ID: {xui_tg}\nX-UI clients without TG ID: {xui_no_tg}\n\nBot users (user_prefs): {bot_users}\nBot users not in X-UI: {bot_only}\nX-UI TG IDs missing in bot: {xui_only}\n\nTransactions total: {tx_total} ({tx_sum} ⭐️)\nTransactions not in X-UI: {tx_invalid} ({tx_invalid_sum} ⭐️)\n\nExamples:\nBot-only TG IDs: {bot_only_examples}\nX-UI clients without TG ID: {xui_no_tg_examples}\n\nChoose action below.",
-        "db_sync_confirm_text": "⚠️ *Confirm DB Sync & Cleanup*\n\nThis will:\n- delete bot users not present in X-UI\n- delete transactions not belonging to X-UI users\n- delete traffic rows for tg_* emails not present in X-UI\n\nPlanned changes:\nUsers to delete: {users_deleted}\nTransactions to delete: {tx_deleted} ({tx_deleted_sum} ⭐️)\nTraffic rows to delete: {traffic_deleted}\n\nA backup will be created automatically.",
+        "db_sync_confirm_text": "⚠️ *Confirm DB Sync & Cleanup*\n\nThis will:\n- delete bot users not present in X-UI\n- delete transactions not belonging to X-UI users\n- delete traffic rows for `tg_*` emails not present in X-UI\n\nPlanned changes:\nUsers to delete: {users_deleted}\nTransactions to delete: {tx_deleted} ({tx_deleted_sum} ⭐️)\nTraffic rows to delete: {traffic_deleted}\n\nA backup will be created automatically.",
         "db_sync_done": "✅ Done.\n\nDeleted users: {users_deleted}\nDeleted transactions: {tx_deleted} ({tx_deleted_sum} ⭐️)\nDeleted traffic rows: {traffic_deleted}",
         "sync_start": "Syncing...",
         "sync_error_inbound": "❌ X-UI Inbound not found.",
@@ -828,7 +828,7 @@ TEXTS = {
         "plan_trial": "Пробный (3 дня)",
         "plan_manual": "Ручная",
         "plan_unlimited": "Бессрочный",
-        "sub_type_unknown": "Неизвестно",
+        "sub_type_unknown": "Не указан",
         "stats_sub_type": "💳 Тариф: {plan}",
         "remaining_days": "⏳ Осталось: {days} дн.",
         "remaining_hours": "⏳ Осталось: {hours} ч.",
@@ -920,7 +920,7 @@ TEXTS = {
         "btn_db_sync": "🧹 Согласовать и очистить",
         "btn_sync_nicks": "🔄 Обновить ники",
         "db_audit_text": "🔎 *Аудит БД*\n\nКлиенты X-UI: {xui_clients}\nКлиенты X-UI с TG ID: {xui_tg}\nКлиенты X-UI без TG ID: {xui_no_tg}\n\nПользователи бота (user_prefs): {bot_users}\nПользователи бота вне X-UI: {bot_only}\nTG IDs из X-UI отсутствуют в боте: {xui_only}\n\nТранзакции всего: {tx_total} ({tx_sum} ⭐️)\nТранзакции вне X-UI: {tx_invalid} ({tx_invalid_sum} ⭐️)\n\nПримеры:\nBot-only TG IDs: {bot_only_examples}\nX-UI клиенты без TG ID: {xui_no_tg_examples}\n\nВыберите действие ниже.",
-        "db_sync_confirm_text": "⚠️ *Подтвердите согласование и очистку БД*\n\nБудет выполнено:\n- удаление пользователей бота, отсутствующих в X-UI\n- удаление транзакций, не принадлежащих пользователям X-UI\n- удаление traffic-строк по email tg_*, которых нет в X-UI\n\nПлан изменений:\nУдалить пользователей: {users_deleted}\nУдалить транзакции: {tx_deleted} ({tx_deleted_sum} ⭐️)\nУдалить traffic-строк: {traffic_deleted}\n\nПеред очисткой автоматически будет создан бэкап.",
+        "db_sync_confirm_text": "⚠️ *Подтвердите согласование и очистку БД*\n\nБудет выполнено:\n- удаление пользователей бота, отсутствующих в X-UI\n- удаление транзакций, не принадлежащих пользователям X-UI\n- удаление traffic-строк по email `tg_*`, которых нет в X-UI\n\nПлан изменений:\nУдалить пользователей: {users_deleted}\nУдалить транзакции: {tx_deleted} ({tx_deleted_sum} ⭐️)\nУдалить traffic-строк: {traffic_deleted}\n\nПеред очисткой автоматически будет создан бэкап.",
         "db_sync_done": "✅ Готово.\n\nУдалено пользователей: {users_deleted}\nУдалено транзакций: {tx_deleted} ({tx_deleted_sum} ⭐️)\nУдалено traffic-строк: {traffic_deleted}",
         "sync_start": "Синхронизация...",
         "sync_error_inbound": "❌ X-UI Inbound not found.",
@@ -1568,7 +1568,18 @@ def get_prices():
 
     prices_dict = {}
     for r in rows:
-        prices_dict[r[0]] = {"amount": r[1], "days": r[2]}
+        key = str(r[0])
+        amount_raw = r[1]
+        days_raw = r[2]
+        try:
+            amount = int(amount_raw) if amount_raw is not None else None
+        except Exception:
+            amount = amount_raw
+        try:
+            days = int(days_raw) if days_raw is not None else None
+        except Exception:
+            days = days_raw
+        prices_dict[key] = {"amount": amount, "days": days}
     return prices_dict
 
 def update_price(key, amount):
@@ -1816,6 +1827,116 @@ def get_user_rank_subscription(target_email):
 
 def t(key, lang="en"):
     return TEXTS.get(lang, TEXTS["en"]).get(key, key)
+
+def _safe_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _infer_plan_id_from_amount(
+    amount: Any,
+    prices: Mapping[str, Mapping[str, Any]],
+) -> Optional[str]:
+    amount_int = _safe_int(amount)
+    if amount_int is None:
+        return None
+
+    matches: list[str] = []
+    for plan_id, pdata in prices.items():
+        price_amount = _safe_int(pdata.get("amount"))
+        if price_amount is None:
+            continue
+        if price_amount == amount_int:
+            matches.append(plan_id)
+
+    if len(matches) == 1:
+        return matches[0]
+
+    legacy_by_amount: dict[int, str] = {
+        1: "1_month",
+        3: "3_months",
+        5: "1_year",
+        450: "6_months",
+    }
+    return legacy_by_amount.get(amount_int)
+
+
+def backfill_unknown_transaction_plan_ids() -> int:
+    try:
+        prices = get_prices()
+    except Exception:
+        prices = {}
+
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT id, amount FROM transactions "
+            "WHERE plan_id IS NULL OR plan_id='' OR plan_id='unknown'"
+        )
+        rows = cursor.fetchall()
+    except sqlite3.OperationalError:
+        conn.close()
+        return 0
+
+    updated = 0
+    for tx_id, amount in rows:
+        inferred = _infer_plan_id_from_amount(amount, prices)
+        if not inferred:
+            continue
+        cursor.execute(
+            "UPDATE transactions SET plan_id=? "
+            "WHERE id=? AND (plan_id IS NULL OR plan_id='' OR plan_id='unknown')",
+            (inferred, tx_id),
+        )
+        if cursor.rowcount:
+            updated += int(cursor.rowcount)
+
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def _normalize_plan_id(plan_id: str) -> str:
+    value = (plan_id or "").strip().lower()
+    if value.startswith("plan_"):
+        value = value[5:]
+    value = value.replace("-", "_").replace(" ", "_")
+    aliases = {
+        "1_months": "1_month",
+        "3_month": "3_months",
+        "6_month": "6_months",
+        "12_month": "1_year",
+        "12_months": "1_year",
+        "1_years": "1_year",
+        "7_days": "1_week",
+        "14_days": "2_weeks",
+        "2_week": "2_weeks",
+        "30_days": "1_month",
+    }
+    return aliases.get(value, value)
+
+
+def _resolve_plan_label(plan_id: Optional[str], lang: str) -> str:
+    if not plan_id:
+        return t("plan_manual", lang)
+    normalized = _normalize_plan_id(str(plan_id))
+    translated = t(f"plan_{normalized}", lang)
+    if translated != f"plan_{normalized}":
+        return translated
+    try:
+        prices = get_prices()
+    except Exception:
+        prices = {}
+    if normalized in prices:
+        days = prices[normalized].get("days")
+        if isinstance(days, int) and days > 0:
+            return f"{days} дн." if lang == "ru" else f"{days} d"
+    return t("sub_type_unknown", lang)
 
 def format_expiry_display(expiry_ms: int, lang: str, now_ms: Optional[int] = None, unlimited_key: str = "expiry_unlimited") -> str:
     if expiry_ms == 0:
@@ -5842,8 +5963,10 @@ async def admin_db_audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tx_invalid = len(tx_invalid_rows)
     tx_invalid_sum = sum(a for _, a in tx_invalid_rows)
 
-    bot_only_examples = ", ".join(bot_only[:20]) if bot_only else "—"
-    xui_no_tg_examples = ", ".join(xui_no_tg_emails[:10]) if xui_no_tg_emails else "—"
+    bot_only_examples_raw = ", ".join(bot_only[:20]) if bot_only else "—"
+    xui_no_tg_examples_raw = ", ".join(xui_no_tg_emails[:10]) if xui_no_tg_emails else "—"
+    bot_only_examples = _escape_markdown(bot_only_examples_raw)
+    xui_no_tg_examples = _escape_markdown(xui_no_tg_examples_raw)
 
     text = t("db_audit_text", lang).format(
         xui_clients=xui_clients_total,
@@ -7934,12 +8057,36 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if expiry_time == 0:
             sub_plan = t("plan_unlimited", lang)
         else:
-            cursor_bot.execute("SELECT plan_id FROM transactions WHERE tg_id=? ORDER BY date DESC LIMIT 1", (tg_id,))
+            cursor_bot.execute(
+                "SELECT id, plan_id, amount FROM transactions WHERE tg_id=? "
+                "ORDER BY date DESC LIMIT 1",
+                (tg_id,),
+            )
             last_tx = cursor_bot.fetchone()
             if last_tx:
-                p_id = last_tx[0]
-                translated = t(f"plan_{p_id}", lang)
-                sub_plan = translated if translated != f"plan_{p_id}" else t("sub_type_unknown", lang)
+                last_tx_id, last_plan_id, last_amount = last_tx
+                normalized_last_plan = _normalize_plan_id(str(last_plan_id)) if last_plan_id else ""
+                if not normalized_last_plan or normalized_last_plan == "unknown":
+                    try:
+                        prices = get_prices()
+                    except Exception:
+                        prices = {}
+                    inferred = _infer_plan_id_from_amount(last_amount, prices)
+                    if inferred:
+                        sub_plan = _resolve_plan_label(inferred, lang)
+                        try:
+                            cursor_bot.execute(
+                                "UPDATE transactions SET plan_id=? "
+                                "WHERE id=? AND (plan_id IS NULL OR plan_id='' OR plan_id='unknown')",
+                                (inferred, last_tx_id),
+                            )
+                            conn_bot.commit()
+                        except Exception:
+                            pass
+                    else:
+                        sub_plan = t("sub_type_unknown", lang)
+                else:
+                    sub_plan = _resolve_plan_label(str(last_plan_id), lang)
             else:
                 cursor_bot.execute("SELECT trial_used FROM user_prefs WHERE tg_id=?", (tg_id,))
                 pref = cursor_bot.fetchone()
@@ -9630,12 +9777,6 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
                                 "AND (telegram_payment_charge_id IS NULL OR telegram_payment_charge_id='')",
                                 (charge_id, candidate_id),
                             )
-                            if candidate_plan_id in (None, "", "unknown"):
-                                cursor.execute(
-                                    "UPDATE transactions SET plan_id=? WHERE id=? "
-                                    "AND (plan_id IS NULL OR plan_id='' OR plan_id='unknown')",
-                                    ("unknown", candidate_id),
-                                )
                             conn.commit()
                             cursor.execute(
                                 "SELECT processed_at, plan_id FROM transactions WHERE telegram_payment_charge_id=? LIMIT 1",
@@ -9659,10 +9800,9 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
             original_plan_id = existing_row[1] if existing_row else None
             plan_id = original_plan_id if original_plan_id else "unknown"
             if plan_id == "unknown":
-                for pid, pdata in current_prices.items():
-                    if pdata['amount'] == amount:
-                        plan_id = pid
-                        break
+                inferred = _infer_plan_id_from_amount(amount, current_prices)
+                if inferred:
+                    plan_id = inferred
 
             if plan_id == "unknown":
                 if amount >= 900:
@@ -9871,6 +10011,12 @@ async def check_winback_users(context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     init_db()
+    try:
+        updated = backfill_unknown_transaction_plan_ids()
+        if updated > 0:
+            log_action(f"Backfilled plan_id for {updated} transactions")
+    except Exception:
+        pass
 
     # 1. Main Bot App
     request = HTTPXRequest(

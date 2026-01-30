@@ -95,4 +95,4 @@ async def test_stats_renders_unknown_plan_without_raw_key(tmp_path, monkeypatch)
     assert query.edit_message_text.await_count == 1
     rendered = str(query.edit_message_text.call_args.args[0])
     assert "plan_unknown" not in rendered
-    assert "Неизвестно" in rendered
+    assert "1 Месяц" in rendered
