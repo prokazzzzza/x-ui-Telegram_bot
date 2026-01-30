@@ -4,12 +4,64 @@
 # Compatible with X-UI (MHSanaei fork)
 # Repository: https://github.com/prokazzzzza/x-ui.git
 
+set -euo pipefail
+
 # Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+_info() { echo -e "${BLUE}$*${NC}"; }
+_ok() { echo -e "${GREEN}$*${NC}"; }
+_warn() { echo -e "${YELLOW}$*${NC}"; }
+_err() { echo -e "${RED}$*${NC}"; }
+
+_require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    _err "Error: required command not found: $1"
+    exit 1
+  fi
+}
+
+_install_apt_packages() {
+  local -a pkgs=("$@")
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y --no-install-recommends "${pkgs[@]}"
+}
+
+_detect_public_ip() {
+  local ip=""
+  ip="$(curl -fsS4 ifconfig.me 2>/dev/null || true)"
+  if [[ -z "$ip" ]]; then
+    ip="$(curl -fsS4 icanhazip.com 2>/dev/null || true)"
+  fi
+  if [[ -z "$ip" ]]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  echo "$ip"
+}
+
+_escape_env_value() {
+  local value="${1:-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf "%s" "$value"
+}
+
+_slugify_service_suffix() {
+  local raw="${1:-}"
+  local lowered=""
+  local slug=""
+  lowered="$(printf "%s" "$raw" | tr '[:upper:]' '[:lower:]')"
+  slug="$(printf "%s" "$lowered" | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+  if [[ -z "$slug" ]]; then
+    slug="bot"
+  fi
+  printf "%s" "$slug"
+}
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}    Maxi_VPN_bot Deployment Script      ${NC}"
@@ -21,46 +73,81 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+if [[ -f /etc/os-release ]]; then
+  . /etc/os-release
+  if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "22.04" ]]; then
+    _err "Error: this installer supports Ubuntu 22.04 only. Detected: ${ID:-unknown} ${VERSION_ID:-unknown}"
+    exit 1
+  fi
+else
+  _err "Error: /etc/os-release not found; cannot verify Ubuntu 22.04."
+  exit 1
+fi
+
+if ! command -v apt-get >/dev/null 2>&1; then
+  _err "Error: this installer currently supports Debian/Ubuntu (apt-get)."
+  exit 1
+fi
+
+_require_cmd systemctl
+
+_info "\n--- Preparing system dependencies ---"
+_install_apt_packages ca-certificates curl git python3 python3-venv python3-pip
+
 # 2. Check X-UI Installation
 XUI_PATH="/usr/local/x-ui"
-XUI_BIN="$XUI_PATH/bin/x-ui"
+XUI_BIN="$XUI_PATH/x-ui"
 
-if [[ -f "$XUI_BIN" ]]; then
-    echo -e "${GREEN}✅ X-UI is detected.${NC}"
-    # Try to detect version
-    # MHSanaei fork usually supports ./x-ui version or help
-    # Or we can just say "Detected".
-    VERSION_OUT=$("$XUI_BIN" version 2>/dev/null)
-    if [[ -n "$VERSION_OUT" ]]; then
-        echo -e "Version: ${YELLOW}$VERSION_OUT${NC}"
-    else
-        echo -e "Version: ${YELLOW}Unknown (Binary found)${NC}"
-    fi
+_info "\n--- Ensuring 3x-ui (MHSanaei/3x-ui) is installed ---"
+if [[ -x "$XUI_BIN" ]]; then
+  _ok "✅ 3x-ui binary detected: $XUI_BIN"
 else
-    echo -e "${YELLOW}⚠️ X-UI is NOT installed.${NC}"
-    read -p "Do you want to install X-UI (MHSanaei fork) now? [y/N]: " INSTALL_XUI
-    if [[ "$INSTALL_XUI" =~ ^[Yy]$ ]]; then
-        echo -e "${BLUE}Installing X-UI...${NC}"
-        bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
-        # Check again
-        if [[ ! -f "$XUI_BIN" ]]; then
-             echo -e "${RED}X-UI installation failed or was cancelled. Exiting.${NC}"
-             exit 1
-        fi
-        echo -e "${GREEN}✅ X-UI installed successfully.${NC}"
-    else
-        echo -e "${RED}X-UI is required for this bot. Exiting.${NC}"
-        exit 1
-    fi
+  _warn "⚠️ 3x-ui is not installed. Installing..."
+  bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
+  if [[ ! -x "$XUI_BIN" ]]; then
+    _err "Error: 3x-ui installation failed (binary not found at $XUI_BIN)."
+    exit 1
+  fi
+  _ok "✅ 3x-ui installed."
+fi
+
+if ! command -v x-ui >/dev/null 2>&1; then
+  _err "Error: x-ui command not found after installation."
+  exit 1
+fi
+
+_info "\n--- Updating 3x-ui / Xray to latest available ---"
+if ! x-ui update; then
+  _err "Error: x-ui update failed."
+  exit 1
+fi
+
+VERSION_OUT="$("$XUI_BIN" -v 2>/dev/null | head -n 1 || true)"
+if [[ -n "$VERSION_OUT" ]]; then
+  _ok "3x-ui version: ${YELLOW}${VERSION_OUT}${NC}"
 fi
 
 # 3. Collect Credentials
 echo -e "\n${BLUE}--- Configuration ---${NC}"
-read -p "Enter Telegram Bot Token: " INPUT_TOKEN
+read -p "Enter Bot Name [Maxi_VPN_bot]: " INPUT_BOT_NAME
+if [[ -z "${INPUT_BOT_NAME:-}" ]]; then
+    INPUT_BOT_NAME="Maxi_VPN_bot"
+fi
+
+BOT_SLUG="$(_slugify_service_suffix "$INPUT_BOT_NAME")"
+SERVICE_NAME="x-ui-bot-${BOT_SLUG}"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+read -rs -p "Enter Telegram Bot Token: " INPUT_TOKEN
+echo
 while [[ -z "$INPUT_TOKEN" ]]; do
     echo -e "${RED}Token cannot be empty.${NC}"
-    read -p "Enter Telegram Bot Token: " INPUT_TOKEN
+    read -rs -p "Enter Telegram Bot Token: " INPUT_TOKEN
+    echo
 done
+
+read -rs -p "Enter Support Bot Token (optional, press Enter to skip): " INPUT_SUPPORT_TOKEN
+echo
 
 read -p "Enter Admin Telegram ID: " INPUT_ADMIN_ID
 while [[ -z "$INPUT_ADMIN_ID" ]]; do
@@ -69,7 +156,7 @@ while [[ -z "$INPUT_ADMIN_ID" ]]; do
 done
 
 # Try to detect IP
-DETECTED_IP=$(curl -s4 ifconfig.me)
+DETECTED_IP="$(_detect_public_ip)"
 read -p "Enter Server IP [$DETECTED_IP]: " INPUT_IP
 if [[ -z "$INPUT_IP" ]]; then
     INPUT_IP="$DETECTED_IP"
@@ -78,65 +165,46 @@ fi
 # 4. Prepare Bot Directory
 BOT_DIR="$XUI_PATH/bot"
 REPO_URL="https://github.com/prokazzzzza/x-ui-Telegram_bot.git"
+ENV_FILE="$BOT_DIR/.env.${BOT_SLUG}"
+BOT_DB_PATH="$BOT_DIR/bot_data_${BOT_SLUG}.db"
+BOT_LOG_DIR="/usr/local/x-ui/logs"
+BOT_LOG_FILE="$BOT_LOG_DIR/bot_${BOT_SLUG}.log"
 
 echo -e "\n${BLUE}--- Setting up Bot ---${NC}"
-
-# Install Git if missing
-if ! command -v git &> /dev/null; then
-    echo -e "Installing git..."
-    apt-get update && apt-get install -y git
-fi
-
-# Install Python3 venv/pip if missing
-if ! command -v python3 &> /dev/null; then
-     echo -e "Installing python3..."
-     apt-get update && apt-get install -y python3 python3-pip python3-venv
-fi
-# Ensure venv module is present (sometimes separate package on Debian/Ubuntu)
-apt-get install -y python3-venv python3-pip
+tmp_dir="$(mktemp -d)"
+cleanup() { rm -rf "$tmp_dir"; }
+trap cleanup EXIT
 
 if [[ -d "$BOT_DIR" ]]; then
     echo -e "${YELLOW}Bot directory exists. Updating...${NC}"
-    # We are inside /usr/local/x-ui/bot usually.
-    # But the repo root is /usr/local/x-ui (in our dev setup).
-    # However, for deployment on a clean machine, X-UI owns /usr/local/x-ui.
-    # We should probably clone the repo to a temp dir and copy bot files?
-    # OR clone into $BOT_DIR if we structure repo as just the bot?
-    # CURRENT REPO STRUCTURE:
-    # root/
-    #   bot/
-    #     bot.py
-    #     ...
-    #   x-ui.sh
-    #   ...
-    
-    # So if we clone the repo to /tmp/x-ui-repo, we can copy /tmp/x-ui-repo/bot to /usr/local/x-ui/bot.
-    
-    rm -rf /tmp/x-ui-repo
-    git clone "$REPO_URL" /tmp/x-ui-repo
-    
-    # Create target dir if not exists (it might exist from previous run)
-    mkdir -p "$BOT_DIR"
-    
-    # Copy files
-    cp -r /tmp/x-ui-repo/bot/* "$BOT_DIR/"
-    rm -rf /tmp/x-ui-repo
 else
-    echo -e "${GREEN}Cloning repository...${NC}"
-    rm -rf /tmp/x-ui-repo
-    git clone "$REPO_URL" /tmp/x-ui-repo
+    echo -e "${GREEN}Installing bot...${NC}"
     mkdir -p "$BOT_DIR"
-    cp -r /tmp/x-ui-repo/bot/* "$BOT_DIR/"
-    rm -rf /tmp/x-ui-repo
 fi
+
+git clone "$REPO_URL" "$tmp_dir/x-ui-repo"
+shopt -s dotglob
+cp -r "$tmp_dir/x-ui-repo/bot/"* "$BOT_DIR/"
+shopt -u dotglob
 
 # 5. Write .env
 echo -e "Writing configuration..."
-cat > "$BOT_DIR/.env" <<EOL
+old_umask="$(umask)"
+umask 077
+ESCAPED_BOT_NAME="$(_escape_env_value "$INPUT_BOT_NAME")"
+cat > "$ENV_FILE" <<EOL
+BOT_NAME="$ESCAPED_BOT_NAME"
 BOT_TOKEN=$INPUT_TOKEN
+SUPPORT_BOT_TOKEN=$INPUT_SUPPORT_TOKEN
 ADMIN_ID=$INPUT_ADMIN_ID
 HOST_IP=$INPUT_IP
+BOT_DB_PATH=$BOT_DB_PATH
+BOT_LOG_DIR=$BOT_LOG_DIR
+BOT_LOG_FILE=$BOT_LOG_FILE
+BOT_SYSTEMD_SERVICE=$SERVICE_NAME
 EOL
+chmod 600 "$ENV_FILE"
+umask "$old_umask"
 
 # 6. Setup Python Environment
 echo -e "Setting up Python virtual environment..."
@@ -156,17 +224,18 @@ fi
 
 # 7. Setup Systemd Service
 echo -e "Configuring Systemd service..."
-SERVICE_FILE="/etc/systemd/system/x-ui-bot.service"
 
 cat > "$SERVICE_FILE" <<EOL
 [Unit]
-Description=Telegram Bot for X-UI
-After=network.target x-ui.service
+Description=Telegram Bot for X-UI ($INPUT_BOT_NAME)
+After=network-online.target x-ui.service
+Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=$BOT_DIR
-ExecStart=$BOT_DIR/venv/bin/python3 bot.py
+EnvironmentFile=$ENV_FILE
+ExecStart=$BOT_DIR/venv/bin/python3 $BOT_DIR/bot.py
 Restart=always
 RestartSec=5s
 
@@ -176,14 +245,16 @@ EOL
 
 # Reload and Start
 systemctl daemon-reload
-systemctl enable x-ui-bot
-systemctl restart x-ui-bot
+systemctl enable "$SERVICE_NAME"
+systemctl restart "$SERVICE_NAME"
 
 # 8. Final Status
-if systemctl is-active --quiet x-ui-bot; then
+if systemctl is-active --quiet "$SERVICE_NAME"; then
     echo -e "\n${GREEN}✅ Bot installed and started successfully!${NC}"
-    echo -e "Logs: journalctl -u x-ui-bot -f"
+    echo -e "Service: ${YELLOW}${SERVICE_NAME}${NC}"
+    echo -e "Logs: journalctl -u ${SERVICE_NAME} -f"
 else
     echo -e "\n${RED}❌ Bot failed to start.${NC}"
-    systemctl status x-ui-bot
+    echo -e "Service: ${YELLOW}${SERVICE_NAME}${NC}"
+    systemctl status "$SERVICE_NAME"
 fi

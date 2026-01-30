@@ -604,4 +604,4 @@ def test_format_expiry_display_variants():
     expiry_minutes_ms = int(expiry_minutes.timestamp() * 1000)
     assert bot.format_expiry_display(expiry_minutes_ms, "ru", now_ms) == "3 мин."
 
-    assert bot.format_expiry_display(0, "ru", now_ms) == "Безлимит"
+    assert bot.format_expiry_display(0, "ru", now_ms) == "Бессрочный"

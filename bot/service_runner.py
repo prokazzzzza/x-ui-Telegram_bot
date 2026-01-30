@@ -11,6 +11,9 @@ def _ensure_minimal_env() -> None:
     os.environ.setdefault("BOT_TOKEN", "0:SMOKE_TEST_TOKEN")
     os.environ.setdefault("ADMIN_ID", "0")
     os.environ.setdefault("HOST_IP", "127.0.0.1")
+    os.environ.setdefault("BOT_NAME", "smoke")
+    os.environ.setdefault("BOT_DB_PATH", "/tmp/x-ui-bot_smoke.db")
+    os.environ.setdefault("BOT_LOG_FILE", "/tmp/x-ui-bot_smoke.log")
 
 
 def smoke_check() -> None:

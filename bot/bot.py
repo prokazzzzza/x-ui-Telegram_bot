@@ -12,6 +12,9 @@ import html
 import importlib
 import random
 import string
+import re
+import platform
+import zipfile
 from collections import deque
 from typing import Optional, Any, Dict, Iterable, Protocol, TypeAlias, TypedDict
 from io import BytesIO
@@ -107,6 +110,229 @@ async def _systemctl_status(*args: str) -> tuple[int, str]:
     except Exception as e:
         return 1, str(e)
 
+async def _cmd_status(*args: str) -> tuple[int, str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+        stdout_b, stderr_b = await proc.communicate()
+        stdout_s = stdout_b.decode(errors="replace").strip() if stdout_b else ""
+        stderr_s = stderr_b.decode(errors="replace").strip() if stderr_b else ""
+        combined = "\n".join([s for s in (stdout_s, stderr_s) if s]).strip()
+        return int(proc.returncode or 0), combined
+    except Exception as e:
+        return 1, str(e)
+
+def _extract_semver(text: str) -> Optional[str]:
+    match = re.search(r"(?P<v>v?\d+\.\d+\.\d+)", text)
+    if not match:
+        return None
+    value = match.group("v").lstrip("v")
+    return value or None
+
+def _version_tuple(version: str) -> tuple[int, int, int]:
+    parts = version.split(".", 2)
+    major = int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else 0
+    minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    patch = 0
+    if len(parts) > 2:
+        patch_match = re.match(r"(\d+)", parts[2])
+        if patch_match:
+            patch = int(patch_match.group(1))
+    return major, minor, patch
+
+def _slugify_filename(value: str) -> str:
+    lowered = value.strip().lower()
+    lowered = re.sub(r"[^a-z0-9]+", "_", lowered)
+    lowered = lowered.strip("_")
+    return lowered
+
+def _escape_markdown(text: str) -> str:
+    value = text.replace("\\", "\\\\")
+    value = re.sub(r"([_*`\\[])", r"\\\1", value)
+    return value
+
+async def _get_local_xui_version() -> Optional[str]:
+    candidates: list[tuple[str, ...]] = [
+        ("x-ui", "-v"),
+        ("/usr/local/x-ui/x-ui", "-v"),
+        ("/usr/bin/x-ui", "-v"),
+    ]
+    for cmd in candidates:
+        rc, out = await _cmd_status(*cmd)
+        if rc != 0 or not out:
+            continue
+        first = out.splitlines()[0].strip()
+        ver = _extract_semver(first)
+        if ver:
+            return ver
+    return None
+
+async def _get_local_xray_version() -> Optional[str]:
+    candidates: list[tuple[str, ...]] = [
+        ("/usr/local/x-ui/bin/xray-linux-amd64", "version"),
+        ("xray", "version"),
+    ]
+    for cmd in candidates:
+        rc, out = await _cmd_status(*cmd)
+        if rc != 0 or not out:
+            continue
+        first = out.splitlines()[0].strip()
+        ver = _extract_semver(first)
+        if ver:
+            return ver
+    return None
+
+async def _github_latest_version(owner: str, repo: str) -> Optional[str]:
+    headers = {"Accept": "application/vnd.github+json"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            rel = await client.get(f"https://api.github.com/repos/{owner}/{repo}/releases/latest", headers=headers)
+            if rel.status_code == 200:
+                data = rel.json()
+                tag = str(data.get("tag_name") or data.get("name") or "")
+                ver = _extract_semver(tag)
+                if ver:
+                    return ver
+            tags = await client.get(f"https://api.github.com/repos/{owner}/{repo}/tags?per_page=1", headers=headers)
+            if tags.status_code == 200:
+                items = tags.json()
+                if isinstance(items, list) and items:
+                    tag = str(items[0].get("name") or "")
+                    ver = _extract_semver(tag)
+                    if ver:
+                        return ver
+    except Exception:
+        return None
+    return None
+
+def _get_xray_target_path() -> Optional[str]:
+    candidates = (
+        "/usr/local/x-ui/bin/xray-linux-amd64",
+        "/usr/local/x-ui/bin/xray",
+        "/usr/bin/xray",
+    )
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
+def _select_xray_asset_name(machine: str) -> Optional[str]:
+    m = machine.strip().lower()
+    if m in {"x86_64", "amd64"}:
+        return "Xray-linux-64.zip"
+    if m in {"aarch64", "arm64"}:
+        return "Xray-linux-arm64-v8a.zip"
+    if m in {"armv7l", "armv7"}:
+        return "Xray-linux-arm32-v7a.zip"
+    if m in {"armv6l", "armv6"}:
+        return "Xray-linux-arm32-v6.zip"
+    if m in {"i386", "i686"}:
+        return "Xray-linux-32.zip"
+    return None
+
+async def _update_xray_binary() -> tuple[bool, str]:
+    target_path = _get_xray_target_path()
+    if not target_path:
+        return False, "Не найден путь к бинарнику Xray"
+
+    before_rc, before_out = await _cmd_status(target_path, "version")
+    before_ver = None
+    if before_rc == 0 and before_out:
+        before_ver = _extract_semver(before_out.splitlines()[0].strip())
+
+    headers = {"Accept": "application/vnd.github+json"}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            rel = await client.get(
+                "https://api.github.com/repos/XTLS/Xray-core/releases/latest",
+                headers=headers,
+            )
+            if rel.status_code != 200:
+                return False, f"GitHub API вернул {rel.status_code}"
+            release = rel.json()
+
+            assets = release.get("assets") or []
+            if not isinstance(assets, list) or not assets:
+                return False, "Не найдены assets в релизе Xray-core"
+
+            preferred_name = _select_xray_asset_name(platform.machine())
+            chosen = None
+            for asset in assets:
+                if not isinstance(asset, dict):
+                    continue
+                name = str(asset.get("name") or "")
+                url = str(asset.get("browser_download_url") or "")
+                if not name.endswith(".zip"):
+                    continue
+                if preferred_name and name == preferred_name and url:
+                    chosen = (name, url)
+                    break
+            if not chosen:
+                for asset in assets:
+                    if not isinstance(asset, dict):
+                        continue
+                    name = str(asset.get("name") or "")
+                    url = str(asset.get("browser_download_url") or "")
+                    if not url or not name.endswith(".zip"):
+                        continue
+                    if name.startswith("Xray-linux-") and "dgst" not in name:
+                        chosen = (name, url)
+                        break
+
+            if not chosen:
+                return False, "Не удалось выбрать архив Xray под текущую архитектуру"
+
+            _, url = chosen
+            resp = await client.get(url, follow_redirects=True)
+            if resp.status_code != 200:
+                return False, f"Скачивание Xray не удалось ({resp.status_code})"
+
+        zip_bytes = resp.content
+        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+            xray_member = None
+            for info in zf.infolist():
+                name = info.filename
+                if name.endswith("/"):
+                    continue
+                base = name.rsplit("/", 1)[-1]
+                if base == "xray":
+                    xray_member = name
+                    break
+            if not xray_member:
+                return False, "В архиве релиза не найден файл xray"
+            xray_bin = zf.read(xray_member)
+
+        dir_name = os.path.dirname(target_path)
+        tmp_path = os.path.join(dir_name, f".xray.tmp.{uuid.uuid4().hex}")
+        with open(tmp_path, "wb") as f:
+            f.write(xray_bin)
+        os.chmod(tmp_path, 0o755)
+        os.replace(tmp_path, target_path)
+
+        after_rc, after_out = await _cmd_status(target_path, "version")
+        if after_rc != 0:
+            return False, "Бинарник Xray обновлён, но команда version завершилась ошибкой"
+        after_first = after_out.splitlines()[0].strip() if after_out else ""
+        after_ver = _extract_semver(after_first) or after_first
+
+        before_disp = before_ver or (before_out.splitlines()[0].strip() if before_out else "unknown")
+        return True, f"{before_disp} → {after_ver}"
+    except Exception as e:
+        return False, str(e)
+
+def _format_update_status(local_v: Optional[str], remote_v: Optional[str], lang: str) -> str:
+    if not local_v:
+        return t("updates_local_unknown", lang)
+    if not remote_v:
+        return t("updates_remote_unknown", lang).format(local=local_v)
+    if _version_tuple(local_v) < _version_tuple(remote_v):
+        return t("updates_available", lang).format(local=local_v, remote=remote_v)
+    return t("updates_uptodate", lang).format(local=local_v)
+
 # Disable root logger file handler to avoid noise
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -128,8 +354,14 @@ if not TOKEN:
 if not ADMIN_ID:
     logging.warning("ADMIN_ID not found in environment variables")
 
-DB_PATH = "/etc/x-ui/x-ui.db"
-BOT_DB_PATH = "/usr/local/x-ui/bot/bot_data.db"
+BOT_NAME = os.getenv("BOT_NAME") or ""
+BOT_SLUG = _slugify_filename(BOT_NAME) if BOT_NAME else ""
+
+DB_PATH = os.getenv("XUI_DB_PATH", "/etc/x-ui/x-ui.db")
+BOT_DB_PATH = os.getenv(
+    "BOT_DB_PATH",
+    os.path.join("/usr/local/x-ui/bot", f"bot_data_{BOT_SLUG}.db" if BOT_SLUG else "bot_data.db"),
+)
 INBOUND_ID = 1
 PUBLIC_KEY = os.getenv("PUBLIC_KEY")
 IP = os.getenv("HOST_IP")
@@ -140,7 +372,10 @@ SNI = os.getenv("SNI")
 SID = os.getenv("SID")
 TIMEZONE = ZoneInfo("Europe/Moscow")
 LOG_DIR = os.getenv("BOT_LOG_DIR", "/usr/local/x-ui/logs")
-LOG_FILE = os.getenv("BOT_LOG_FILE", os.path.join(LOG_DIR, "bot.log"))
+LOG_FILE = os.getenv(
+    "BOT_LOG_FILE",
+    os.path.join(LOG_DIR, f"bot_{BOT_SLUG}.log" if BOT_SLUG else "bot.log"),
+)
 REF_BONUS_DAYS = int(os.getenv("REF_BONUS_DAYS", 7))
 XUI_SYSTEMD_SERVICE = os.getenv("XUI_SYSTEMD_SERVICE", "x-ui")
 BOT_SYSTEMD_SERVICE = os.getenv("BOT_SYSTEMD_SERVICE", "x-ui-bot")
@@ -312,6 +547,17 @@ TEXTS = {
         "btn_send_poll": "✅ Send to All",
         "admin_server_title": "🖥 *Server Status*",
         "admin_server_live_title": "🖥 *Server Status (LIVE 🟢)*",
+        "updates_title": "🧩 *Versions & Updates*",
+        "xui_version_label": "🧩 *3x-ui:*",
+        "xray_version_label": "🌐 *Xray:*",
+        "updates_available": "✅ Local `{local}` → Update to `{remote}` available",
+        "updates_uptodate": "✅ Local `{local}` (up to date)",
+        "updates_local_unknown": "⚠️ Local version unknown",
+        "updates_remote_unknown": "⚠️ Local `{local}` (can't check updates)",
+        "btn_update_xui_xray": "⬆️ Update 3x-ui / Xray",
+        "update_starting": "⬆️ Starting update...",
+        "update_done": "✅ Update completed.\n\n{details}",
+        "update_failed": "❌ Update failed.\n\n{details}",
         "cpu_label": "🧠 *CPU:*",
         "ram_label": "💾 *RAM:*",
         "swap_label": "💽 *SWAP:*",
@@ -514,14 +760,14 @@ TEXTS = {
         "status_unbound": "Не привязан",
         "sub_active_html": "✅ Ваша подписка активна\n\n📅 Истекает: {expiry}",
         "sub_recommendation": "\n\n👇 Рекомендуется использовать подписку\n        (Нажмите на ссылку для копирования)\n\n📋 Ссылка подписки:\n<code>{link}</code>\n\n🔑 Ключ доступа: (Нажмите чтобы развернуть)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
-        "expiry_unlimited": "Безлимит",
+        "expiry_unlimited": "Бессрочный",
         "stats_your_title": "📊 Ваша статистика",
         "stats_today": "📅 За сегодня:",
         "stats_week": "📅 За неделю:",
         "stats_month": "📅 За месяц:",
         "stats_total": "📦 Всего:",
         "stats_expires": "⏳ Истекает:",
-        "unlimited_text": "♾️ Безлимит",
+        "unlimited_text": "♾️ Бессрочный",
         "live_monitor_starting": "Запуск Live мониторинга...",
         "trial_expiring": "⚠️ **Ваш пробный период истекает через 24ч!**\n\nНе теряйте доступ к защищенному соединению. Оформите подписку сейчас! 🚀",
         "trial_expired": "❌ **Ваш пробный период истек**\n\nНадеемся, вам понравилась скорость! 🚀\n\nПолучите полный безлимитный доступ всего от 80 Star/месяц.\n\n👇 **Нажмите ниже, чтобы продлить:**",
@@ -581,7 +827,7 @@ TEXTS = {
         "plan_1_year": "1 Год",
         "plan_trial": "Пробный (3 дня)",
         "plan_manual": "Ручная",
-        "plan_unlimited": "Безлимит",
+        "plan_unlimited": "Бессрочный",
         "sub_type_unknown": "Неизвестно",
         "stats_sub_type": "💳 Тариф: {plan}",
         "remaining_days": "⏳ Осталось: {days} дн.",
@@ -622,6 +868,17 @@ TEXTS = {
         "btn_send_poll": "✅ Отправить всем",
         "admin_server_title": "🖥 *Состояние сервера*",
         "admin_server_live_title": "🖥 *Состояние сервера (LIVE 🟢)*",
+        "updates_title": "🔄 *Версии и обновления*",
+        "xui_version_label": "🧩 *3x-ui:*",
+        "xray_version_label": "🌐 *Xray:*",
+        "updates_available": "✅ Локально `{local}` → 🆕 обновление `{remote}`",
+        "updates_uptodate": "✅ Локально `{local}` (актуально)",
+        "updates_local_unknown": "⚠️ Локальная версия неизвестна",
+        "updates_remote_unknown": "⚠️ Локально `{local}` (не удалось проверить обновления)",
+        "btn_update_xui_xray": "⬆️ Обновить 3x-ui / Xray",
+        "update_starting": "⬆️ Запускаю обновление...",
+        "update_done": "✅ Обновление выполнено.\n\n{details}",
+        "update_failed": "❌ Обновление не удалось.\n\n{details}",
         "cpu_label": "🧠 *CPU:*",
         "ram_label": "💾 *RAM:*",
         "swap_label": "💽 *Swap:*",
@@ -691,7 +948,7 @@ TEXTS = {
         "user_detail_from": "из",
         "user_detail_limit_ip": "📱 Лимит устройств:",
         "btn_edit_limit_ip": "📱 Изменить лимит устройств",
-        "limit_ip_prompt": "📱 *Изменение лимита устройств*\n\nТекущий лимит: {limit}\n\nВведите новый лимит (0 = Безлимит):",
+        "limit_ip_prompt": "📱 *Изменение лимита устройств*\n\nТекущий лимит: {limit}\n\nВведите новый лимит (0 = Бессрочный):",
         "limit_ip_success": "✅ Лимит устройств обновлен: {limit}",
         "limit_ip_error": "❌ Ошибка при обновлении лимита.",
         "limit_ip_invalid": "❌ Неверное число. Введите целое число.",
@@ -837,25 +1094,32 @@ def init_db():
     # Check/Migrate columns
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN trial_used INTEGER DEFAULT 0")
-    except: pass
+    except sqlite3.OperationalError:
+        pass
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN referrer_id TEXT")
-    except: pass
+    except sqlite3.OperationalError:
+        pass
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN trial_activated_at INTEGER")
-    except: pass
+    except sqlite3.OperationalError:
+        pass
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN username TEXT")
-    except: pass
+    except sqlite3.OperationalError:
+        pass
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN first_name TEXT")
-    except: pass
+    except sqlite3.OperationalError:
+        pass
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN last_name TEXT")
-    except: pass
+    except sqlite3.OperationalError:
+        pass
     try:
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN balance INTEGER DEFAULT 0")
-    except: pass
+    except sqlite3.OperationalError:
+        pass
 
     # Notifications Table
     cursor.execute('''
@@ -907,11 +1171,11 @@ def init_db():
     ''')
     try:
         cursor.execute("ALTER TABLE transactions ADD COLUMN telegram_payment_charge_id TEXT")
-    except:
+    except sqlite3.OperationalError:
         pass
     try:
         cursor.execute("ALTER TABLE transactions ADD COLUMN processed_at INTEGER")
-    except:
+    except sqlite3.OperationalError:
         pass
     try:
         cursor.execute(
@@ -919,7 +1183,7 @@ def init_db():
             "ON transactions(telegram_payment_charge_id) "
             "WHERE telegram_payment_charge_id IS NOT NULL"
         )
-    except:
+    except sqlite3.OperationalError:
         pass
 
     # Traffic History Table
@@ -1178,11 +1442,12 @@ def update_user_info(tg_id, username, first_name, last_name):
         logging.error(f"Error updating user info: {e}")
 
 def get_flag_emoji(country_code):
-    if not country_code: return "🏳️"
+    if not country_code:
+        return "🏳️"
     try:
         # Offset for Regional Indicator Symbols
         return chr(ord(country_code[0]) + 127397) + chr(ord(country_code[1]) + 127397)
-    except:
+    except Exception:
         return "🏳️"
 
 def get_lang(tg_id):
@@ -1356,7 +1621,8 @@ def get_user_rank(tg_id):
 
         total = len(valid_clients)
         percent_top = int((rank / total) * 100) if total > 0 else 0
-        if percent_top == 0: percent_top = 1
+        if percent_top == 0:
+            percent_top = 1
 
         return rank, total, percent_top
 
@@ -1365,7 +1631,8 @@ def get_user_rank(tg_id):
         return None, 0, 0
 
 def format_traffic(bytes_val):
-    if bytes_val is None: bytes_val = 0
+    if bytes_val is None:
+        bytes_val = 0
 
     # If > 1000 GB, use TB
     # 1000 GB = 1000 * 1024^3 bytes
@@ -2039,7 +2306,7 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Try to delete the old message (ignore if not found)
             try:
                 await query.message.delete()
-            except:
+            except Exception:
                 pass
 
             # Remove HTML tags for fallback
@@ -2104,7 +2371,8 @@ async def my_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for r in rows:
             uid, fname, uname = r
             name = fname or uid
-            if uname: name += f" (@{uname})"
+            if uname:
+                name += f" (@{uname})"
             text += f"👤 {name}\n"
     else:
         text += "List is empty." if lang == 'en' else "Список пуст."
@@ -2163,7 +2431,8 @@ async def show_qrcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      spiderX = settings_inner.get('spiderX', '/')
                      import urllib.parse
                      spx_val = urllib.parse.quote(spiderX)
-                 except: pass
+                 except Exception:
+                     pass
 
             flow_part = f"&flow={client_flow}" if client_flow else ""
             vless_link = f"vless://{u_uuid}@{IP}:{PORT}?type=tcp&encryption=none&security=reality&pbk={PUBLIC_KEY}&fp=chrome&sni={SNI}&sid={SID}&spx={spx_val}{flow_part}#{client_email}"
@@ -2261,7 +2530,8 @@ async def send_backup_to_admin_job(context: ContextTypes.DEFAULT_TYPE):
     else:
         try:
             await context.bot.send_message(chat_id=ADMIN_ID, text="❌ Automatic Backup Failed (No files created).")
-        except: pass
+        except Exception:
+            pass
 
 async def admin_view_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2360,7 +2630,8 @@ async def admin_create_backup(update: Update, context: ContextTypes.DEFAULT_TYPE
                     document=open(file_path, 'rb'),
                     caption=f"📦 Backup: {os.path.basename(file_path)}"
                 )
-            except: pass
+            except Exception:
+                pass
     else:
         await context.bot.send_message(
             chat_id=query.from_user.id,
@@ -3104,7 +3375,7 @@ def get_net_io_counters():
                     rx_total += int(data[0])
                     tx_total += int(data[8])
         return rx_total, tx_total
-    except:
+    except Exception:
         return 0, 0
 
 async def get_system_stats():
@@ -3130,7 +3401,7 @@ async def get_system_stats():
         diff_total = total_2 - total_1
         diff_idle = idle_2 - idle_1
         cpu_usage = (1 - diff_idle / diff_total) * 100
-    except:
+    except Exception:
         cpu_usage = 0
 
     # Network (End)
@@ -3166,7 +3437,7 @@ async def get_system_stats():
         swap_usage = (used_swap / total_swap) * 100 if total_swap > 0 else 0
         swap_total_gb = total_swap / (1024 * 1024)
         swap_used_gb = used_swap / (1024 * 1024)
-    except:
+    except Exception:
         ram_usage = 0
         ram_total_gb = 0
         ram_used_gb = 0
@@ -3178,7 +3449,7 @@ async def get_system_stats():
         with open('/proc/uptime', 'r') as f:
             uptime_str = f.readline().strip().split()[0]
             uptime_sec = int(float(uptime_str))
-    except:
+    except Exception:
         uptime_sec = 0
 
     # Disk
@@ -3188,7 +3459,7 @@ async def get_system_stats():
         disk_used_gb = disk.used / (1024**3)
         disk_free_gb = disk.free / (1024**3)
         disk_usage = (disk.used / disk.total) * 100
-    except:
+    except Exception:
         disk_usage = 0
         disk_total_gb = 0
         disk_used_gb = 0
@@ -3223,18 +3494,27 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         await query.answer("Обновление данных...")
-    except:
+    except Exception:
         pass # Ignore if already answered
 
     stats = await get_system_stats()
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
 
+    local_xui_v, local_xray_v = await asyncio.gather(_get_local_xui_version(), _get_local_xray_version())
+    remote_xui_v, remote_xray_v = await asyncio.gather(
+        _github_latest_version("MHSanaei", "3x-ui"),
+        _github_latest_version("XTLS", "Xray-core"),
+    )
+
     tx_speed_str = format_bytes(stats['tx_speed']) + "/s"
     rx_speed_str = format_bytes(stats['rx_speed']) + "/s"
     uptime_str = format_uptime(int(stats.get('uptime_sec', 0)))
 
     text = f"{t('admin_server_title', lang)}\n\n" \
+           f"{t('updates_title', lang)}\n" \
+           f"{t('xui_version_label', lang)} {_format_update_status(local_xui_v, remote_xui_v, lang)}\n" \
+           f"{t('xray_version_label', lang)} {_format_update_status(local_xray_v, remote_xray_v, lang)}\n\n" \
            f"{t('cpu_label', lang)} {stats['cpu']:.1f}%\n" \
            f"{t('ram_label', lang)} {stats['ram_usage']:.1f}% ({stats['ram_used']:.2f} / {stats['ram_total']:.2f} GB)\n" \
            f"{t('swap_label', lang)} {stats['swap_usage']:.1f}% ({stats['swap_used']:.2f} / {stats['swap_total']:.2f} GB)\n" \
@@ -3250,6 +3530,7 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton(t("btn_live_monitor", lang), callback_data='admin_server_live')],
+        [InlineKeyboardButton(t("btn_update_xui_xray", lang), callback_data='admin_update_xui_xray')],
         [InlineKeyboardButton(t("btn_refresh", lang), callback_data='admin_server')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
@@ -3260,6 +3541,84 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # If message content is same (Telegram API error), we just ignore or answer
         if "Message is not modified" not in str(e):
              await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_update_xui_xray(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data['live_monitoring_active'] = False
+    query = update.callback_query
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    if tg_id != ADMIN_ID:
+        await query.answer()
+        return
+
+    await query.answer(t("update_starting", lang))
+    local_xui_v, local_xray_v = await asyncio.gather(_get_local_xui_version(), _get_local_xray_version())
+    remote_xui_v, remote_xray_v = await asyncio.gather(
+        _github_latest_version("MHSanaei", "3x-ui"),
+        _github_latest_version("XTLS", "Xray-core"),
+    )
+
+    need_xui_update = remote_xui_v is not None and (
+        local_xui_v is None or _version_tuple(local_xui_v) < _version_tuple(remote_xui_v)
+    )
+    need_xray_update = remote_xray_v is not None and (
+        local_xray_v is None or _version_tuple(local_xray_v) < _version_tuple(remote_xray_v)
+    )
+
+    status_lines: list[str] = []
+    restart_needed = False
+
+    if need_xui_update:
+        xui_rc, xui_out = await _cmd_status("x-ui", "update")
+        xui_details = (xui_out or "").strip()[:1200] if xui_out else ""
+        if not xui_details:
+            xui_details = "—"
+        xui_details = f"```{xui_details}```"
+        if xui_rc == 0:
+            status_lines.append(t("update_done", lang).format(details=xui_details))
+            restart_needed = True
+        else:
+            status_lines.append(t("update_failed", lang).format(details=xui_details))
+    else:
+        status_lines.append(
+            f"{t('xui_version_label', lang)} {_format_update_status(local_xui_v, remote_xui_v, lang)}"
+        )
+
+    if need_xray_update:
+        xray_ok, xray_details = await _update_xray_binary()
+        if xray_ok:
+            status_lines.append(f"{t('xray_version_label', lang)} ✅ {xray_details}")
+            restart_needed = True
+        else:
+            status_lines.append(f"{t('xray_version_label', lang)} ❌ {xray_details}")
+    else:
+        status_lines.append(
+            f"{t('xray_version_label', lang)} {_format_update_status(local_xray_v, remote_xray_v, lang)}"
+        )
+
+    if restart_needed:
+        try:
+            await _systemctl("restart", XUI_SYSTEMD_SERVICE)
+        except Exception:
+            pass
+
+    local_xui_after, local_xray_after = await asyncio.gather(_get_local_xui_version(), _get_local_xray_version())
+    status_lines.append(
+        "\n".join(
+            [
+                f"{t('xui_version_label', lang)} `{local_xui_after or '—'}`",
+                f"{t('xray_version_label', lang)} `{local_xray_after or '—'}`",
+            ]
+        )
+    )
+
+    text = "\n\n".join(status_lines).strip()
+
+    keyboard = [
+        [InlineKeyboardButton(t("btn_refresh", lang), callback_data="admin_server")],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def admin_server_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3345,7 +3704,8 @@ async def run_live_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
          context.user_data['live_monitoring_active'] = False
          try:
              await admin_server(update, context)
-         except: pass
+         except Exception:
+             pass
 
 async def admin_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3619,14 +3979,16 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
                         fname = row_u[1]
                         lname = row_u[2]
                         logging.info(f"Sync: Found cached info for {tg_id}: {uname} {fname}")
-                except: pass
+                except Exception:
+                    pass
 
             # Construct nickname
             if uname:
                 user_nick = f"@{uname}"
             elif fname:
                 user_nick = fname
-                if lname: user_nick += f" {lname}"
+                if lname:
+                    user_nick += f" {lname}"
 
             try:
                 # 3. Update X-UI Comment (nickname)
@@ -3667,7 +4029,8 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
         if (i + 1) % 2 == 0 or (i + 1) == total:
             try:
                 await progress_msg.edit_text(t("sync_progress", lang).format(current=i+1, total=total))
-            except: pass
+            except Exception:
+                pass
 
         await asyncio.sleep(0.05)
 
@@ -3686,7 +4049,8 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
 
     try:
         await progress_msg.edit_text(t("sync_complete", lang).format(updated=updated_count, failed=failed_count))
-    except: pass
+    except Exception:
+        pass
 
     # Return to stats
     await admin_stats(update, context)
@@ -3704,14 +4068,14 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filter_type = parts[2]
         try:
             page = int(parts[3])
-        except:
+        except Exception:
             page = 0
     else:
         # fallback
         filter_type = 'all'
         try:
             page = int(parts[-1])
-        except:
+        except Exception:
             page = 0
 
     ITEMS_PER_PAGE = 10
@@ -3840,7 +4204,7 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             cursor_bot.execute("SELECT tg_id, username, first_name, last_name FROM user_prefs")
             user_prefs_rows = cursor_bot.fetchall()
-        except:
+        except Exception:
             user_prefs_rows = []
         conn_bot.close()
 
@@ -3945,7 +4309,8 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Pagination
     total_items = len(display_items)
     total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-    if total_pages == 0: total_pages = 1
+    if total_pages == 0:
+        total_pages = 1
 
     if page >= total_pages:
         page = total_pages - 1
@@ -3965,23 +4330,25 @@ async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = item['label']
         # Check if label already enriched (contains @ or ())
         if "(@" not in label and "(" not in label:
-             tg_id_str = str(item.get('tg_id', ''))
-             if tg_id_str and tg_id_str.isdigit():
-                 try:
-                     chat = await context.bot.get_chat(tg_id_str)
-                     # Also save to DB for next time!
-                     uname = chat.username
-                     fname = chat.first_name
-                     lname = chat.last_name
-                     update_user_info(tg_id_str, uname, fname, lname)
+            tg_id_str = str(item.get('tg_id', ''))
+            if tg_id_str and tg_id_str.isdigit():
+                try:
+                    chat = await context.bot.get_chat(tg_id_str)
+                    # Also save to DB for next time!
+                    uname = chat.username
+                    fname = chat.first_name
+                    lname = chat.last_name
+                    update_user_info(tg_id_str, uname, fname, lname)
 
-                     if uname:
-                         label = f"{label} (@{uname})"
-                     elif fname:
-                         name = fname
-                         if lname: name += f" {lname}"
-                         label = f"{label} ({name})"
-                 except: pass
+                    if uname:
+                        label = f"{label} (@{uname})"
+                    elif fname:
+                        name = fname
+                        if lname:
+                            name += f" {lname}"
+                        label = f"{label} ({name})"
+                except Exception:
+                    pass
 
         keyboard.append([InlineKeyboardButton(label, callback_data=item['callback'])])
 
@@ -4029,12 +4396,16 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if parts[2] in ['traffic', 'sub']:
             sort_type = parts[2]
             if len(parts) >= 4:
-                try: page = int(parts[3])
-                except: pass
+                try:
+                    page = int(parts[3])
+                except Exception:
+                    pass
         else:
             # Legacy format or just page
-            try: page = int(parts[2])
-            except: pass
+            try:
+                page = int(parts[2])
+            except Exception:
+                pass
 
     ITEMS_PER_PAGE = 10
 
@@ -4162,10 +4533,13 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     total_items = len(leaderboard)
     total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-    if total_pages == 0: total_pages = 1
+    if total_pages == 0:
+        total_pages = 1
 
-    if page >= total_pages: page = total_pages - 1
-    if page < 0: page = 0
+    if page >= total_pages:
+        page = total_pages - 1
+    if page < 0:
+        page = 0
 
     start = page * ITEMS_PER_PAGE
     end = start + ITEMS_PER_PAGE
@@ -4189,7 +4563,8 @@ async def admin_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status = "🟢" if item.get('is_active') else "🔴"
         label_text = item['label']
         # Truncate label
-        if len(label_text) > 20: label_text = label_text[:17] + "..."
+        if len(label_text) > 20:
+            label_text = label_text[:17] + "..."
 
         btn_label = f"#{rank} {status} {label_text} ({item['display_val']})"
         keyboard.append([InlineKeyboardButton(btn_label, callback_data=f"admin_u_{item['uid']}")])
@@ -4286,10 +4661,14 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last_online = 0
 
     if traffic_row:
-        if traffic_row[0] is not None: up = traffic_row[0]
-        if traffic_row[1] is not None: down = traffic_row[1]
-        if traffic_row[2] is not None: last_online = traffic_row[2]
-        if traffic_row[3] is not None: expiry_ms = traffic_row[3]
+        if traffic_row[0] is not None:
+            up = traffic_row[0]
+        if traffic_row[1] is not None:
+            down = traffic_row[1]
+        if traffic_row[2] is not None:
+            last_online = traffic_row[2]
+        if traffic_row[3] is not None:
+            expiry_ms = traffic_row[3]
 
     # Calculations
     up_gb = up / (1024**3)
@@ -4358,7 +4737,8 @@ async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 username = f"@{db_uname}"
             elif db_fname:
                 username = db_fname
-                if db_lname: username += f" {db_lname}"
+                if db_lname:
+                    username += f" {db_lname}"
             else:
                 # Try fetch if not in DB
                 chat = await context.bot.get_chat(tg_id_val)
@@ -4421,13 +4801,15 @@ async def admin_edit_limit_ip(update: Update, context: ContextTypes.DEFAULT_TYPE
     row = cursor.fetchone()
     conn.close()
 
-    if not row: return
+    if not row:
+        return
 
     settings = json.loads(row[0])
     clients = settings.get('clients', [])
     client = next((c for c in clients if c.get('id') == uid), None)
 
-    if not client: return
+    if not client:
+        return
 
     current_limit = client.get('limitIp', 0)
 
@@ -4453,13 +4835,15 @@ async def admin_ip_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = cursor.fetchone()
     conn.close()
 
-    if not row: return
+    if not row:
+        return
 
     settings = json.loads(row[0])
     clients = settings.get('clients', [])
     client = next((c for c in clients if c.get('id') == uid), None)
 
-    if not client: return
+    if not client:
+        return
 
     email = client.get('email')
 
@@ -4499,7 +4883,8 @@ async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_T
     if len(parts) >= 3:
         try:
             page = int(parts[2])
-        except: page = 0
+        except Exception:
+            page = 0
 
     ITEMS_PER_PAGE = 20
     offset = page * ITEMS_PER_PAGE
@@ -4513,7 +4898,8 @@ async def admin_suspicious_users(update: Update, context: ContextTypes.DEFAULT_T
     cursor.execute("SELECT COUNT(*) FROM suspicious_events WHERE last_seen > ?", (since_ts,))
     total_items = cursor.fetchone()[0]
     total_pages = (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
-    if total_pages == 0: total_pages = 1
+    if total_pages == 0:
+        total_pages = 1
 
     if page >= total_pages:
         page = total_pages - 1
@@ -4742,7 +5128,7 @@ async def admin_promo_uses(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         page = int(query.data.split('_')[3])
-    except:
+    except Exception:
         page = 0
 
     conn = sqlite3.connect(BOT_DB_PATH)
@@ -4758,10 +5144,13 @@ async def admin_promo_uses(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     users_per_page = 10
     total_pages = math.ceil(len(all_users) / users_per_page)
-    if total_pages == 0: total_pages = 1
+    if total_pages == 0:
+        total_pages = 1
 
-    if page >= total_pages: page = total_pages - 1
-    if page < 0: page = 0
+    if page >= total_pages:
+        page = total_pages - 1
+    if page < 0:
+        page = 0
 
     start = page * users_per_page
     end = start + users_per_page
@@ -4782,7 +5171,8 @@ async def admin_promo_uses(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 name = display
 
         # Truncate name if too long
-        if len(name) > 30: name = name[:27] + "..."
+        if len(name) > 30:
+            name = name[:27] + "..."
 
         # Get count of promos
         cursor.execute("SELECT COUNT(*) FROM user_promos WHERE tg_id=?", (uid,))
@@ -4819,7 +5209,7 @@ async def admin_promo_user_detail(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         tg_id = query.data.split('_')[3]
-    except:
+    except Exception:
         return
 
     conn = sqlite3.connect(BOT_DB_PATH)
@@ -4920,7 +5310,8 @@ async def admin_revoke_user_promo_confirm(update: Update, context: ContextTypes.
     cursor = conn.cursor()
     cursor.execute("SELECT days FROM promo_codes WHERE code=?", (code,))
     row = cursor.fetchone()
-    if row: days = row[0]
+    if row:
+        days = row[0]
     conn.close()
 
     keyboard = [
@@ -5125,8 +5516,10 @@ async def admin_flash_errors(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
             # Simplify error
             err_clean = str(err)
-            if "Forbidden" in err_clean: err_clean = "Бот заблокирован"
-            elif "chat not found" in err_clean.lower(): err_clean = "Чат не найден"
+            if "Forbidden" in err_clean:
+                err_clean = "Бот заблокирован"
+            elif "chat not found" in err_clean.lower():
+                err_clean = "Чат не найден"
 
             text += f"👤 {name_str}\n❌ {err_clean}\n\n"
 
@@ -5304,7 +5697,7 @@ async def admin_db_detail_callback(update: Update, context: ContextTypes.DEFAULT
     try:
         tg_id = query.data.split('_')[3] # admin_db_detail_TGID
         await admin_user_db_detail(update, context, tg_id)
-    except:
+    except Exception:
         pass
 
 async def admin_reset_trial_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5314,7 +5707,7 @@ async def admin_reset_trial_db(update: Update, context: ContextTypes.DEFAULT_TYP
     # admin_rt_db_TGID
     try:
         tg_id = query.data.split('_')[3]
-    except:
+    except Exception:
         return
 
     conn = sqlite3.connect(BOT_DB_PATH)
@@ -5332,7 +5725,7 @@ async def admin_delete_user_db(update: Update, context: ContextTypes.DEFAULT_TYP
     # admin_del_db_TGID
     try:
         tg_id = query.data.split('_')[3]
-    except:
+    except Exception:
         return
 
     conn = sqlite3.connect(BOT_DB_PATH)
@@ -5673,7 +6066,8 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def get_users_pagination_keyboard(users, selected_ids, page, lang='ru', users_per_page=10):
     total_pages = math.ceil(len(users) / users_per_page)
-    if total_pages == 0: total_pages = 1
+    if total_pages == 0:
+        total_pages = 1
 
     start = page * users_per_page
     end = start + users_per_page
@@ -5686,7 +6080,8 @@ def get_users_pagination_keyboard(users, selected_ids, page, lang='ru', users_pe
         username = f" (@{u[2]})" if u[2] else ""
         # Truncate name if too long
         name_display = (first_name + username).strip() or f"ID: {uid}"
-        if len(name_display) > 30: name_display = name_display[:27] + "..."
+        if len(name_display) > 30:
+            name_display = name_display[:27] + "..."
 
         icon = "✅" if uid in selected_ids else "☑️"
         label = f"{icon} {name_display}"
@@ -5788,7 +6183,7 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
         keyboard = get_users_pagination_keyboard(users, selected, page, lang)
         try:
             await query.edit_message_reply_markup(reply_markup=keyboard)
-        except:
+        except Exception:
             pass
         await query.answer()
         return
@@ -5806,7 +6201,7 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
         keyboard = get_users_pagination_keyboard(users, selected, page, lang)
         try:
             await query.edit_message_reply_markup(reply_markup=keyboard)
-        except:
+        except Exception:
             pass
         await query.answer()
         return
@@ -5814,8 +6209,8 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
     if action == 'confirm':
         selected = context.user_data.get('broadcast_selected_ids', [])
         if not selected:
-             await query.answer(t("broadcast_select_error", lang), show_alert=True)
-             return
+            await query.answer(t("broadcast_select_error", lang), show_alert=True)
+            return
 
         await query.answer()
         context.user_data['broadcast_users'] = selected
@@ -5835,8 +6230,10 @@ async def admin_broadcast_target(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data['broadcast_target'] = target
 
     target_name = t("btn_broadcast_all", lang)
-    if target == 'en': target_name = t("btn_broadcast_en", lang)
-    if target == 'ru': target_name = t("btn_broadcast_ru", lang)
+    if target == 'en':
+        target_name = t("btn_broadcast_en", lang)
+    if target == 'ru':
+        target_name = t("btn_broadcast_ru", lang)
 
     await query.edit_message_text(
         t("broadcast_general_prompt", lang).format(target=target_name),
@@ -6009,7 +6406,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if action == 'awaiting_promo_data':
-            if not text: return
+            if not text:
+                return
             try:
                 parts = text.split()
                 if len(parts) != 3:
@@ -6032,7 +6430,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
                 await update.message.reply_text("🎁 *Управление промокодами*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
                 context.user_data['admin_action'] = None
-            except:
+            except Exception:
                 await update.message.reply_text("❌ Неверный формат. Используйте: `КОД ДНИ ЛИМИТ`")
             return
 
@@ -6040,9 +6438,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif action == 'awaiting_price_amount':
             try:
-                if not text: raise ValueError
+                if not text:
+                    raise ValueError
                 amount = int(text)
-                if amount <= 0: raise ValueError
+                if amount <= 0:
+                    raise ValueError
 
                 key = context.user_data.get('edit_price_key')
                 if key:
@@ -6074,15 +6474,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 context.user_data['admin_action'] = None
                 context.user_data['edit_price_key'] = None
-            except:
+            except Exception:
                 await update.message.reply_text("❌ Ошибка. Введите целое положительное число.")
             return
 
         elif action == 'awaiting_flash_duration':
-            if not text: return
+            if not text:
+                return
             try:
                 duration = int(text)
-                if duration <= 0: raise ValueError
+                if duration <= 0:
+                    raise ValueError
 
                 flash_code = context.user_data.get('flash_code')
                 if not flash_code:
@@ -6114,8 +6516,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         clients = settings.get('clients', [])
                         for client in clients:
                             tid = client.get('tgId')
-                            if tid: users.append((str(tid),))
-                except: pass
+                            if tid:
+                                users.append((str(tid),))
+                except Exception:
+                    pass
 
                 cursor.execute("SELECT tg_id FROM user_prefs")
                 bot_users = cursor.fetchall()
@@ -6163,7 +6567,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          try:
                              cursor.execute("INSERT INTO flash_delivery_errors (user_id, error_message, timestamp) VALUES (?, ?, ?)",
                                             (str(user_id), str(e), int(time.time())))
-                         except: pass
+                         except Exception:
+                             pass
 
                          pass
 
@@ -6186,17 +6591,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         elif action == 'awaiting_broadcast_users_input':
-            if not text: return
+            if not text:
+                return
             clean_text = text.replace(',', ' ').strip()
             ids = clean_text.split()
             valid_ids = []
             for uid in ids:
                 if uid.isdigit() or (uid.startswith('-') and uid[1:].isdigit()):
-                     valid_ids.append(uid)
+                    valid_ids.append(uid)
 
             if not valid_ids:
-                 await update.message.reply_text("❌ Не найдено корректных ID. Попробуйте еще раз или нажмите Отмена.")
-                 return
+                await update.message.reply_text("❌ Не найдено корректных ID. Попробуйте еще раз или нажмите Отмена.")
+                return
 
             context.user_data['broadcast_users'] = valid_ids
             context.user_data['admin_action'] = 'awaiting_broadcast'
@@ -6261,9 +6667,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             blocked = 0
 
             target_name = "ВСЕМ"
-            if target == 'en': target_name = "English (en)"
-            if target == 'ru': target_name = "Русский (ru)"
-            if target == 'individual': target_name = f"Индивидуально: {len(users)}"
+            if target == 'en':
+                target_name = "English (en)"
+            if target == 'ru':
+                target_name = "Русский (ru)"
+            if target == 'individual':
+                target_name = f"Индивидуально: {len(users)}"
 
             status_msg = await update.message.reply_text(f"⏳ Рассылка запущена ({target_name})...")
 
@@ -6289,7 +6698,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         elif action == 'awaiting_search_user':
-            if not text: return
+            if not text:
+                return
             target_id = text.strip()
             # Simple validation
             if not target_id.isdigit():
@@ -6301,11 +6711,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         elif action == 'awaiting_limit_ip':
-            if not text: return
+            if not text:
+                return
             uid = context.user_data.get('edit_limit_ip_uid')
             try:
                 new_limit = int(text.strip())
-                if new_limit < 0: raise ValueError
+                if new_limit < 0:
+                    raise ValueError
             except ValueError:
                 await update.message.reply_text(t("limit_ip_invalid", lang))
                 return
@@ -6355,7 +6767,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         elif action == 'awaiting_poll_question':
-            if not text: return
+            if not text:
+                return
             context.user_data['poll_question'] = text.strip()
             context.user_data['admin_action'] = 'awaiting_poll_options'
 
@@ -6363,7 +6776,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         elif action == 'awaiting_poll_options':
-            if not text: return
+            if not text:
+                return
             options = [opt.strip() for opt in text.split('\n') if opt.strip()]
 
             if len(options) < 2:
@@ -6371,8 +6785,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             if len(options) > 10:
-                 await update.message.reply_text("❌ Ошибка: Максимум 10 вариантов ответа.")
-                 return
+                await update.message.reply_text("❌ Ошибка: Максимум 10 вариантов ответа.")
+                return
 
             context.user_data['poll_options'] = options
             question = context.user_data.get('poll_question')
@@ -6405,7 +6819,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Support Logic ---
     if action == 'awaiting_support_message':
-        if not text and not update.message.photo: return
+        if not text and not update.message.photo:
+            return
 
         # Forward to admin via Support Bot
         user = update.message.from_user
@@ -6470,7 +6885,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Alert format: ... User: @name (`123456789`) ...
 
         reply_text = update.message.reply_to_message.caption or update.message.reply_to_message.text
-        if not reply_text: return
+        if not reply_text:
+            return
 
         import re
         # Look for (`123456789`) pattern
@@ -6491,7 +6907,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == 'awaiting_search_user':
-        if not text: return
+        if not text:
+            return
         tg_id_search = text.strip()
 
         if not tg_id_search.isdigit():
@@ -6503,7 +6920,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get('awaiting_promo'):
-        if not text: return
+        if not text:
+            return
         tg_id = str(update.message.from_user.id)
         lang = get_lang(tg_id)
         code = text.strip()
@@ -6661,7 +7079,8 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
             log_action(f"ERROR: Plan not found for payload: {payload}. User {tg_id} paid {payment.total_amount}.")
             try:
                 await context.bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ ERROR: Unknown Plan Paid!\nUser: {tg_id}\nPayload: {payload}\nAmount: {payment.total_amount}")
-            except: pass
+            except Exception:
+                pass
             # Try to recover based on amount if possible, or return
             # But we already saved tx, so admin can check.
             return
@@ -6811,7 +7230,7 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
                 try:
                     await context.bot.send_message(chat_id=referrer_id, text=msg_text, parse_mode='Markdown')
-                except:
+                except Exception:
                     pass # User might have blocked bot
 
             # 10% Cashback Logic
@@ -6834,7 +7253,8 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
                 try:
                     await context.bot.send_message(chat_id=referrer_id, text=cb_text, parse_mode='Markdown')
-                except: pass
+                except Exception:
+                    pass
 
         except Exception as e:
             logging.error(f"Error checking referral bonus: {e}")
@@ -6844,7 +7264,8 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         _record_payment_error()
         try:
             await context.bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ CRITICAL PAYMENT ERROR: {e}")
-        except: pass
+        except Exception:
+            pass
 
 async def add_days_to_user(tg_id, days_to_add, context):
     # Simplified version of process_subscription for background tasks
@@ -7000,7 +7421,8 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                         user_nick = f"@{user.username}"
                     elif user.first_name:
                         user_nick = user.first_name
-                        if user.last_name: user_nick += f" {user.last_name}"
+                        if user.last_name:
+                            user_nick += f" {user.last_name}"
 
                     if user_nick:
                         # Only write if comment is empty, or user wants force update?
@@ -7011,7 +7433,8 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                         old_comment = user_client.get('comment', '')
                         if not old_comment:
                             user_client['comment'] = user_nick
-            except: pass
+            except Exception:
+                pass
 
             user_client['expiryTime'] = new_expiry
             user_client['enable'] = True
@@ -7049,7 +7472,8 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                         uname_val = f"@{row_db[0]}"
                     elif row_db[1]:
                         uname_val = row_db[1]
-                        if row_db[2]: uname_val += f" {row_db[2]}"
+                        if row_db[2]:
+                            uname_val += f" {row_db[2]}"
                 else:
                     # Fetch
                     chat = await context.bot.get_chat(tg_id)
@@ -7057,10 +7481,13 @@ async def process_subscription(tg_id, days_to_add, update, context, lang, is_cal
                         uname_val = f"@{chat.username}"
                     elif chat.first_name:
                         uname_val = chat.first_name
-                        if chat.last_name: uname_val += f" {chat.last_name}"
-            except: pass
+                        if chat.last_name:
+                            uname_val += f" {chat.last_name}"
+            except Exception:
+                pass
 
-            if not uname_val: uname_val = "User"
+            if not uname_val:
+                uname_val = "User"
 
             # Use simple tg_ID for email, put nickname in comment
             new_email = f"tg_{tg_id}"
@@ -7245,7 +7672,8 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      spiderX = settings_inner.get('spiderX', '/')
                      import urllib.parse
                      spx_val = urllib.parse.quote(spiderX)
-                 except: pass
+                 except Exception:
+                     pass
 
             flow_part = f"&flow={client_flow}" if client_flow else ""
 
@@ -7275,7 +7703,8 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if sub_enable:
                 port = sub_port
                 path = sub_path
-                if sub_cert: protocol = "https"
+                if sub_cert:
+                    protocol = "https"
             else:
                 # Fallback to web port
                 port = web_port
@@ -7291,7 +7720,8 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     path = web_base_path + sub_path
 
-                if web_cert: protocol = "https"
+                if web_cert:
+                    protocol = "https"
 
             sub_id = user_client.get('subId')
             if sub_id:
@@ -7317,7 +7747,7 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 try:
                     await query.message.delete()
-                except:
+                except Exception:
                     pass
                 await context.bot.send_message(
                     chat_id=tg_id,
@@ -7342,7 +7772,7 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 try:
                     await query.message.delete()
-                except:
+                except Exception:
                     pass
                 await context.bot.send_message(
                     chat_id=tg_id,
@@ -7364,7 +7794,7 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
              try:
                  await query.message.delete()
-             except:
+             except Exception:
                  pass
              await context.bot.send_message(
                  chat_id=tg_id,
@@ -7453,7 +7883,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         # Let's do it in 'process_subscription' instead for new subs.
                         # Here we just read.
                         pass
-                    except: pass
+                    except Exception:
+                        pass
 
                     if found_email:
                         cursor.execute("SELECT up, down FROM client_traffics WHERE email=?", (found_email,))
@@ -7507,7 +7938,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_tx = cursor_bot.fetchone()
             if last_tx:
                 p_id = last_tx[0]
-                sub_plan = t(f"plan_{p_id}", lang)
+                translated = t(f"plan_{p_id}", lang)
+                sub_plan = translated if translated != f"plan_{p_id}" else t("sub_type_unknown", lang)
             else:
                 cursor_bot.execute("SELECT trial_used FROM user_prefs WHERE tg_id=?", (tg_id,))
                 pref = cursor_bot.fetchone()
@@ -7566,10 +7998,11 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn_bot.close()
 
         expiry_str = format_expiry_display(expiry_time, lang, unlimited_key="unlimited_text")
+        sub_plan_safe = _escape_markdown(str(sub_plan or "—"))
 
         text = f"""{t("stats_your_title", lang)}
 
-{t("stats_sub_type", lang).format(plan=sub_plan)}
+{t("stats_sub_type", lang).format(plan=sub_plan_safe)}
 
 {t("stats_today", lang)}
 ⬇️ {format_bytes(day_down)}  ⬆️ {format_bytes(day_up)}
@@ -7584,7 +8017,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⬇️ {format_bytes(current_down)}  ⬆️ {format_bytes(current_up)}
 ∑ {format_bytes(current_total)}
 
-{t("stats_expires", lang)} {expiry_str}"""
+{t("stats_expires", lang)} {_escape_markdown(expiry_str)}"""
 
         try:
             await query.edit_message_text(
@@ -8130,7 +8563,7 @@ async def admin_delete_client_ask(update: Update, context: ContextTypes.DEFAULT_
     # admin_del_client_ask_UUID
     try:
         uid = query.data.split('_', 4)[4]
-    except:
+    except IndexError:
         return
 
     keyboard = [
@@ -8151,7 +8584,7 @@ async def admin_delete_client_confirm(update: Update, context: ContextTypes.DEFA
     # admin_del_client_confirm_UUID
     try:
         uid = query.data.split('_', 4)[4]
-    except:
+    except IndexError:
         return
 
     conn = sqlite3.connect(DB_PATH)
@@ -8192,7 +8625,8 @@ async def admin_delete_client_confirm(update: Update, context: ContextTypes.DEFA
     if email:
         try:
              cursor.execute("DELETE FROM client_traffics WHERE email=?", (email,))
-        except: pass
+        except sqlite3.Error:
+            pass
 
     conn.commit()
     conn.close()
@@ -8315,7 +8749,7 @@ async def handle_poll_vote(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-    except:
+    except Exception:
         pass # Message not modified
 
     await query.answer(t("poll_vote_registered", lang))
@@ -8333,7 +8767,7 @@ async def handle_poll_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-    except:
+    except Exception:
         pass
 
     await query.answer()
@@ -8381,7 +8815,8 @@ async def admin_poll_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cid = client.get('tgId')
                 if cid:
                     xui_users.append(str(cid))
-    except: pass
+    except Exception:
+        pass
 
     all_users = set([u[0] for u in users] + xui_users)
 
@@ -8617,6 +9052,7 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(admin_sync_nicknames, pattern='^admin_sync_nicks$'))
     application.add_handler(CallbackQueryHandler(admin_server, pattern='^admin_server$'))
     application.add_handler(CallbackQueryHandler(admin_server_live, pattern='^admin_server_live$'))
+    application.add_handler(CallbackQueryHandler(admin_update_xui_xray, pattern='^admin_update_xui_xray$'))
     application.add_handler(CallbackQueryHandler(admin_rebind_user, pattern='^admin_rebind_'))
     application.add_handler(CallbackQueryHandler(admin_users_list, pattern='^admin_users_'))
     application.add_handler(CallbackQueryHandler(admin_user_detail, pattern='^admin_u_'))
@@ -9127,7 +9563,8 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
 
         for tx in txs:
             # Filter for incoming payments (source is User)
-            if not tx.source: continue
+            if not tx.source:
+                continue
 
             # source might be User object or Chat object, or just ID if using some library versions
             # In python-telegram-bot v20+, StarTransaction.source is TransactionPartnerUser or similar.
@@ -9137,9 +9574,10 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
                 # TransactionPartnerUser(user=User(...))
                 tg_id = str(tx.source.user.id)
             elif hasattr(tx.source, 'id'):
-                 tg_id = str(tx.source.id)
+                tg_id = str(tx.source.id)
 
-            if not tg_id: continue
+            if not tg_id:
+                continue
 
             amount = tx.amount
             date = int(tx.date.timestamp())
@@ -9227,11 +9665,16 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
                         break
 
             if plan_id == "unknown":
-                if amount >= 900: plan_id = "1_year"
-                elif amount >= 250: plan_id = "3_months"
-                elif amount >= 100: plan_id = "1_month"
-                elif amount >= 60: plan_id = "2_weeks"
-                elif amount >= 40: plan_id = "1_week"
+                if amount >= 900:
+                    plan_id = "1_year"
+                elif amount >= 250:
+                    plan_id = "3_months"
+                elif amount >= 100:
+                    plan_id = "1_month"
+                elif amount >= 60:
+                    plan_id = "2_weeks"
+                elif amount >= 40:
+                    plan_id = "1_week"
 
             if existing_row and (not original_plan_id or original_plan_id == "unknown") and plan_id != "unknown":
                 try:
@@ -9259,11 +9702,16 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
             days = 0
             if plan_id in current_prices:
                 days = current_prices[plan_id]['days']
-            elif plan_id == "1_year": days = 365
-            elif plan_id == "3_months": days = 90
-            elif plan_id == "1_month": days = 30
-            elif plan_id == "2_weeks": days = 14
-            elif plan_id == "1_week": days = 7
+            elif plan_id == "1_year":
+                days = 365
+            elif plan_id == "3_months":
+                days = 90
+            elif plan_id == "1_month":
+                days = 30
+            elif plan_id == "2_weeks":
+                days = 14
+            elif plan_id == "1_week":
+                days = 7
 
             if days <= 0:
                 try:
@@ -9297,13 +9745,13 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
                         msg_text = f"✅ *Платеж восстановлен!*\n\nМы обнаружили потерянный платеж на {amount} Stars.\nВаша подписка продлена на {days} дн."
 
                     await context.bot.send_message(chat_id=tg_id, text=msg_text, parse_mode='Markdown')
-                except:
+                except Exception:
                     pass
 
                 try:
                     admin_msg = f"⚠️ **RESTORED PAYMENT**\nUser: `{tg_id}`\nAmount: {amount}\nPlan: {plan_id}\nAdded: {days} days\nCharge: `{charge_id}`"
                     await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
-                except:
+                except Exception:
                     pass
             if days > 0 and not should_extend:
                 try:
@@ -9340,7 +9788,8 @@ async def check_winback_users(context: ContextTypes.DEFAULT_TYPE):
         row = cursor.fetchone()
         conn.close()
 
-        if not row: return
+        if not row:
+            return
 
         settings = json.loads(row[0])
         clients = settings.get('clients', [])
@@ -9363,7 +9812,8 @@ async def check_winback_users(context: ContextTypes.DEFAULT_TYPE):
             expiry = client.get('expiryTime', 0)
             tg_id = str(client.get('tgId', ''))
 
-            if not tg_id or expiry == 0: continue
+            if not tg_id or expiry == 0:
+                continue
 
             # Filter 1: Must be a paid user (Retention strategy is for paying customers)
             if tg_id not in paid_users:
