@@ -5,6 +5,7 @@ import asyncio
 import importlib
 import os
 import sys
+from types import ModuleType
 
 
 def _ensure_minimal_env() -> None:
@@ -16,10 +17,28 @@ def _ensure_minimal_env() -> None:
     os.environ.setdefault("BOT_LOG_FILE", "/tmp/x-ui-bot_smoke.log")
 
 
+def _import_bot_module() -> ModuleType:
+    candidates = ("bot", "bot.bot")
+    last_error: Exception | None = None
+    for name in candidates:
+        try:
+            module = importlib.import_module(name)
+        except Exception as ex:
+            last_error = ex
+            continue
+
+        if getattr(module, "register_handlers", None) is not None and getattr(module, "main", None) is not None:
+            return module
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Не удалось импортировать модуль бота")
+
+
 def smoke_check() -> None:
     _ensure_minimal_env()
 
-    bot_module = importlib.import_module("bot")
+    bot_module = _import_bot_module()
 
     from telegram.ext import ApplicationBuilder
 
@@ -47,7 +66,7 @@ def run(argv: list[str] | None = None) -> None:
         print("SMOKE OK")
         return
 
-    bot_module = importlib.import_module("bot")
+    bot_module = _import_bot_module()
     main = getattr(bot_module, "main", None)
     if main is None:
         raise RuntimeError("bot.main не найден")

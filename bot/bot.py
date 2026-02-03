@@ -7277,16 +7277,20 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
             old_expiry_disp = fallback_expiry if old_expiry_ms is None else format_expiry_display(old_expiry_ms, admin_lang, now_ms=now_ms)
             new_expiry_disp = format_expiry_display(new_expiry_ms, admin_lang, now_ms=now_ms)
+            safe_buyer_username = _escape_markdown(buyer_username)
+            safe_plan_name = _escape_markdown(plan_name)
+            safe_old_expiry = _escape_markdown(old_expiry_disp)
+            safe_new_expiry = _escape_markdown(new_expiry_disp)
 
             admin_msg = (
                 f"{title}\n\n"
                 f"{label_type}: *{sale_type}*\n"
-                f"{label_user}: @{buyer_username} (`{tg_id}`)\n"
-                f"{label_plan}: {plan_name}\n"
+                f"{label_user}: @{safe_buyer_username} (`{tg_id}`)\n"
+                f"{label_plan}: {safe_plan_name}\n"
                 f"{label_amount}: {payment.total_amount} Stars\n"
                 f"{label_added}: {days_to_add} {unit_days}\n"
-                f"{label_before}: {old_expiry_disp}\n"
-                f"{label_after}: {new_expiry_disp}"
+                f"{label_before}: {safe_old_expiry}\n"
+                f"{label_after}: {safe_new_expiry}"
             )
             if charge_id:
                 admin_msg += f"\n{label_charge}: `{charge_id}`"
@@ -9258,7 +9262,7 @@ def register_handlers(application):
 
     application.add_handler(CallbackQueryHandler(support_menu, pattern='^support_menu$'))
 
-    application.add_handler(MessageHandler(~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(~filters.COMMAND & ~filters.SUCCESSFUL_PAYMENT, handle_message))
 
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment))
@@ -9888,11 +9892,15 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
 
-                try:
-                    admin_msg = f"⚠️ **RESTORED PAYMENT**\nUser: `{tg_id}`\nAmount: {amount}\nPlan: {plan_id}\nAdded: {days} days\nCharge: `{charge_id}`"
-                    await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, parse_mode='Markdown')
-                except Exception:
-                    pass
+                admin_msg = (
+                    f"⚠️ **RESTORED PAYMENT**\n"
+                    f"User: `{tg_id}`\n"
+                    f"Amount: {amount}\n"
+                    f"Plan: `{plan_id}`\n"
+                    f"Added: {days} days\n"
+                    f"Charge: `{charge_id}`"
+                )
+                await _send_admin_message(context, admin_msg)
             if days > 0 and not should_extend:
                 try:
                     cursor.execute(
