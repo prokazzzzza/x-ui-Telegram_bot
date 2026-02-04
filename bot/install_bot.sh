@@ -161,6 +161,10 @@ read -p "Enter Server IP [$DETECTED_IP]: " INPUT_IP
 if [[ -z "$INPUT_IP" ]]; then
     INPUT_IP="$DETECTED_IP"
 fi
+while [[ -z "$INPUT_IP" ]]; do
+    _warn "Server IP cannot be empty."
+    read -p "Enter Server IP: " INPUT_IP
+done
 
 # 4. Prepare Bot Directory
 BOT_DIR="$XUI_PATH/bot"
@@ -169,6 +173,7 @@ ENV_FILE="$BOT_DIR/.env.${BOT_SLUG}"
 BOT_DB_PATH="$BOT_DIR/bot_data_${BOT_SLUG}.db"
 BOT_LOG_DIR="/usr/local/x-ui/logs"
 BOT_LOG_FILE="$BOT_LOG_DIR/bot_${BOT_SLUG}.log"
+mkdir -p "$BOT_LOG_DIR"
 
 echo -e "\n${BLUE}--- Setting up Bot ---${NC}"
 tmp_dir="$(mktemp -d)"

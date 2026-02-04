@@ -477,6 +477,8 @@ TEXTS = {
         "stats_title": "📊 Your Stats\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
         "stats_no_sub": "No stats found. Subscription required.",
         "expiry_warning": "⚠️ Subscription Expiring Soon!\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
+        "expiry_warning_7d": "⏳ **Your subscription ends in 7 hours**\n\nRenew now to keep your connection uninterrupted.\n\n👇 **Tap below to renew:**",
+        "expiry_warning_3d": "⏳ **Your subscription ends in 3 hours**\n\nRenew now to keep your connection uninterrupted.\n\n👇 **Tap below to renew:**",
         "btn_renew": "💎 Renew Now",
         "btn_qrcode": "📱 QR code",
         "btn_instructions": "📚 Setup Instructions",
@@ -492,9 +494,17 @@ TEXTS = {
         "btn_android": "📱 Android (v2RayTun)",
         "btn_ios": "🍎 iOS (V2Box)",
         "btn_pc": "💻 PC (Amnezia/Hiddify)",
+        "btn_happ_ios": "💠 Happ iOS",
+        "btn_happ_android": "💠 Happ Android",
+        "btn_happ_desktop": "💠 Happ Desktop",
+        "btn_happ_tv": "💠 Happ TV",
         "instr_android": "📱 *Android Setup*\n\n1. Install *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* from Google Play.\n2. Copy your key from '🚀 My Config'.\n3. Open v2RayTun -> Tap 'Import' -> 'Import from Clipboard'.\n4. Tap the connection button.",
         "instr_ios": "🍎 *iOS Setup*\n\n1. Install *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* from App Store.\n2. Copy your key from '🚀 My Config'.\n3. Open V2Box, it should detect the key automatically.\n4. Tap 'Import' and then swipe to connect.",
         "instr_pc": "💻 *PC Setup*\n\n1. Install *[AmneziaVPN](https://amnezia.org/)* or *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Copy your key from '🚀 My Config'.\n3. Open the app and paste the key (Import from Clipboard).\n4. Connect.",
+        "instr_happ_ios": "💠 *Happ for iOS*\n\nApp Store:\n- *[Happ Proxy Utility](https://apps.apple.com/us/app/happ-proxy-utility/id6504287215)*\n- *[Happ Proxy Utility Plus](https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973)*\n\nTestFlight:\n- *[Happ TestFlight](https://testflight.apple.com/join/XMls6Ckd)*\n- *[Happ Plus TestFlight](https://testflight.apple.com/join/1bKEcMub)*\n\n1. Copy your key from '🚀 My Config'.\n2. Open Happ and import the key from clipboard.\n3. Connect.",
+        "instr_happ_android": "💠 *Happ for Android*\n\nGoogle Play:\n- *[Happ](https://play.google.com/store/apps/details?id=com.happproxy)*\n\nAPK:\n- *[Happ APK](https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk)*\n- *[Happ Beta APK](https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ_beta.apk)*\n\n1. Copy your key from '🚀 My Config'.\n2. Open Happ and import the key from clipboard.\n3. Connect.",
+        "instr_happ_desktop": "💠 *Happ for Desktop*\n\nWindows:\n- *[Happ Windows](https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe)*\n\nmacOS:\n- *[Happ Proxy Utility](https://apps.apple.com/us/app/happ-proxy-utility/id6504287215)*\n- *[Happ Proxy Utility Plus](https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973)*\n- *[Happ macOS DMG](https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg)*\n\nLinux:\n- *[Happ Linux DEB](https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.deb)*\n- *[Happ Linux RPM](https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.rpm)*\n\n1. Copy your key from '🚀 My Config'.\n2. Open Happ and import the key from clipboard.\n3. Connect.",
+        "instr_happ_tv": "💠 *Happ for TV*\n\nAndroid TV:\n- *[Happ TV](https://play.google.com/store/apps/details?id=com.happproxy)*\n- *[Happ TV APK](https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk)*\n\n1. Copy your key from '🚀 My Config'.\n2. Open Happ and import the key from clipboard.\n3. Connect.",
         "plan_1_week": "1 Week",
         "plan_2_weeks": "2 Weeks",
         "plan_1_month": "1 Month",
@@ -511,6 +521,7 @@ TEXTS = {
         "rank_info_sub": "\n🏆 Your Rank (Subscription): #{rank} of {total}\n(Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
+        "btn_admin_health": "🩺 Health Check",
         "btn_admin_prices": "💰 Pricing",
         "btn_admin_promos": "🎁 Promo Codes",
         "btn_suspicious": "⚠️ Multi-IP",
@@ -546,6 +557,15 @@ TEXTS = {
         "poll_preview": "📊 *Poll Preview:*\n\n❓ Question: {question}\n\n🔢 Options:\n{options}\n\nSend this poll to all users?",
         "btn_send_poll": "✅ Send to All",
         "admin_server_title": "🖥 *Server Status*",
+        "health_title": "🩺 *Health Check*",
+        "health_bot_db": "Bot DB",
+        "health_xui_db": "X-UI DB",
+        "health_access_log": "Access log",
+        "health_support_bot": "Support bot",
+        "health_main_bot": "Main bot",
+        "health_ok": "ok",
+        "health_fail": "fail",
+        "health_inbound_missing": "inbound not found",
         "admin_server_live_title": "🖥 *Server Status (LIVE 🟢)*",
         "updates_title": "🧩 *Versions & Updates*",
         "xui_version_label": "🧩 *3x-ui:*",
@@ -800,6 +820,8 @@ TEXTS = {
         "stats_title": "📊 *Ваша статистика*\n\n⬇️ Скачано: {down:.2f} GB\n⬆️ Загружено: {up:.2f} GB\n📦 Всего: {total:.2f} GB",
         "stats_no_sub": "Статистика не найдена. Требуется подписка.",
         "expiry_warning": "⚠️ *Подписка скоро истекает!*\n\nВаша VPN подписка истечет менее чем через 24 часа.\nПожалуйста, продлите её, чтобы избежать отключения.",
+        "expiry_warning_7d": "⏳ *До конца подписки 7 часов*\n\nПродлите сейчас, чтобы доступ не прерывался.\n\n👇 *Нажмите ниже, чтобы продлить:*",
+        "expiry_warning_3d": "⏳ *До конца подписки 3 часа*\n\nПродлите сейчас, чтобы доступ не прерывался.\n\n👇 *Нажмите ниже, чтобы продлить:*",
         "btn_renew": "💎 Продлить сейчас",
         "btn_instructions": "📚 Инструкция по настройке",
         "btn_qrcode": "📱 QR код",
@@ -816,9 +838,19 @@ TEXTS = {
         "btn_android": "📱 Android (v2RayTun)",
         "btn_ios": "🍎 iOS (V2Box)",
         "btn_pc": "💻 PC (Amnezia/Hiddify)",
+        "btn_all_devices": "💠 Все устройства (Happ)",
+        "btn_happ_ios": "💠 Happ iOS",
+        "btn_happ_android": "💠 Happ Android",
+        "btn_happ_desktop": "💠 Happ Desktop",
+        "btn_happ_tv": "💠 Happ TV",
         "instr_android": "📱 *Настройка Android*\n\n1. Скачайте *[v2RayTun](https://play.google.com/store/apps/details?id=com.v2raytun.android)* из Google Play.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте v2RayTun -> нажмите 'Import' -> 'Import from Clipboard'.\n4. Нажмите кнопку подключения.",
         "instr_ios": "🍎 *Настройка iOS*\n\n1. Скачайте *[V2Box](https://apps.apple.com/app/v2box-v2ray-client/id6446814690)* из App Store.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте V2Box, он должен автоматически предложить добавить ключ.\n4. Нажмите 'Import', выберите сервер и сдвиньте переключатель для подключения.",
         "instr_pc": "💻 *Настройка PC*\n\n1. Установите *[AmneziaVPN](https://amnezia.org/)* или *[Hiddify](https://github.com/hiddify/hiddify-next/releases)*.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте приложение и вставьте ключ (Import from Clipboard).\n4. Подключитесь.",
+        "instr_all_devices": "💠 *Настройка для всех устройств*\n\n1. Установите *[Happ](https://www.happ.su/main/ru)*.\n2. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n3. Откройте Happ и импортируйте ключ из буфера.\n4. Подключитесь.",
+        "instr_happ_ios": "💠 *Happ для iOS*\n\nApp Store:\n- *[Happ Proxy Utility](https://apps.apple.com/us/app/happ-proxy-utility/id6504287215)*\n- *[Happ Proxy Utility Plus](https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973)*\n\nTestFlight:\n- *[Happ TestFlight](https://testflight.apple.com/join/XMls6Ckd)*\n- *[Happ Plus TestFlight](https://testflight.apple.com/join/1bKEcMub)*\n\n1. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n2. Откройте Happ и импортируйте ключ из буфера.\n3. Подключитесь.",
+        "instr_happ_android": "💠 *Happ для Android*\n\nGoogle Play:\n- *[Happ](https://play.google.com/store/apps/details?id=com.happproxy)*\n\nAPK:\n- *[Happ APK](https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk)*\n- *[Happ Beta APK](https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ_beta.apk)*\n\n1. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n2. Откройте Happ и импортируйте ключ из буфера.\n3. Подключитесь.",
+        "instr_happ_desktop": "💠 *Happ для Desktop*\n\nWindows:\n- *[Happ Windows](https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe)*\n\nmacOS:\n- *[Happ Proxy Utility](https://apps.apple.com/us/app/happ-proxy-utility/id6504287215)*\n- *[Happ Proxy Utility Plus](https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973)*\n- *[Happ macOS DMG](https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg)*\n\nLinux:\n- *[Happ Linux DEB](https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.deb)*\n- *[Happ Linux RPM](https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.linux.x64.rpm)*\n\n1. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n2. Откройте Happ и импортируйте ключ из буфера.\n3. Подключитесь.",
+        "instr_happ_tv": "💠 *Happ для TV*\n\nAndroid TV:\n- *[Happ TV](https://play.google.com/store/apps/details?id=com.happproxy)*\n- *[Happ TV APK](https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk)*\n\n1. Скопируйте ваш ключ из '🚀 Мой конфиг'.\n2. Откройте Happ и импортируйте ключ из буфера.\n3. Подключитесь.",
         "plan_1_week": "1 Неделя",
         "plan_2_weeks": "2 Недели",
         "plan_1_month": "1 Месяц",
@@ -837,6 +869,7 @@ TEXTS = {
         "rank_info_sub": "\n🏆 Ваше место {rank}-е в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
+        "btn_admin_health": "🩺 Проверка",
         "btn_admin_prices": "💰 Настройка цен",
         "btn_admin_promos": "🎁 Промокоды",
         "btn_admin_poll": "📊 Опросы",
@@ -867,6 +900,15 @@ TEXTS = {
         "poll_vote_registered": "✅ Ваш голос учтен!",
         "btn_send_poll": "✅ Отправить всем",
         "admin_server_title": "🖥 *Состояние сервера*",
+        "health_title": "🩺 *Проверка здоровья*",
+        "health_bot_db": "БД бота",
+        "health_xui_db": "БД X-UI",
+        "health_access_log": "Журнал access.log",
+        "health_support_bot": "Support bot",
+        "health_main_bot": "Основной бот",
+        "health_ok": "ок",
+        "health_fail": "ошибка",
+        "health_inbound_missing": "inbound не найден",
         "admin_server_live_title": "🖥 *Состояние сервера (LIVE 🟢)*",
         "updates_title": "🔄 *Версии и обновления*",
         "xui_version_label": "🧩 *3x-ui:*",
@@ -3651,6 +3693,7 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton(t("btn_live_monitor", lang), callback_data='admin_server_live')],
+        [InlineKeyboardButton(t("btn_admin_health", lang), callback_data='admin_health')],
         [InlineKeyboardButton(t("btn_update_xui_xray", lang), callback_data='admin_update_xui_xray')],
         [InlineKeyboardButton(t("btn_refresh", lang), callback_data='admin_server')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
@@ -3662,6 +3705,90 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # If message content is same (Telegram API error), we just ignore or answer
         if "Message is not modified" not in str(e):
              await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+def _health_check_bot_db() -> tuple[bool, str]:
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM user_prefs")
+        count = cursor.fetchone()[0]
+        conn.close()
+        return True, str(count)
+    except Exception as e:
+        return False, str(e)
+
+
+def _health_check_xui_db() -> tuple[bool, str]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return True, ""
+        return False, "inbound_missing"
+    except Exception as e:
+        return False, str(e)
+
+
+async def admin_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query:
+        await query.answer()
+        tg_id = str(query.from_user.id)
+    else:
+        tg_id = str(update.message.from_user.id)
+
+    if tg_id != ADMIN_ID:
+        return
+
+    lang = get_lang(tg_id)
+
+    bot_ok, bot_detail = _health_check_bot_db()
+    xui_ok, xui_detail = _health_check_xui_db()
+    access_log_ok = os.path.exists(ACCESS_LOG_PATH)
+
+    application = getattr(context, "application", None)
+    support_bot = None
+    if application is not None:
+        bot_data = getattr(application, "bot_data", None)
+        if isinstance(bot_data, dict):
+            support_bot = bot_data.get("support_bot")
+
+    support_bot_ok = support_bot is not None
+    main_bot_ok = getattr(context, "bot", None) is not None
+
+    def _line(ok: bool, label: str, detail: str = "") -> str:
+        status = t("health_ok", lang) if ok else t("health_fail", lang)
+        suffix = f"{detail}" if detail else ""
+        return f"{'✅' if ok else '❌'} {label} — {status}{suffix}"
+
+    bot_detail_text = f" ({bot_detail})" if bot_ok else f": {bot_detail}"
+    if xui_ok:
+        xui_detail_text = ""
+    else:
+        xui_detail_text = f": {t('health_inbound_missing', lang)}" if xui_detail == "inbound_missing" else f": {xui_detail}"
+
+    text = "\n".join([
+        t("health_title", lang),
+        "",
+        _line(bot_ok, t("health_bot_db", lang), bot_detail_text),
+        _line(xui_ok, t("health_xui_db", lang), xui_detail_text),
+        _line(access_log_ok, t("health_access_log", lang)),
+        _line(support_bot_ok, t("health_support_bot", lang)),
+        _line(main_bot_ok, t("health_main_bot", lang)),
+    ])
+
+    keyboard = [
+        [InlineKeyboardButton(t("btn_refresh", lang), callback_data='admin_health')],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
+    ]
+
+    if query:
+        await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def admin_update_xui_xray(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data['live_monitoring_active'] = False
@@ -8212,6 +8339,10 @@ async def instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_android", lang), callback_data='instr_android')],
         [InlineKeyboardButton(t("btn_ios", lang), callback_data='instr_ios')],
         [InlineKeyboardButton(t("btn_pc", lang), callback_data='instr_pc')],
+        [InlineKeyboardButton(t("btn_happ_ios", lang), callback_data='instr_happ_ios')],
+        [InlineKeyboardButton(t("btn_happ_android", lang), callback_data='instr_happ_android')],
+        [InlineKeyboardButton(t("btn_happ_desktop", lang), callback_data='instr_happ_desktop')],
+        [InlineKeyboardButton(t("btn_happ_tv", lang), callback_data='instr_happ_tv')],
         [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
     ]
 
@@ -8237,8 +8368,8 @@ async def show_instruction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
 
-    platform = query.data.split('_')[1] # android, ios, pc
-    text = t(f"instr_{platform}", lang)
+    platform_key = query.data.replace("instr_", "", 1)
+    text = t(f"instr_{platform_key}", lang)
 
     keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data='instructions')]]
 
@@ -8462,7 +8593,8 @@ async def check_expiring_subscriptions(context: ContextTypes.DEFAULT_TYPE):
         clients = settings.get('clients', [])
 
         current_time = time.time() * 1000
-        one_day_ms = 24 * 60 * 60 * 1000
+        one_hour_ms = 60 * 60 * 1000
+        one_day_ms = 24 * one_hour_ms
 
         # Connect to Bot DB for notifications
         conn_bot = sqlite3.connect(BOT_DB_PATH)
@@ -8485,39 +8617,42 @@ async def check_expiring_subscriptions(context: ContextTypes.DEFAULT_TYPE):
                     if not cursor_bot.fetchone():
                         is_trial = True
 
-                # Warning: 24h before
-                if 0 < time_left <= one_day_ms:
-                    # Check if already sent warning
-                    cursor_bot.execute("SELECT date FROM notifications WHERE tg_id=? AND type='expiry_warning_24h'", (tg_id,))
-                    notif = cursor_bot.fetchone()
+                if is_trial:
+                    reminders = [
+                        ("expiry_warning_24h", "trial_expiring", one_day_ms, 0),
+                    ]
+                else:
+                    reminders = [
+                        ("expiry_warning_7d", "expiry_warning_7d", 7 * one_hour_ms, 6 * one_hour_ms),
+                        ("expiry_warning_3d", "expiry_warning_3d", 3 * one_hour_ms, 2 * one_hour_ms),
+                        ("expiry_warning_24h", "expiry_warning", one_day_ms, 0),
+                    ]
 
-                    should_send = True
-                    if notif:
-                        # If sent more than 20 hours ago, maybe send again? No, once per cycle.
-                        # We assume expiry time changes if renewed.
-                        # But if expiry time is same, we shouldn't spam.
-                        # Let's check if the stored date is recent (< 24h ago)
-                        if (time.time() - notif[0]) < 86400:
+                for notif_type, msg_key, upper, lower in reminders:
+                    if lower < time_left <= upper:
+                        cursor_bot.execute("SELECT date FROM notifications WHERE tg_id=? AND type=?", (tg_id, notif_type))
+                        notif = cursor_bot.fetchone()
+
+                        should_send = True
+                        if notif and (time.time() - notif[0]) < 86400:
                             should_send = False
 
-                    if should_send:
-                        try:
-                            user_lang = get_lang(tg_id)
-                            msg_key = "trial_expiring" if is_trial else "expiry_warning"
-
-                            await context.bot.send_message(
-                                chat_id=tg_id,
-                                text=t(msg_key, user_lang),
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_renew", user_lang), callback_data='shop')]]),
-                                parse_mode='Markdown'
-                            )
-                            # Record notification
-                            cursor_bot.execute("INSERT OR REPLACE INTO notifications (tg_id, type, date) VALUES (?, ?, ?)",
-                                               (tg_id, 'expiry_warning_24h', int(time.time())))
-                            conn_bot.commit()
-                            logging.info(f"Sent expiry warning to {tg_id}")
-                        except Exception as ex:
-                            logging.warning(f"Failed to send warning to {tg_id}: {ex}")
+                        if should_send:
+                            try:
+                                user_lang = get_lang(tg_id)
+                                await context.bot.send_message(
+                                    chat_id=tg_id,
+                                    text=t(msg_key, user_lang),
+                                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_renew", user_lang), callback_data='shop')]]),
+                                    parse_mode='Markdown'
+                                )
+                                cursor_bot.execute("INSERT OR REPLACE INTO notifications (tg_id, type, date) VALUES (?, ?, ?)",
+                                                   (tg_id, notif_type, int(time.time())))
+                                conn_bot.commit()
+                                logging.info(f"Sent expiry warning to {tg_id} ({notif_type})")
+                            except Exception as ex:
+                                logging.warning(f"Failed to send warning to {tg_id}: {ex}")
+                        break
 
         conn_bot.close()
         conn.close()
@@ -9194,7 +9329,9 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(show_instruction, pattern='^instr_'))
 
     application.add_handler(CommandHandler('admin', admin_panel))
+    application.add_handler(CommandHandler('health', admin_health))
     application.add_handler(CallbackQueryHandler(admin_panel, pattern='^admin_panel$'))
+    application.add_handler(CallbackQueryHandler(admin_health, pattern='^admin_health$'))
     application.add_handler(CallbackQueryHandler(admin_stats, pattern='^admin_stats$'))
     application.add_handler(CallbackQueryHandler(admin_cleanup_db, pattern='^admin_cleanup_db$'))
     application.add_handler(CallbackQueryHandler(admin_db_audit, pattern='^admin_db_audit$'))
@@ -9314,9 +9451,25 @@ _MONITOR_ONLINE_EMA: float | None = None
 _MONITOR_PAYMENT_ERRORS: deque[float] = deque(maxlen=5000)
 
 
+def _record_admin_delivery_error(error: Exception, text: str) -> None:
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        message = f"{str(error)} | {text[:500]}"
+        cursor.execute(
+            "INSERT INTO flash_delivery_errors (user_id, error_message, timestamp) VALUES (?, ?, ?)",
+            ("admin_notify", message, int(time.time()))
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 async def _send_admin_message(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     if not ADMIN_ID:
         return
+
     application = getattr(context, "application", None)
     support_bot = None
     if application is not None:
@@ -9324,17 +9477,35 @@ async def _send_admin_message(context: ContextTypes.DEFAULT_TYPE, text: str) -> 
         if isinstance(bot_data, dict):
             support_bot = bot_data.get("support_bot")
 
-    if support_bot:
+    async def _try_send(bot) -> tuple[bool, Exception | None]:
+        if not bot:
+            return False, None
         try:
-            await support_bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode='Markdown')
-            return
-        except Exception:
-            pass
+            await bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode='Markdown')
+            return True, None
+        except BadRequest:
+            try:
+                await bot.send_message(chat_id=ADMIN_ID, text=text)
+                return True, None
+            except Exception as e:
+                return False, e
+        except Exception as e:
+            return False, e
 
-    try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode='Markdown')
-    except Exception as e:
-        logging.error(f"Failed to send admin message: {e}")
+    ok, err = await _try_send(support_bot)
+    if ok:
+        return
+
+    ok, err = await _try_send(context.bot)
+    if ok:
+        return
+
+    if err is None:
+        err = RuntimeError("admin notify failed: no bot available")
+
+    logging.error(f"Failed to send admin message: {err}")
+    log_action(f"ERROR: Failed to send admin message: {err}")
+    _record_admin_delivery_error(err, text)
 
 
 def _monitor_can_alert(key: str, now: float) -> bool:
