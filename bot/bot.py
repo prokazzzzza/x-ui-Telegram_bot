@@ -1,4 +1,5 @@
 import logging
+import base64
 import sqlite3
 import json
 import uuid
@@ -14,6 +15,12 @@ import random
 import string
 import re
 import platform
+import ipaddress
+import socket
+import hashlib
+import threading
+import http.server
+from urllib.parse import urlparse
 import zipfile
 from collections import deque
 from typing import Optional, Any, Dict, Iterable, Mapping, Protocol, TypeAlias, TypedDict
@@ -21,6 +28,7 @@ from io import BytesIO
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
 import httpx
+import paramiko
 from telegram import Update as TelegramUpdate, CallbackQuery as TelegramCallbackQuery, Message as TelegramMessage, PreCheckoutQuery as TelegramPreCheckoutQuery, SuccessfulPayment as TelegramSuccessfulPayment, User as TelegramUser, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButtonRequestUsers
 from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, PreCheckoutQueryHandler, MessageHandler, filters
@@ -66,6 +74,8 @@ load_dotenv()
 
 def log_action(message):
     try:
+        if "Multi-sub server started on" in str(message):
+            return
         timestamp = datetime.datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
         entry = f"{timestamp} - {message}\n"
 
@@ -84,6 +94,22 @@ def log_action(message):
         print(f"LOG: {message}")
     except Exception as e:
         print(f"Logging failed: {e}")
+
+def _purge_log_file_lines(needle: str) -> None:
+    if not needle:
+        return
+    try:
+        if not LOG_FILE or not os.path.exists(LOG_FILE):
+            return
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        kept = [line for line in lines if needle not in line]
+        if kept == lines:
+            return
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+    except Exception:
+        return
 
 async def _systemctl(*args: str) -> None:
     try:
@@ -363,6 +389,11 @@ BOT_DB_PATH = os.getenv(
     os.path.join("/usr/local/x-ui/bot", f"bot_data_{BOT_SLUG}.db" if BOT_SLUG else "bot_data.db"),
 )
 INBOUND_ID = 1
+RU_BRIDGE_INBOUND_ID_RAW = os.getenv("RU_BRIDGE_INBOUND_ID")
+RU_BRIDGE_INBOUND_ID: Optional[int] = (
+    int(RU_BRIDGE_INBOUND_ID_RAW) if RU_BRIDGE_INBOUND_ID_RAW and RU_BRIDGE_INBOUND_ID_RAW.isdigit() else None
+)
+RU_BRIDGE_INBOUND_REMARK = (os.getenv("RU_BRIDGE_INBOUND_REMARK") or "").strip()
 PUBLIC_KEY = os.getenv("PUBLIC_KEY")
 IP = os.getenv("HOST_IP")
 PORT_STR = os.getenv("HOST_PORT")
@@ -370,6 +401,30 @@ PORT: Optional[int] = int(PORT_STR) if PORT_STR and PORT_STR.isdigit() else None
 
 SNI = os.getenv("SNI")
 SID = os.getenv("SID")
+RU_BRIDGE_HOST = (os.getenv("RU_BRIDGE_HOST") or "").strip()
+RU_BRIDGE_PORT_RAW = os.getenv("RU_BRIDGE_PORT")
+RU_BRIDGE_PORT: Optional[int] = int(RU_BRIDGE_PORT_RAW) if RU_BRIDGE_PORT_RAW and RU_BRIDGE_PORT_RAW.isdigit() else None
+RU_BRIDGE_PUBLIC_KEY = (os.getenv("RU_BRIDGE_PUBLIC_KEY") or "").strip()
+RU_BRIDGE_SNI = (os.getenv("RU_BRIDGE_SNI") or "").strip()
+RU_BRIDGE_SID = (os.getenv("RU_BRIDGE_SID") or "").strip()
+RU_BRIDGE_FLOW = (os.getenv("RU_BRIDGE_FLOW") or "").strip()
+RU_BRIDGE_SPX = (os.getenv("RU_BRIDGE_SPX") or "").strip()
+RU_BRIDGE_NETWORK = (os.getenv("RU_BRIDGE_NETWORK") or "xhttp").strip()
+RU_BRIDGE_XHTTP_PATH = (os.getenv("RU_BRIDGE_XHTTP_PATH") or "/api/v1/update").strip()
+RU_BRIDGE_XHTTP_MODE = (os.getenv("RU_BRIDGE_XHTTP_MODE") or "packet-up").strip()
+RU_BRIDGE_SUB_HOST = (os.getenv("RU_BRIDGE_SUB_HOST") or "").strip()
+RU_BRIDGE_SUB_PORT_RAW = os.getenv("RU_BRIDGE_SUB_PORT")
+RU_BRIDGE_SUB_PORT: Optional[int] = int(RU_BRIDGE_SUB_PORT_RAW) if RU_BRIDGE_SUB_PORT_RAW and RU_BRIDGE_SUB_PORT_RAW.isdigit() else None
+RU_BRIDGE_SUB_PATH = (os.getenv("RU_BRIDGE_SUB_PATH") or "").strip()
+MOBILE_INBOUND_ID_RAW = os.getenv("MOBILE_INBOUND_ID")
+MOBILE_INBOUND_ID = int(MOBILE_INBOUND_ID_RAW) if MOBILE_INBOUND_ID_RAW and MOBILE_INBOUND_ID_RAW.isdigit() else 0
+MOBILE_SSH_HOST = (os.getenv("MOBILE_SSH_HOST") or "").strip()
+MOBILE_SSH_PORT_RAW = os.getenv("MOBILE_SSH_PORT")
+MOBILE_SSH_PORT = int(MOBILE_SSH_PORT_RAW) if MOBILE_SSH_PORT_RAW and MOBILE_SSH_PORT_RAW.isdigit() else 22
+MOBILE_SSH_USER = (os.getenv("MOBILE_SSH_USER") or "").strip()
+MOBILE_SSH_PASSWORD = (os.getenv("MOBILE_SSH_PASSWORD") or "").strip()
+MOBILE_FLOW = (os.getenv("MOBILE_FLOW") or "").strip()
+MOBILE_SUB_PUBLIC_URL = (os.getenv("MOBILE_SUB_PUBLIC_URL") or "").strip()
 TIMEZONE = ZoneInfo("Europe/Moscow")
 LOG_DIR = os.getenv("BOT_LOG_DIR", "/usr/local/x-ui/logs")
 LOG_FILE = os.getenv(
@@ -381,8 +436,42 @@ XUI_SYSTEMD_SERVICE = os.getenv("XUI_SYSTEMD_SERVICE", "x-ui")
 BOT_SYSTEMD_SERVICE = os.getenv("BOT_SYSTEMD_SERVICE", "x-ui-bot")
 BACKUP_KEEP_FILES = int(os.getenv("BACKUP_KEEP_FILES", "20"))
 BACKUP_KEEP_SETS = int(os.getenv("BACKUP_KEEP_SETS", "20"))
+AUTO_SYNC_INTERVAL_SEC = int(os.getenv("AUTO_SYNC_INTERVAL_SEC", "300"))
+MULTI_SUB_ENABLE_RAW = os.getenv("MULTI_SUB_ENABLE", "1")
+MULTI_SUB_ENABLE = str(MULTI_SUB_ENABLE_RAW).strip().lower() in ("1", "true", "yes", "on")
+MULTI_SUB_HOST = os.getenv("MULTI_SUB_HOST", "0.0.0.0")
+MULTI_SUB_PORT_RAW = os.getenv("MULTI_SUB_PORT", "8788")
+MULTI_SUB_PUBLIC_URL = (os.getenv("MULTI_SUB_PUBLIC_URL") or "").strip()
+try:
+    MULTI_SUB_PORT = int(MULTI_SUB_PORT_RAW)
+except ValueError:
+    MULTI_SUB_PORT = 8788
 
 _RESTORE_LOCK = asyncio.Lock()
+
+def _mobile_feature_enabled() -> bool:
+    return bool(MOBILE_SSH_HOST and MOBILE_SSH_USER and MOBILE_SSH_PASSWORD)
+
+def _mobile_missing_env_keys() -> list[str]:
+    missing: list[str] = []
+    if not MOBILE_SSH_HOST:
+        missing.append("MOBILE_SSH_HOST")
+    if not MOBILE_SSH_USER:
+        missing.append("MOBILE_SSH_USER")
+    if not MOBILE_SSH_PASSWORD:
+        missing.append("MOBILE_SSH_PASSWORD")
+    return missing
+
+def _mobile_not_configured_text(tg_id: str, lang: str) -> str:
+    base = t("mobile_not_configured", lang)
+    is_admin = bool(ADMIN_ID and str(tg_id) == str(ADMIN_ID))
+    if not is_admin:
+        return base
+    missing = _mobile_missing_env_keys()
+    if missing:
+        keys = "\n".join(f"- `{k}`" for k in missing)
+        return f"{base}\n\nНе хватает переменных окружения в .env:\n{keys}"
+    return f"{base}\n\nПеременные окружения заданы. Проверьте доступ по SSH и наличие VLESS+REALITY inbound на VPS."
 
 ACCESS_LOG_PATH = "/usr/local/x-ui/access.log"
 SUSPICIOUS_EVENTS_LOOKBACK_SEC = int(os.getenv("SUSPICIOUS_EVENTS_LOOKBACK_SEC", "86400"))
@@ -442,7 +531,12 @@ PRICES = {
     "2_weeks": {"amount": 60, "days": 14},
     "1_month": {"amount": 1, "days": 30},
     "3_months": {"amount": 3, "days": 90},
-    "1_year": {"amount": 5, "days": 365}
+    "ru_bridge": {"amount": 0, "days": 1},
+    "1_year": {"amount": 5, "days": 365},
+    "m_1_month": {"amount": 149, "days": 30},
+    "m_3_months": {"amount": 399, "days": 90},
+    "m_6_months": {"amount": 799, "days": 180},
+    "m_1_year": {"amount": 1399, "days": 365},
 }
 
 # Localization
@@ -451,13 +545,26 @@ TEXTS = {
         "welcome": "Welcome to Maxi_VPN Bot! 🛡️\n\nPlease select your language:",
         "main_menu": "Welcome to Maxi_VPN! 🛡️\n\nPurchase a subscription using Telegram Stars to get high-speed secure access.",
         "btn_buy": "💎 Buy Subscription",
+        "btn_mobile": "📱 3G/4G (Whitelist bypass 🔐)",
         "btn_config": "🚀 My Config",
+        "btn_ru_bridge": "🧩 RU-Bridge",
         "btn_stats": "📊 My Stats",
-        "btn_trial": "🆓 Free Trial (3 Days)",
+        "btn_trial": "🆓 Free Trial",
+        "btn_trial_3d": "🆓 Trial (3 Days)",
+        "btn_mobile_trial_1d": "📱 3G/4G Trial (1 Day)",
+        "trial_menu_title": "Choose a trial option:",
+        "mobile_trial_used": "❌ *3G/4G trial already used*\n\nActivated: {date}",
         "btn_ref": "👥 Referrals",
         "btn_promo": "🎁 Redeem Promo",
         "shop_title": "🛒 Select a Plan:\n\nPay safely with Telegram Stars.",
         "btn_back": "🔙 Back",
+        "mobile_menu_title": "📱 3G/4G Menu",
+        "mobile_menu_desc": "🔐 **Whitelist bypass for mobile operators**\n\nHelps bypass mobile operator restrictions (\"white lists\") so your internet and favorite services keep working.",
+        "btn_mobile_buy": "🛒 Buy 3G/4G",
+        "btn_mobile_config": "📱 My 3G/4G Config",
+        "btn_mobile_stats": "📶 My 3G/4G Stats",
+        "mobile_shop_title": "🛒 Select a 3G/4G Plan:\n\nPay safely with Telegram Stars.",
+        "mobile_not_configured": "📱 3G/4G is not configured. Please contact support.",
         "btn_how_to_buy_stars": "⭐️ How to buy Stars?",
         "how_to_buy_stars_text": "⭐️ **How to buy Telegram Stars?**\n\nTelegram Stars is a digital currency for payments.\n\n1. **Via @PremiumBot:** The best way. Just start the bot and choose a stars package.\n2. **In-app:** Purchase via Apple/Google (might be more expensive).\n3. **Fragment:** Buy with TON on Fragment.\n\nAfter buying stars, come back here and select a plan!",
         "label_1_week": "1 Week Subscription",
@@ -465,15 +572,34 @@ TEXTS = {
         "label_1_month": "1 Month Subscription",
         "label_3_months": "3 Months Subscription",
         "label_6_months": "6 Months Subscription",
+        "label_ru_bridge": "RU-Bridge (1 Day)",
         "label_1_year": "1 Year Subscription",
+        "label_m_1_week": "3G/4G: 1 Week",
+        "label_m_1_month": "3G/4G: 1 Month",
+        "label_m_3_months": "3G/4G: 3 Months",
+        "label_m_6_months": "3G/4G: 6 Months",
+        "label_m_1_year": "3G/4G: 1 Year",
         "invoice_title": "Maxi_VPN Subscription",
+        "invoice_title_mobile": "3G/4G Subscription",
         "success_created": "✅ Success! Subscription created.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
         "success_extended": "✅ Success! Subscription extended.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
         "success_updated": "✅ Success! Subscription updated.\n\n📅 New Expiry: {expiry}\n\nUse '🚀 My Config' to get your connection key.",
+        "mobile_success_created": "✅ Success! 3G/4G subscription created.\n\n📅 New Expiry: {expiry}\n\nOpen '📱 3G/4G' to get your key.",
+        "mobile_success_extended": "✅ Success! 3G/4G subscription extended.\n\n📅 New Expiry: {expiry}\n\nOpen '📱 3G/4G' to get your key.",
+        "mobile_success_updated": "✅ Success! 3G/4G subscription updated.\n\n📅 New Expiry: {expiry}\n\nOpen '📱 3G/4G' to get your key.",
         "error_generic": "An error occurred. Please contact support.",
         "sub_expired": "⚠️ Subscription Expired\n\nYour subscription has expired. Please buy a new plan to restore access.",
         "sub_active": "✅ Your Subscription is Active\n\n📅 Expires: {expiry}\n\nKey:\n`{link}`",
         "sub_not_found": "❌ No Subscription Found\n\nYou don't have an active subscription. Please visit the shop.",
+        "ru_bridge_sub_active": "✅ RU-Bridge Active\n\n📅 Expires: {expiry}\n\n{sub_block}",
+        "ru_bridge_sub_expired": "⚠️ RU-Bridge Subscription Expired\n\nPlease buy a new plan to restore access.",
+        "ru_bridge_sub_not_found": "❌ RU-Bridge Subscription Not Found\n\nPlease visit the shop.",
+        "ru_bridge_sub_block": "Subscription:\n<code>{sub}</code>",
+        "ru_bridge_sub_empty": "Subscription: not available",
+        "ru_bridge_not_configured": "RU-Bridge is not configured. Please contact support.",
+        "ru_bridge_success_created": "✅ RU-Bridge subscription created.\n\n📅 New expiry: {expiry}\n\nUse '🧩 RU-Bridge' to get your connection key.",
+        "ru_bridge_success_extended": "✅ RU-Bridge subscription extended.\n\n📅 New expiry: {expiry}\n\nUse '🧩 RU-Bridge' to get your connection key.",
+        "ru_bridge_success_updated": "✅ RU-Bridge subscription updated.\n\n📅 New expiry: {expiry}\n\nUse '🧩 RU-Bridge' to get your connection key.",
         "stats_title": "📊 Your Stats\n\n⬇️ Download: {down:.2f} GB\n⬆️ Upload: {up:.2f} GB\n📦 Total: {total:.2f} GB",
         "stats_no_sub": "No stats found. Subscription required.",
         "expiry_warning": "⚠️ Subscription Expiring Soon!\n\nYour VPN subscription will expire in less than 24 hours.\nPlease renew it to avoid service interruption.",
@@ -510,17 +636,26 @@ TEXTS = {
         "plan_1_month": "1 Month",
         "plan_3_months": "3 Months",
         "plan_6_months": "6 Months",
+        "plan_ru_bridge": "RU-Bridge (1 Day)",
         "plan_1_year": "1 Year",
+        "plan_m_1_week": "3G/4G 1 Week",
+        "plan_m_1_month": "3G/4G 1 Month",
+        "plan_m_1_year": "3G/4G 1 Year",
         "plan_trial": "Trial (3 Days)",
         "plan_manual": "Manual",
         "plan_unlimited": "Unlimited",
         "sub_type_unknown": "Unknown",
+        "mobile_sub_active_html": "✅ Your 3G/4G subscription is active\n\n📅 Expires: {expiry}",
+        "mobile_sub_not_found": "❌ 3G/4G Subscription Not Found\n\nPlease visit the shop.",
+        "mobile_sub_expired": "⚠️ 3G/4G Subscription Expired\n\nPlease buy a new plan to restore access.",
+        "mobile_stats_title": "📊 3G/4G Stats\n\n⬇️ Download: {down}\n⬆️ Upload: {up}\n📦 Total: {total}",
         "stats_sub_type": "💳 Plan: {plan}",
         "rank_info_traffic": "\n🏆 You downloaded {traffic} via VPN.\nYour rank: #{rank} of {total}.",
         "traffic_info": "\n🏆 You downloaded {traffic} via VPN.",
         "rank_info_sub": "\n🏆 Your Rank (Subscription): #{rank} of {total}\n(Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
+        "btn_admin_ru_bridge": "🧩 RU-Bridge (test)",
         "btn_admin_health": "🩺 Health Check",
         "btn_admin_prices": "💰 Pricing",
         "btn_admin_promos": "🎁 Promo Codes",
@@ -545,6 +680,41 @@ TEXTS = {
         "btn_admin_backup": "💾 Backup",
         "btn_admin_restore": "♻️ Restore",
         "btn_admin_logs": "📜 Logs",
+        "btn_admin_remote_panels": "🧩 Panels",
+        "btn_admin_remote_locations": "🌍 Locations",
+        "btn_admin_remote_nodes": "🛰 Nodes/VPS",
+        "remote_panels_title": "🧩 *Remote Panels*",
+        "remote_locations_title": "🌍 *Locations*",
+        "remote_nodes_title": "🛰 *Nodes/VPS*",
+        "local_node_label": "🏠 Local VPS",
+        "btn_remote_add": "➕ Add",
+        "btn_remote_list": "📜 List",
+        "btn_remote_check": "✅ Check",
+        "btn_remote_sync": "🔄 Sync",
+        "remote_nodes_sync_title": "🔄 *Sync Nodes*",
+        "remote_panel_prompt": "Enter panel data:\n\n`Name(optional) | URL | Token(optional)`\n\nAuto name by IP:\n`| https://panel.example.com | token123`\n\nExample:\n`EU-Panel | https://panel.example.com | token123`",
+        "remote_location_prompt": "Enter location data:\n\n`Name(optional) | HOST | PORT(optional) | SUB_HOST(optional) | SUB_PORT(optional) | SUB_PATH(optional)`\n\nOr full override:\n`Name(optional) | HOST | PORT | PBK | SNI | SID | FLOW(optional) | SUB_HOST(optional) | SUB_PORT(optional) | SUB_PATH(optional)`\n\nAuto name by IP:\n`| 1.2.3.4 | 443`\n\nExample:\n`Germany | de.example.com | 443`",
+        "remote_node_prompt": "Enter node data:\n\n`Name | HOST or HOST:PORT | SSH_USER | SSH_PASSWORD`\n`Name | HOST | PORT | SSH_USER | SSH_PASSWORD`\n\nExample:\n`VPS-1 | 1.2.3.4:22 | root | pass`",
+        "remote_panel_added": "✅ Panel added.",
+        "remote_location_added": "✅ Location added.",
+        "remote_node_added": "✅ Node added.",
+        "remote_node_added_auto": "✅ Node added. Panel and location created automatically.",
+        "remote_panel_deleted": "✅ Panel deleted.",
+        "remote_location_deleted": "✅ Location deleted.",
+        "remote_node_deleted": "✅ Node deleted.",
+        "remote_node_sync_ok": "✅ Node synced.",
+        "remote_node_sync_failed": "❌ Sync failed.",
+        "remote_node_sync_missing_ssh": "❌ SSH credentials are missing for this node.",
+        "remote_list_empty": "List is empty.",
+        "remote_check_ok": "ok",
+        "remote_check_fail": "fail",
+        "btn_user_locations": "🌍 Other Locations",
+        "user_locations_title": "🌍 *Other Locations*\n\nChoose a location:",
+        "user_location_not_found": "Location not found.",
+        "user_location_config": "✅ *Additional Config*\n\nLocation: {name}\n\nKey:\n<code>{key}</code>\n\n{sub_block}",
+        "user_location_sub_block": "Subscription:\n<code>{sub}</code>",
+        "user_location_sub_empty": "Subscription: not available",
+        "user_location_ping": "Availability: {status}",
         "btn_main_menu_back": "🔙 Main Menu",
         "admin_menu_text": "👮‍♂️ *Admin Panel*\n\nSelect an action:",
         "btn_admin_promo_new": "➕ Create New",
@@ -557,6 +727,10 @@ TEXTS = {
         "poll_preview": "📊 *Poll Preview:*\n\n❓ Question: {question}\n\n🔢 Options:\n{options}\n\nSend this poll to all users?",
         "btn_send_poll": "✅ Send to All",
         "admin_server_title": "🖥 *Server Status*",
+        "admin_server_nodes_title": "🌐 *Remote VPS*",
+        "admin_server_node_title": "🖥 *Node Details*",
+        "btn_server_nodes": "🌐 Nodes/VPS",
+        "node_label": "Node",
         "health_title": "🩺 *Health Check*",
         "health_bot_db": "Bot DB",
         "health_xui_db": "X-UI DB",
@@ -618,6 +792,7 @@ TEXTS = {
         "btn_db_audit": "🔎 DB Audit / Sync",
         "btn_db_sync": "🧹 Sync & Clean",
         "btn_sync_nicks": "🔄 Sync Nicknames",
+        "btn_sync_mobile_nicks": "🔄 Sync 3G/4G Nicknames",
         "db_audit_text": "🔎 *DB Audit*\n\nX-UI clients: {xui_clients}\nX-UI clients with TG ID: {xui_tg}\nX-UI clients without TG ID: {xui_no_tg}\n\nBot users (user_prefs): {bot_users}\nBot users not in X-UI: {bot_only}\nX-UI TG IDs missing in bot: {xui_only}\n\nTransactions total: {tx_total} ({tx_sum} ⭐️)\nTransactions not in X-UI: {tx_invalid} ({tx_invalid_sum} ⭐️)\n\nExamples:\nBot-only TG IDs: {bot_only_examples}\nX-UI clients without TG ID: {xui_no_tg_examples}\n\nChoose action below.",
         "db_sync_confirm_text": "⚠️ *Confirm DB Sync & Cleanup*\n\nThis will:\n- delete bot users not present in X-UI\n- delete transactions not belonging to X-UI users\n- delete traffic rows for `tg_*` emails not present in X-UI\n\nPlanned changes:\nUsers to delete: {users_deleted}\nTransactions to delete: {tx_deleted} ({tx_deleted_sum} ⭐️)\nTraffic rows to delete: {traffic_deleted}\n\nA backup will be created automatically.",
         "db_sync_done": "✅ Done.\n\nDeleted users: {users_deleted}\nDeleted transactions: {tx_deleted} ({tx_deleted_sum} ⭐️)\nDeleted traffic rows: {traffic_deleted}",
@@ -625,6 +800,7 @@ TEXTS = {
         "sync_error_inbound": "❌ X-UI Inbound not found.",
         "sync_progress": "🔄 Syncing: {current}/{total}",
         "sync_complete": "✅ Sync complete!\n\nUpdated: {updated}\nFailed: {failed}\n\n⚠️ X-UI restarted to update names.",
+        "sync_mobile_empty": "📭 No 3G/4G subscriptions found.",
         "users_list_title": "📋 *{title}*",
         "title_all": "All Clients",
         "title_active": "Active Clients",
@@ -763,7 +939,9 @@ TEXTS = {
         "error_invalid_id": "❌ Error: Invalid ID",
         "status_unbound": "Unbound",
         "sub_active_html": "✅ Your subscription is active\n\n📅 Expires: {expiry}",
-        "sub_recommendation": "\n\n👇 Subscription recommended\n        (Tap link to copy)\n\n📋 Subscription Link:\n<code>{link}</code>\n\n🔑 Access Key: (Tap to reveal)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
+        "sub_recommendation": "\n\n📋 Subscription Link:\n<code>{link}</code>",
+        "sub_all_locations": "\n\n🌍 All locations ({count}):\n<code>{link}</code>",
+        "sub_locations_list": "\n\n🌍 Available locations:\n{list}",
         "expiry_unlimited": "Unlimited",
         "stats_your_title": "📊 Your Statistics",
         "stats_today": "📅 Today:",
@@ -779,7 +957,13 @@ TEXTS = {
         "error_invalid_id": "❌ Ошибка: Некорректный ID",
         "status_unbound": "Не привязан",
         "sub_active_html": "✅ Ваша подписка активна\n\n📅 Истекает: {expiry}",
-        "sub_recommendation": "\n\n👇 Рекомендуется использовать подписку\n        (Нажмите на ссылку для копирования)\n\n📋 Ссылка подписки:\n<code>{link}</code>\n\n🔑 Ключ доступа: (Нажмите чтобы развернуть)\n<tg-spoiler><code>{key}</code></tg-spoiler>",
+        "sub_recommendation": "\n\n📋 Ссылка подписки:\n<code>{link}</code>",
+        "sub_all_locations": "\n\n🌍 Все локации ({count}):\n<code>{link}</code>",
+        "sub_locations_list": "\n\n🌍 Доступные локации:\n{list}",
+        "mobile_sub_active_html": "✅ Ваша 3G/4G подписка активна\n\n📅 Истекает: {expiry}",
+        "mobile_sub_not_found": "❌ *3G/4G подписка не найдена*\n\nУ вас нет активной 3G/4G подписки. Перейдите в магазин.",
+        "mobile_sub_expired": "⚠️ *3G/4G подписка истекла*\n\nОформите новый тариф для восстановления доступа.",
+        "mobile_stats_title": "📊 *3G/4G статистика*\n\n⬇️ Скачано: {down}\n⬆️ Загружено: {up}\n📦 Всего: {total}",
         "expiry_unlimited": "Бессрочный",
         "stats_your_title": "📊 Ваша статистика",
         "stats_today": "📅 За сегодня:",
@@ -794,13 +978,26 @@ TEXTS = {
         "welcome": "Добро пожаловать в Maxi-VPN! 🛡️\n\nПожалуйста, выберите язык:",
         "main_menu": "🚀 Maxi-VPN — Твой пропуск в свободный интернет!\n\n⚡️ Высокая скорость, анонимность и доступ к любым сервисам.\n💎 Оплата в один клик через Telegram Stars.",
         "btn_buy": "💎 Купить подписку",
+        "btn_mobile": "📱 3G/4G (Обход белых списков🔐)",
         "btn_config": "🚀 Мой конфиг",
+        "btn_ru_bridge": "🧩 RU-Bridge",
         "btn_stats": "📊 Моя статистика",
-        "btn_trial": "🆓 Пробный период (3 дня)",
+        "btn_trial": "🆓 Пробный период",
+        "btn_trial_3d": "🆓 Пробный (3 дня)",
+        "btn_mobile_trial_1d": "📱 3G/4G пробный (1 день)",
+        "trial_menu_title": "Выберите пробный период:",
+        "mobile_trial_used": "❌ *Пробный 3G/4G уже использован*\n\nАктивация: {date}",
         "btn_ref": "👥 Рефералка",
         "btn_promo": "🎁 Промокод",
         "shop_title": "🛒 *Выберите план:*\n\nБезопасная оплата через Telegram Stars.",
         "btn_back": "🔙 Назад",
+        "mobile_menu_title": "📱 *3G/4G меню*",
+        "mobile_menu_desc": "🔐 **Обход белых списков у мобильных операторов**\n\nПозволяет обходить блокировку работы интернета и ваших любимых сервисов через мобильного оператора, обходя белые списки.",
+        "btn_mobile_buy": "🛒 Купить 3G/4G",
+        "btn_mobile_config": "📱 Мой 3G/4G конфиг",
+        "btn_mobile_stats": "📶 Моя 3G/4G статистика",
+        "mobile_shop_title": "🛒 *Выберите 3G/4G тариф:*\n\nБезопасная оплата через Telegram Stars.",
+        "mobile_not_configured": "📱 3G/4G не настроен. Обратитесь в поддержку.",
         "btn_how_to_buy_stars": "⭐️ Как купить Звезды?",
         "how_to_buy_stars_text": "⭐️ **Как купить Telegram Stars?**\n\nTelegram Stars — это внутренняя валюта для оплаты цифровых товаров в телеграме\n\n1. **Через оффицаильного бота телеграма @PremiumBot**\nПросто запустите бота и выберите пакет звезд для покупки.\nПосле возвращайтесь и оформляйте подписку.",
         "label_1_week": "Подписка на 1 неделю",
@@ -808,15 +1005,34 @@ TEXTS = {
         "label_1_month": "Подписка на 1 месяц",
         "label_3_months": "Подписка на 3 месяца",
         "label_6_months": "Подписка на 6 месяцев",
+        "label_ru_bridge": "RU-Bridge (1 день)",
         "label_1_year": "Подписка на 1 год",
+        "label_m_1_week": "3G/4G: 1 неделя",
+        "label_m_1_month": "3G/4G: 1 месяц",
+        "label_m_3_months": "3G/4G: 3 месяца",
+        "label_m_6_months": "3G/4G: 6 месяцев",
+        "label_m_1_year": "3G/4G: 1 год",
         "invoice_title": "Maxi_VPN Подписка",
+        "invoice_title_mobile": "3G/4G Подписка",
         "success_created": "✅ *Успешно!* Подписка создана.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
         "success_extended": "✅ *Успешно!* Подписка продлена.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
         "success_updated": "✅ *Успешно!* Подписка обновлена.\n\n📅 Истекает: {expiry}\n\nНажмите '🚀 Мой конфиг', чтобы получить ключ.",
+        "mobile_success_created": "✅ *Успешно!* 3G/4G подписка создана.\n\n📅 Истекает: {expiry}\n\nОткройте '📱 3G/4G', чтобы получить ключ.",
+        "mobile_success_extended": "✅ *Успешно!* 3G/4G подписка продлена.\n\n📅 Истекает: {expiry}\n\nОткройте '📱 3G/4G', чтобы получить ключ.",
+        "mobile_success_updated": "✅ *Успешно!* 3G/4G подписка обновлена.\n\n📅 Истекает: {expiry}\n\nОткройте '📱 3G/4G', чтобы получить ключ.",
         "error_generic": "Произошла ошибка. Пожалуйста, свяжитесь с поддержкой.",
         "sub_expired": "⚠️ *Подписка истекла*\n\nВаша подписка закончилась. Пожалуйста, купите новый план для восстановления доступа.",
         "sub_active": "✅ *Ваша подписка активна*\n\n📅 Истекает: {expiry}\n\nКлюч:\n`{link}`",
         "sub_not_found": "❌ *Подписка не найдена*\n\nУ вас нет активной подписки. Пожалуйста, перейдите в магазин.",
+        "ru_bridge_sub_active": "✅ RU-Bridge активен\n\n📅 Истекает: {expiry}\n\n{sub_block}",
+        "ru_bridge_sub_expired": "⚠️ RU-Bridge подписка истекла\n\nОформите новый тариф для восстановления доступа.",
+        "ru_bridge_sub_not_found": "❌ RU-Bridge подписка не найдена\n\nПерейдите в магазин.",
+        "ru_bridge_sub_block": "Подписка:\n<code>{sub}</code>",
+        "ru_bridge_sub_empty": "Подписка: недоступна",
+        "ru_bridge_not_configured": "RU-Bridge не настроен. Обратитесь в поддержку.",
+        "ru_bridge_success_created": "✅ RU-Bridge подписка создана.\n\n📅 Новый срок: {expiry}\n\nИспользуйте '🧩 RU-Bridge' для получения ключа.",
+        "ru_bridge_success_extended": "✅ RU-Bridge подписка продлена.\n\n📅 Новый срок: {expiry}\n\nИспользуйте '🧩 RU-Bridge' для получения ключа.",
+        "ru_bridge_success_updated": "✅ RU-Bridge подписка обновлена.\n\n📅 Новый срок: {expiry}\n\nИспользуйте '🧩 RU-Bridge' для получения ключа.",
         "stats_title": "📊 *Ваша статистика*\n\n⬇️ Скачано: {down:.2f} GB\n⬆️ Загружено: {up:.2f} GB\n📦 Всего: {total:.2f} GB",
         "stats_no_sub": "Статистика не найдена. Требуется подписка.",
         "expiry_warning": "⚠️ *Подписка скоро истекает!*\n\nВаша VPN подписка истечет менее чем через 24 часа.\nПожалуйста, продлите её, чтобы избежать отключения.",
@@ -856,7 +1072,11 @@ TEXTS = {
         "plan_1_month": "1 Месяц",
         "plan_3_months": "3 Месяца",
         "plan_6_months": "6 Месяцев",
+        "plan_ru_bridge": "RU-Bridge (1 день)",
         "plan_1_year": "1 Год",
+        "plan_m_1_week": "3G/4G 1 Неделя",
+        "plan_m_1_month": "3G/4G 1 Месяц",
+        "plan_m_1_year": "3G/4G 1 Год",
         "plan_trial": "Пробный (3 дня)",
         "plan_manual": "Ручная",
         "plan_unlimited": "Бессрочный",
@@ -869,6 +1089,7 @@ TEXTS = {
         "rank_info_sub": "\n🏆 Ваше место {rank}-е в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
+        "btn_admin_ru_bridge": "🧩 RU-Bridge (тест)",
         "btn_admin_health": "🩺 Проверка",
         "btn_admin_prices": "💰 Настройка цен",
         "btn_admin_promos": "🎁 Промокоды",
@@ -878,6 +1099,41 @@ TEXTS = {
         "btn_admin_backup": "💾 Бэкап",
         "btn_admin_restore": "♻️ Восстановить",
         "btn_admin_logs": "📜 Логи",
+        "btn_admin_remote_panels": "🧩 Панели",
+        "btn_admin_remote_locations": "🌍 Локации",
+        "btn_admin_remote_nodes": "🛰 Узлы/VPS",
+        "remote_panels_title": "🧩 *Удалённые панели*",
+        "remote_locations_title": "🌍 *Локации*",
+        "remote_nodes_title": "🛰 *Узлы/VPS*",
+        "local_node_label": "🏠 Локальный VPS",
+        "btn_remote_add": "➕ Добавить",
+        "btn_remote_list": "📜 Список",
+        "btn_remote_check": "✅ Проверить",
+        "btn_remote_sync": "🔄 Синхронизировать",
+        "remote_nodes_sync_title": "🔄 *Синхронизация узлов*",
+        "remote_panel_prompt": "Введите данные панели:\n\n`Имя(опционально) | URL | Токен(опционально)`\n\nАвто‑имя по IP:\n`| https://panel.example.com | token123`\n\nПример:\n`EU-Panel | https://panel.example.com | token123`",
+        "remote_location_prompt": "Введите данные локации:\n\n`Имя(опц) | HOST | PORT(опц) | SUB_HOST(опц) | SUB_PORT(опц) | SUB_PATH(опц)`\n\nЛибо полный режим:\n`Имя(опц) | HOST | PORT | PBK | SNI | SID | FLOW(опц) | SUB_HOST(опц) | SUB_PORT(опц) | SUB_PATH(опц)`\n\nАвто‑имя по IP:\n`| 1.2.3.4 | 443`\n\nПример:\n`Germany | de.example.com | 443`",
+        "remote_node_prompt": "Введите данные узла:\n\n`Имя | HOST или HOST:PORT | SSH_USER | SSH_PASSWORD`\n`Имя | HOST | PORT | SSH_USER | SSH_PASSWORD`\n\nПример:\n`VPS-1 | 1.2.3.4:22 | root | pass`",
+        "remote_panel_added": "✅ Панель добавлена.",
+        "remote_location_added": "✅ Локация добавлена.",
+        "remote_node_added": "✅ Узел добавлен.",
+        "remote_node_added_auto": "✅ Узел добавлен. Панель и локация созданы автоматически.",
+        "remote_panel_deleted": "✅ Панель удалена.",
+        "remote_location_deleted": "✅ Локация удалена.",
+        "remote_node_deleted": "✅ Узел удалён.",
+        "remote_node_sync_ok": "✅ Узел синхронизирован.",
+        "remote_node_sync_failed": "❌ Синхронизация не удалась.",
+        "remote_node_sync_missing_ssh": "❌ Для узла не заданы SSH‑логин/пароль.",
+        "remote_list_empty": "Список пуст.",
+        "remote_check_ok": "ok",
+        "remote_check_fail": "fail",
+        "btn_user_locations": "🌍 Другие локации",
+        "user_locations_title": "🌍 *Другие локации*\n\nВыберите локацию:",
+        "user_location_not_found": "Локация не найдена.",
+        "user_location_config": "✅ *Дополнительный конфиг*\n\nЛокация: {name}\n\nКлюч:\n<code>{key}</code>\n\n{sub_block}",
+        "user_location_sub_block": "Подписка:\n<code>{sub}</code>",
+        "user_location_sub_empty": "Подписка: недоступна",
+        "user_location_ping": "Доступность: {status}",
         "btn_main_menu_back": "🔙 Главное меню",
         "btn_support": "🆘 Поддержка",
         "support_title": "🆘 *Техническая поддержка*\n\nОпишите вашу проблему одним сообщением (можно прикрепить фото).\nАдминистратор ответит вам в ближайшее время.",
@@ -900,6 +1156,10 @@ TEXTS = {
         "poll_vote_registered": "✅ Ваш голос учтен!",
         "btn_send_poll": "✅ Отправить всем",
         "admin_server_title": "🖥 *Состояние сервера*",
+        "admin_server_nodes_title": "🌐 *Удалённые VPS*",
+        "admin_server_node_title": "🖥 *Параметры узла*",
+        "btn_server_nodes": "🌐 Узлы/VPS",
+        "node_label": "Узел",
         "health_title": "🩺 *Проверка здоровья*",
         "health_bot_db": "БД бота",
         "health_xui_db": "БД X-UI",
@@ -961,6 +1221,7 @@ TEXTS = {
         "btn_db_audit": "🔎 Аудит / синхронизация БД",
         "btn_db_sync": "🧹 Согласовать и очистить",
         "btn_sync_nicks": "🔄 Обновить ники",
+        "btn_sync_mobile_nicks": "🔄 Обновить ники 3G/4G",
         "db_audit_text": "🔎 *Аудит БД*\n\nКлиенты X-UI: {xui_clients}\nКлиенты X-UI с TG ID: {xui_tg}\nКлиенты X-UI без TG ID: {xui_no_tg}\n\nПользователи бота (user_prefs): {bot_users}\nПользователи бота вне X-UI: {bot_only}\nTG IDs из X-UI отсутствуют в боте: {xui_only}\n\nТранзакции всего: {tx_total} ({tx_sum} ⭐️)\nТранзакции вне X-UI: {tx_invalid} ({tx_invalid_sum} ⭐️)\n\nПримеры:\nBot-only TG IDs: {bot_only_examples}\nX-UI клиенты без TG ID: {xui_no_tg_examples}\n\nВыберите действие ниже.",
         "db_sync_confirm_text": "⚠️ *Подтвердите согласование и очистку БД*\n\nБудет выполнено:\n- удаление пользователей бота, отсутствующих в X-UI\n- удаление транзакций, не принадлежащих пользователям X-UI\n- удаление traffic-строк по email `tg_*`, которых нет в X-UI\n\nПлан изменений:\nУдалить пользователей: {users_deleted}\nУдалить транзакции: {tx_deleted} ({tx_deleted_sum} ⭐️)\nУдалить traffic-строк: {traffic_deleted}\n\nПеред очисткой автоматически будет создан бэкап.",
         "db_sync_done": "✅ Готово.\n\nУдалено пользователей: {users_deleted}\nУдалено транзакций: {tx_deleted} ({tx_deleted_sum} ⭐️)\nУдалено traffic-строк: {traffic_deleted}",
@@ -968,6 +1229,7 @@ TEXTS = {
         "sync_error_inbound": "❌ X-UI Inbound not found.",
         "sync_progress": "🔄 Синхронизация: {current}/{total}",
         "sync_complete": "✅ Синхронизация завершена!\n\nОбновлено: {updated}\nОшибок: {failed}\n\n⚠️ X-UI был перезапущен для обновления имен в панели.",
+        "sync_mobile_empty": "📭 3G/4G подписок не найдено.",
         "users_list_title": "📋 *{title}*",
         "title_all": "Все клиенты",
         "title_active": "Активные клиенты",
@@ -1162,6 +1424,14 @@ def init_db():
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN balance INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN mobile_trial_used INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN mobile_trial_activated_at INTEGER")
+    except sqlite3.OperationalError:
+        pass
 
     # Notifications Table
     cursor.execute('''
@@ -1259,6 +1529,28 @@ def init_db():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ru_bridge_subscriptions (
+            tg_id TEXT PRIMARY KEY,
+            uuid TEXT,
+            sub_id TEXT,
+            expiry_time INTEGER,
+            created_at INTEGER,
+            updated_at INTEGER
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mobile_subscriptions (
+            tg_id TEXT PRIMARY KEY,
+            uuid TEXT,
+            sub_id TEXT,
+            expiry_time INTEGER,
+            created_at INTEGER,
+            updated_at INTEGER
+        )
+    ''')
+
     # Initialize default prices if empty
     cursor.execute("SELECT COUNT(*) FROM prices")
     if cursor.fetchone()[0] == 0:
@@ -1267,14 +1559,37 @@ def init_db():
             ("2_weeks", 60, 14),
             ("1_month", 1, 30),
             ("3_months", 3, 90),
+            ("ru_bridge", 1, 1),
+            ("m_1_week", 40, 7),
+            ("m_2_weeks", 60, 14),
+            ("m_1_month", 149, 30),
+            ("m_3_months", 399, 90),
             ("6_months", 450, 180),
-            ("1_year", 5, 365)
+            ("m_6_months", 799, 180),
+            ("1_year", 5, 365),
+            ("m_1_year", 1399, 365),
         ])
     else:
         # Ensure new plans exist
         cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("6_months", 450, 180))
         cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("1_week", 40, 7))
         cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("2_weeks", 60, 14))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("ru_bridge", 1, 1))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("m_1_week", 40, 7))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("m_2_weeks", 60, 14))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("m_1_month", 149, 30))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("m_3_months", 399, 90))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("m_6_months", 799, 180))
+        cursor.execute("INSERT OR IGNORE INTO prices (key, amount, days) VALUES (?, ?, ?)", ("m_1_year", 1399, 365))
+        cursor.execute("UPDATE prices SET amount=?, days=? WHERE key=?", (149, 30, "m_1_month"))
+        cursor.execute("UPDATE prices SET amount=?, days=? WHERE key=?", (399, 90, "m_3_months"))
+        cursor.execute("UPDATE prices SET amount=?, days=? WHERE key=?", (799, 180, "m_6_months"))
+        cursor.execute("UPDATE prices SET amount=?, days=? WHERE key=?", (1399, 365, "m_1_year"))
+        cursor.execute(
+            "UPDATE prices SET amount=?, days=? "
+            "WHERE key=? AND amount=? AND days=?",
+            (1, 1, "ru_bridge", 120, 30),
+        )
 
     # Flash Messages Table
     cursor.execute('''
@@ -1348,8 +1663,1586 @@ def init_db():
     except sqlite3.OperationalError:
         cursor.execute("ALTER TABLE connection_logs ADD COLUMN country_code TEXT")
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS remote_panels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            base_url TEXT,
+            api_token TEXT,
+            enabled INTEGER DEFAULT 1,
+            created_at INTEGER
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS remote_locations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            host TEXT,
+            port INTEGER,
+            public_key TEXT,
+            sni TEXT,
+            sid TEXT,
+            flow TEXT,
+            sub_host TEXT,
+            sub_port INTEGER,
+            sub_path TEXT,
+            panel_id INTEGER,
+            enabled INTEGER DEFAULT 1,
+            created_at INTEGER
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS remote_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            host TEXT,
+            port INTEGER,
+            enabled INTEGER DEFAULT 1,
+            created_at INTEGER
+        )
+    ''')
+    cursor.execute("PRAGMA table_info(remote_nodes)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+    if "ssh_user" not in existing_columns:
+        cursor.execute("ALTER TABLE remote_nodes ADD COLUMN ssh_user TEXT")
+    if "ssh_password" not in existing_columns:
+        cursor.execute("ALTER TABLE remote_nodes ADD COLUMN ssh_password TEXT")
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sync_state (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at INTEGER
+        )
+    ''')
+
     conn.commit()
     conn.close()
+
+def _fetch_remote_panels() -> list[dict[str, Any]]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, base_url, api_token, enabled, created_at FROM remote_panels ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "base_url": row[2],
+            "api_token": row[3],
+            "enabled": row[4],
+            "created_at": row[5],
+        }
+        for row in rows
+    ]
+
+def _insert_remote_panel(name: str, base_url: str, api_token: Optional[str]) -> Optional[int]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO remote_panels (name, base_url, api_token, enabled, created_at) VALUES (?, ?, ?, ?, ?)",
+        (name, base_url, api_token or None, 1, int(time.time())),
+    )
+    conn.commit()
+    panel_id = cursor.lastrowid
+    conn.close()
+    return int(panel_id) if panel_id else None
+
+def _get_remote_panel_id_by_base_url(base_url: str) -> Optional[int]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM remote_panels WHERE base_url=? ORDER BY id DESC LIMIT 1", (base_url,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return int(row[0])
+
+def _delete_remote_panel(panel_id: int) -> None:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM remote_panels WHERE id=?", (panel_id,))
+    conn.commit()
+    conn.close()
+
+def _fetch_remote_locations() -> list[dict[str, Any]]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, name, host, port, public_key, sni, sid, flow, sub_host, sub_port, sub_path, panel_id, enabled "
+        "FROM remote_locations ORDER BY id DESC"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "host": row[2],
+            "port": row[3],
+            "public_key": row[4],
+            "sni": row[5],
+            "sid": row[6],
+            "flow": row[7],
+            "sub_host": row[8],
+            "sub_port": row[9],
+            "sub_path": row[10],
+            "panel_id": row[11],
+            "enabled": row[12],
+        }
+        for row in rows
+    ]
+
+def _get_remote_location(location_id: int) -> Optional[dict[str, Any]]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, name, host, port, public_key, sni, sid, flow, sub_host, sub_port, sub_path, panel_id, enabled "
+        "FROM remote_locations WHERE id=?",
+        (location_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "name": row[1],
+        "host": row[2],
+        "port": row[3],
+        "public_key": row[4],
+        "sni": row[5],
+        "sid": row[6],
+        "flow": row[7],
+        "sub_host": row[8],
+        "sub_port": row[9],
+        "sub_path": row[10],
+        "panel_id": row[11],
+        "enabled": row[12],
+    }
+
+def _get_remote_location_sub_settings(host: str) -> tuple[Optional[str], Optional[int], Optional[str]]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT sub_host, sub_port, sub_path FROM remote_locations WHERE host=? ORDER BY id DESC LIMIT 1",
+        (host,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None, None, None
+    return row[0], row[1], row[2]
+
+def _insert_remote_location(
+    name: str,
+    host: str,
+    port: int,
+    public_key: Optional[str],
+    sni: Optional[str],
+    sid: Optional[str],
+    flow: Optional[str],
+    sub_host: Optional[str],
+    sub_port: Optional[int],
+    sub_path: Optional[str],
+    panel_id: Optional[int],
+) -> None:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO remote_locations "
+        "(name, host, port, public_key, sni, sid, flow, sub_host, sub_port, sub_path, panel_id, enabled, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            name,
+            host,
+            port,
+            public_key,
+            sni,
+            sid,
+            flow,
+            sub_host,
+            sub_port,
+            sub_path,
+            panel_id,
+            1,
+            int(time.time()),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+def _delete_remote_location(location_id: int) -> None:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM remote_locations WHERE id=?", (location_id,))
+    conn.commit()
+    conn.close()
+
+def _upsert_remote_location(
+    *,
+    name: str,
+    host: str,
+    port: int,
+    public_key: Optional[str],
+    sni: Optional[str],
+    sid: Optional[str],
+    flow: Optional[str],
+    panel_id: Optional[int],
+    sub_host: Optional[str] = None,
+    sub_port: Optional[int] = None,
+    sub_path: Optional[str] = None,
+) -> int:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM remote_locations WHERE host=? ORDER BY id DESC LIMIT 1",
+        (host,),
+    )
+    row = cursor.fetchone()
+    now_ts = int(time.time())
+    if row:
+        location_id = int(row[0])
+        cursor.execute(
+            "UPDATE remote_locations SET name=?, host=?, port=?, public_key=?, sni=?, sid=?, flow=?, "
+            "sub_host=?, sub_port=?, sub_path=?, panel_id=?, enabled=1, created_at=? WHERE id=?",
+            (
+                name,
+                host,
+                int(port),
+                public_key,
+                sni,
+                sid,
+                flow,
+                sub_host,
+                sub_port,
+                sub_path,
+                panel_id,
+                now_ts,
+                location_id,
+            ),
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO remote_locations "
+            "(name, host, port, public_key, sni, sid, flow, sub_host, sub_port, sub_path, panel_id, enabled, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            (
+                name,
+                host,
+                int(port),
+                public_key,
+                sni,
+                sid,
+                flow,
+                sub_host,
+                sub_port,
+                sub_path,
+                panel_id,
+                now_ts,
+            ),
+        )
+        last_id = cursor.lastrowid
+        location_id = int(last_id) if last_id is not None else 0
+    if location_id:
+        cursor.execute(
+            "DELETE FROM remote_locations WHERE host=? AND id!=?",
+            (host, location_id),
+        )
+    conn.commit()
+    conn.close()
+    return location_id
+
+def _fetch_remote_nodes() -> list[dict[str, Any]]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, host, port, enabled FROM remote_nodes ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "host": row[2],
+            "port": row[3],
+            "enabled": row[4],
+        }
+        for row in rows
+    ]
+
+def _get_remote_node(node_id: int) -> Optional[dict[str, Any]]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, name, host, port, ssh_user, ssh_password, enabled FROM remote_nodes WHERE id=?",
+        (node_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "name": row[1],
+        "host": row[2],
+        "port": row[3],
+        "ssh_user": row[4],
+        "ssh_password": row[5],
+        "enabled": row[6],
+    }
+
+def _insert_remote_node(
+    name: str,
+    host: str,
+    port: int,
+    ssh_user: Optional[str] = None,
+    ssh_password: Optional[str] = None,
+) -> None:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO remote_nodes (name, host, port, ssh_user, ssh_password, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, host, port, ssh_user, ssh_password, 1, int(time.time())),
+    )
+    conn.commit()
+    conn.close()
+
+def _delete_remote_node(node_id: int) -> None:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM remote_nodes WHERE id=?", (node_id,))
+    conn.commit()
+    conn.close()
+
+def _get_sync_state(key: str) -> Optional[str]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM sync_state WHERE key=?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return str(row[0])
+
+def _set_sync_state(key: str, value: str) -> None:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO sync_state (key, value, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (key, value, int(time.time())),
+    )
+    conn.commit()
+    conn.close()
+
+def _get_local_panel_settings() -> dict[str, Optional[str]]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT key, value FROM settings WHERE key IN ('webPort', 'webBasePath')"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        data = {row[0]: row[1] for row in rows}
+        port = data.get("webPort")
+        base_path = data.get("webBasePath")
+        if port:
+            try:
+                port = str(int(port))
+            except Exception:
+                port = None
+        return {"port": port, "base_path": base_path}
+    except Exception:
+        return {"port": None, "base_path": None}
+
+def _resolve_host_ip(host: str) -> Optional[str]:
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except Exception:
+        pass
+    try:
+        return socket.gethostbyname(host)
+    except Exception:
+        return None
+
+def _geoip_country_code(ip: str) -> Optional[str]:
+    try:
+        requests = __import__("requests")
+        resp = requests.get(f"https://ipinfo.io/{ip}/json", timeout=2)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        return data.get("country")
+    except Exception:
+        return None
+
+def _auto_location_name(host: str) -> str:
+    ip = _resolve_host_ip(host)
+    if not ip:
+        return host
+    cc = _geoip_country_code(ip)
+    if not cc:
+        return ip
+    flag = get_flag_emoji(cc)
+    return f"{flag} {cc}"
+
+def _extract_host_from_url(url: str) -> str:
+    if "://" not in url:
+        url = f"https://{url}"
+    parsed = urlparse(url)
+    return parsed.hostname or url
+
+def _split_host_port(value: str) -> tuple[str, Optional[int]]:
+    host = value.strip()
+    if not host:
+        return "", None
+    if host.startswith("[") and "]" in host:
+        return host, None
+    if ":" in host:
+        maybe_host, maybe_port = host.rsplit(":", 1)
+        if maybe_port.isdigit():
+            return maybe_host, int(maybe_port)
+    return host, None
+
+def _looks_like_host(value: str) -> bool:
+    if not value:
+        return False
+    candidate = value.strip()
+    if not candidate:
+        return False
+    host, _ = _split_host_port(candidate)
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return "." in host or host.lower() == "localhost"
+
+def _build_remote_panel_base_url(host: str, web_port: Optional[int], base_path: Optional[str]) -> Optional[str]:
+    if not host:
+        return None
+    if web_port:
+        base = f"https://{host}:{web_port}"
+    else:
+        base = f"https://{host}"
+    if base_path:
+        path = str(base_path).lstrip("/")
+        if path:
+            return f"{base}/{path}"
+    return base
+
+def _get_remote_location_id(
+    host: str,
+    port: int,
+) -> Optional[int]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM remote_locations WHERE host=? AND port=? ORDER BY id DESC LIMIT 1",
+        (host, port),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return int(row[0])
+
+def _ssh_fetch_remote_xui_data(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+) -> Optional[dict[str, Any]]:
+    client = None
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=6,
+            banner_timeout=6,
+            auth_timeout=6,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        cmd = (
+            "python3 - <<'PY'\n"
+            "import json, sqlite3, os\n"
+            "db=os.getenv('XUI_DB_PATH','/etc/x-ui/x-ui.db')\n"
+            "conn=sqlite3.connect(db)\n"
+            "cur=conn.cursor()\n"
+            "cur.execute(\"SELECT key, value FROM settings WHERE key IN ('webPort','webBasePath','subEnable','subPort','subPath','subCertFile','webCertFile')\")\n"
+            "settings={k:v for k,v in cur.fetchall()}\n"
+            "cur.execute(\"SELECT port, stream_settings, protocol FROM inbounds\")\n"
+            "rows=cur.fetchall()\n"
+            "conn.close()\n"
+            "result={\n"
+            "    'web_port': settings.get('webPort'),\n"
+            "    'web_base_path': settings.get('webBasePath'),\n"
+            "    'sub_enable': settings.get('subEnable'),\n"
+            "    'sub_port': settings.get('subPort'),\n"
+            "    'sub_path': settings.get('subPath'),\n"
+            "    'sub_cert': settings.get('subCertFile'),\n"
+            "    'web_cert': settings.get('webCertFile'),\n"
+            "}\n"
+            "for port, stream_settings, protocol in rows:\n"
+            "    if protocol != 'vless':\n"
+            "        continue\n"
+            "    try:\n"
+            "        ss=json.loads(stream_settings or '{}')\n"
+            "    except Exception:\n"
+            "        continue\n"
+            "    reality=ss.get('realitySettings') or {}\n"
+            "    settings_inner=reality.get('settings') or {}\n"
+            "    public_key=settings_inner.get('publicKey')\n"
+            "    sni_list=reality.get('serverNames') or []\n"
+            "    sid_list=reality.get('shortIds') or []\n"
+            "    if public_key and sni_list and sid_list:\n"
+            "        result.update({\n"
+            "            'inbound_port': port,\n"
+            "            'public_key': public_key,\n"
+            "            'sni': sni_list[0],\n"
+            "            'sid': sid_list[0],\n"
+            "            'flow': settings_inner.get('flow')\n"
+            "        })\n"
+            "        break\n"
+            "print(json.dumps(result))\n"
+            "PY"
+        )
+        _, stdout, stderr = client.exec_command(cmd, timeout=12)
+        output = stdout.read().decode("utf-8", errors="ignore").strip()
+        error = stderr.read().decode("utf-8", errors="ignore").strip()
+        if not output:
+            if error:
+                logging.warning(f"SSH sync error for {host}:{port}: {error}")
+            return None
+        try:
+            data = json.loads(output)
+        except Exception:
+            logging.warning(f"SSH sync invalid json for {host}:{port}: {output}")
+            return None
+        if not isinstance(data, dict):
+            return None
+        if error:
+            logging.warning(f"SSH sync stderr for {host}:{port}: {error}")
+        return data
+    except Exception as exc:
+        logging.warning(f"SSH sync exception for {host}:{port}: {exc}")
+        return None
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+def _get_master_inbound_payload() -> Optional[dict[str, Any]]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT port, protocol, settings, stream_settings FROM inbounds WHERE id=?",
+            (INBOUND_ID,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        port, protocol, settings, stream_settings = row
+        if not port or not protocol or not settings:
+            return None
+        return {
+            "port": int(port),
+            "protocol": str(protocol),
+            "settings": str(settings),
+            "stream_settings": str(stream_settings or "{}"),
+        }
+    except Exception:
+        return None
+
+def _ssh_sync_remote_inbound(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    inbound_payload: dict[str, Any],
+) -> bool:
+    client = None
+    try:
+        master_port = int(inbound_payload.get("port") or 0)
+        master_protocol = str(inbound_payload.get("protocol") or "")
+        settings_raw = str(inbound_payload.get("settings") or "")
+        stream_raw = str(inbound_payload.get("stream_settings") or "")
+        if not master_port or not master_protocol or not settings_raw:
+            return False
+        settings_b64 = base64.b64encode(settings_raw.encode("utf-8")).decode("utf-8")
+        stream_b64 = base64.b64encode(stream_raw.encode("utf-8")).decode("utf-8")
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=8,
+            banner_timeout=8,
+            auth_timeout=8,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        cmd = (
+            "python3 - <<'PY'\n"
+            "import base64, json, sqlite3, os\n"
+            "db=os.getenv('XUI_DB_PATH','/etc/x-ui/x-ui.db')\n"
+            "settings_raw=base64.b64decode('" + settings_b64 + "').decode('utf-8', errors='ignore')\n"
+            "stream_raw=base64.b64decode('" + stream_b64 + "').decode('utf-8', errors='ignore')\n"
+            "try:\n"
+            "    settings=json.loads(settings_raw)\n"
+            "except Exception:\n"
+            "    settings={}\n"
+            "try:\n"
+            "    stream=json.loads(stream_raw)\n"
+            "except Exception:\n"
+            "    stream={}\n"
+            "conn=sqlite3.connect(db)\n"
+            "cur=conn.cursor()\n"
+            "cur.execute(\"SELECT id, port, protocol FROM inbounds\")\n"
+            "rows=cur.fetchall()\n"
+            "target_id=None\n"
+            "for iid, ip, proto in rows:\n"
+            "    if proto == '" + master_protocol + "' and int(ip or 0) == " + str(master_port) + ":\n"
+            "        target_id=iid\n"
+            "        break\n"
+            "if target_id is None:\n"
+            "    for iid, ip, proto in rows:\n"
+            "        if proto == '" + master_protocol + "':\n"
+            "            target_id=iid\n"
+            "            break\n"
+            "if target_id is None:\n"
+            "    print(json.dumps({'ok': False, 'error': 'inbound_not_found'}))\n"
+            "    conn.close()\n"
+            "    raise SystemExit(0)\n"
+            "cur.execute(\"UPDATE inbounds SET port=?, protocol=?, settings=?, stream_settings=? WHERE id=?\", "
+            "(" + str(master_port) + ", '" + master_protocol + "', json.dumps(settings, ensure_ascii=False), "
+            "json.dumps(stream, ensure_ascii=False), target_id))\n"
+            "clients=settings.get('clients') or []\n"
+            "for c in clients:\n"
+            "    email=str(c.get('email') or '')\n"
+            "    if not email:\n"
+            "        continue\n"
+            "    expiry=int(c.get('expiryTime') or 0)\n"
+            "    enable=1 if c.get('enable') else 0\n"
+            "    reset=int(c.get('reset') or 0)\n"
+            "    cur.execute(\"SELECT up, down, total, all_time, last_online FROM client_traffics WHERE email=?\", (email,))\n"
+            "    row=cur.fetchone()\n"
+            "    if row is None:\n"
+            "        try:\n"
+            "            cur.execute(\"INSERT INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset, all_time, last_online) VALUES (?, ?, ?, 0, 0, ?, 0, ?, 0, 0)\", (target_id, enable, email, expiry, reset))\n"
+            "        except Exception:\n"
+            "            try:\n"
+            "                cur.execute(\"INSERT INTO client_traffics (enable, email, up, down, expiry_time) VALUES (?, ?, 0, 0, ?)\", (enable, email, expiry))\n"
+            "            except Exception:\n"
+            "                pass\n"
+            "    else:\n"
+            "        try:\n"
+            "            cur.execute(\"UPDATE client_traffics SET enable=?, expiry_time=?, reset=? WHERE email=?\", (enable, expiry, reset, email))\n"
+            "        except Exception:\n"
+            "            try:\n"
+            "                cur.execute(\"UPDATE client_traffics SET enable=?, expiry_time=? WHERE email=?\", (enable, expiry, email))\n"
+            "            except Exception:\n"
+            "                pass\n"
+            "conn.commit()\n"
+            "conn.close()\n"
+            "os.system(\"systemctl restart x-ui >/dev/null 2>&1 || x-ui restart >/dev/null 2>&1 || true\")\n"
+            "print(json.dumps({'ok': True, 'id': target_id}))\n"
+            "PY"
+        )
+        _, stdout, stderr = client.exec_command(cmd, timeout=20)
+        output = stdout.read().decode("utf-8", errors="ignore").strip()
+        error = stderr.read().decode("utf-8", errors="ignore").strip()
+        if not output:
+            if error:
+                logging.warning(f"SSH inbound sync error for {host}:{port}: {error}")
+            return False
+        try:
+            data = json.loads(output)
+        except Exception:
+            logging.warning(f"SSH inbound sync invalid json for {host}:{port}: {output}")
+            return False
+        if error:
+            logging.warning(f"SSH inbound sync stderr for {host}:{port}: {error}")
+        return bool(data.get("ok"))
+    except Exception as exc:
+        logging.warning(f"SSH inbound sync exception for {host}:{port}: {exc}")
+        return False
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+def _ssh_upsert_remote_inbound_client(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    inbound_id: int,
+    tg_id: str,
+    email: str,
+    user_uuid: str,
+    sub_id: str,
+    expiry_ms: int,
+    flow: str,
+    comment: str,
+) -> bool:
+    client = None
+    try:
+        inbound_id_int = int(inbound_id or 0)
+        expiry_ms_int = int(expiry_ms or 0)
+        if not email or not user_uuid or not sub_id:
+            return False
+
+        email_b64 = base64.b64encode(email.encode("utf-8")).decode("utf-8")
+        uuid_b64 = base64.b64encode(user_uuid.encode("utf-8")).decode("utf-8")
+        sub_b64 = base64.b64encode(sub_id.encode("utf-8")).decode("utf-8")
+        tg_b64 = base64.b64encode(str(tg_id).encode("utf-8")).decode("utf-8")
+        flow_b64 = base64.b64encode((flow or "").encode("utf-8")).decode("utf-8")
+        comment_b64 = base64.b64encode((comment or "").encode("utf-8")).decode("utf-8")
+
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=8,
+            banner_timeout=8,
+            auth_timeout=8,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        cmd = (
+            "python3 - <<'PY'\n"
+            "import base64, json, sqlite3, os, time\n"
+            "db=os.getenv('XUI_DB_PATH','/etc/x-ui/x-ui.db')\n"
+            f"inbound_id=int({inbound_id_int})\n"
+            f"expiry=int({expiry_ms_int})\n"
+            f"email=base64.b64decode('{email_b64}').decode('utf-8', errors='ignore')\n"
+            f"user_uuid=base64.b64decode('{uuid_b64}').decode('utf-8', errors='ignore')\n"
+            f"sub_id=base64.b64decode('{sub_b64}').decode('utf-8', errors='ignore')\n"
+            f"tg_id=base64.b64decode('{tg_b64}').decode('utf-8', errors='ignore')\n"
+            f"flow=base64.b64decode('{flow_b64}').decode('utf-8', errors='ignore')\n"
+            f"comment=base64.b64decode('{comment_b64}').decode('utf-8', errors='ignore')\n"
+            "conn=sqlite3.connect(db)\n"
+            "cur=conn.cursor()\n"
+            "target_id=None\n"
+            "if inbound_id > 0:\n"
+            "    cur.execute(\"SELECT id FROM inbounds WHERE id=?\", (inbound_id,))\n"
+            "    row=cur.fetchone()\n"
+            "    if row:\n"
+            "        target_id=int(row[0])\n"
+            "if target_id is None:\n"
+            "    cur.execute(\"SELECT id, protocol, stream_settings FROM inbounds\")\n"
+            "    rows=cur.fetchall()\n"
+            "    for iid, proto, stream_settings in rows:\n"
+            "        if proto != 'vless':\n"
+            "            continue\n"
+            "        try:\n"
+            "            ss=json.loads(stream_settings or '{}')\n"
+            "        except Exception:\n"
+            "            continue\n"
+            "        reality=ss.get('realitySettings') or {}\n"
+            "        settings_inner=(reality.get('settings') or {})\n"
+            "        public_key=settings_inner.get('publicKey')\n"
+            "        sni_list=reality.get('serverNames') or []\n"
+            "        sid_list=reality.get('shortIds') or []\n"
+            "        if public_key and sni_list and sid_list:\n"
+            "            target_id=int(iid)\n"
+            "            break\n"
+            "if target_id is None:\n"
+            "    cur.execute(\"SELECT id, protocol FROM inbounds\")\n"
+            "    rows=cur.fetchall()\n"
+            "    for iid, proto in rows:\n"
+            "        if proto == 'vless':\n"
+            "            target_id=int(iid)\n"
+            "            break\n"
+            "if target_id is None:\n"
+            "    print(json.dumps({'ok': False, 'error': 'inbound_not_found'}))\n"
+            "    conn.close()\n"
+            "    raise SystemExit(0)\n"
+            "inbound_id=int(target_id)\n"
+            "cur.execute('SELECT settings FROM inbounds WHERE id=?', (inbound_id,))\n"
+            "row=cur.fetchone()\n"
+            "if not row:\n"
+            "    print(json.dumps({'ok': False, 'error': 'inbound_not_found'}))\n"
+            "    conn.close()\n"
+            "    raise SystemExit(0)\n"
+            "settings_raw=row[0] or '{}'\n"
+            "try:\n"
+            "    settings=json.loads(settings_raw)\n"
+            "except Exception:\n"
+            "    settings={}\n"
+            "clients=settings.get('clients') or []\n"
+            "now=int(time.time()*1000)\n"
+            "updated=False\n"
+            "for c in clients:\n"
+            "    if str(c.get('email') or '')==email or str(c.get('tgId') or '')==tg_id:\n"
+            "        c['id']=user_uuid\n"
+            "        c['email']=email\n"
+            "        c['expiryTime']=expiry\n"
+            "        c['enable']=True\n"
+            "        c['subId']=sub_id\n"
+            "        try:\n"
+            "            c['tgId']=int(tg_id)\n"
+            "        except Exception:\n"
+            "            c['tgId']=tg_id\n"
+            "        if flow and not c.get('flow'):\n"
+            "            c['flow']=flow\n"
+            "        if comment and not c.get('comment'):\n"
+            "            c['comment']=comment\n"
+            "        if not c.get('created_at'):\n"
+            "            c['created_at']=now\n"
+            "        c['updated_at']=now\n"
+            "        if 'reset' not in c:\n"
+            "            c['reset']=0\n"
+            "        updated=True\n"
+            "        break\n"
+            "if not updated:\n"
+            "    new_client={\n"
+            "        'id': user_uuid,\n"
+            "        'email': email,\n"
+            "        'limitIp': 0,\n"
+            "        'totalGB': 0,\n"
+            "        'expiryTime': expiry,\n"
+            "        'enable': True,\n"
+            "        'subId': sub_id,\n"
+            "        'created_at': now,\n"
+            "        'updated_at': now,\n"
+            "        'comment': comment,\n"
+            "        'reset': 0,\n"
+            "    }\n"
+            "    try:\n"
+            "        new_client['tgId']=int(tg_id)\n"
+            "    except Exception:\n"
+            "        new_client['tgId']=tg_id\n"
+            "    if flow:\n"
+            "        new_client['flow']=flow\n"
+            "    clients.append(new_client)\n"
+            "settings['clients']=clients\n"
+            "cur.execute('UPDATE inbounds SET settings=? WHERE id=?', (json.dumps(settings, ensure_ascii=False), inbound_id))\n"
+            "try:\n"
+            "    cur.execute('UPDATE client_traffics SET enable=1, expiry_time=?, reset=0 WHERE inbound_id=? AND email=?', (expiry, inbound_id, email))\n"
+            "    if cur.rowcount==0:\n"
+            "        cur.execute('INSERT INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset, all_time, last_online) VALUES (?, ?, ?, 0, 0, ?, 0, 0, 0, 0)', (inbound_id, 1, email, expiry))\n"
+            "except Exception:\n"
+            "    try:\n"
+            "        cur.execute('UPDATE client_traffics SET enable=1, expiry_time=? WHERE email=?', (expiry, email))\n"
+            "        if cur.rowcount==0:\n"
+            "            cur.execute('INSERT INTO client_traffics (enable, email, up, down, expiry_time) VALUES (1, ?, 0, 0, ?)', (email, expiry))\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "conn.commit()\n"
+            "conn.close()\n"
+            "os.system('systemctl restart x-ui >/dev/null 2>&1 || x-ui restart >/dev/null 2>&1 || true')\n"
+            "print(json.dumps({'ok': True, 'updated': updated}))\n"
+            "PY"
+        )
+        _, stdout, stderr = client.exec_command(cmd, timeout=25)
+        output = stdout.read().decode("utf-8", errors="ignore").strip()
+        error = stderr.read().decode("utf-8", errors="ignore").strip()
+        if not output:
+            if error:
+                logging.warning(f"SSH client upsert error for {host}:{port}: {error}")
+            return False
+        try:
+            data = json.loads(output)
+        except Exception:
+            logging.warning(f"SSH client upsert invalid json for {host}:{port}: {output}")
+            return False
+        if error:
+            logging.warning(f"SSH client upsert stderr for {host}:{port}: {error}")
+        return bool(data.get("ok"))
+    except Exception as exc:
+        logging.warning(f"SSH client upsert exception for {host}:{port}: {exc}")
+        return False
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+async def _sync_mobile_inbound_client(
+    tg_id: str,
+    user_uuid: str,
+    sub_id: str,
+    expiry_ms: int,
+    comment: str = "",
+) -> bool:
+    if not MOBILE_SSH_HOST or not MOBILE_SSH_USER or not MOBILE_SSH_PASSWORD:
+        return False
+    email = _mobile_email(tg_id)
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        _ssh_upsert_remote_inbound_client,
+        MOBILE_SSH_HOST,
+        MOBILE_SSH_PORT,
+        MOBILE_SSH_USER,
+        MOBILE_SSH_PASSWORD,
+        MOBILE_INBOUND_ID,
+        str(tg_id),
+        email,
+        user_uuid,
+        sub_id,
+        int(expiry_ms),
+        MOBILE_FLOW,
+        comment,
+    )
+
+def _sync_remote_node_data(
+    host: str,
+    ssh_port: int,
+    ssh_user: str,
+    ssh_password: str,
+    name: str,
+) -> tuple[bool, bool]:
+    ssh_data = _ssh_fetch_remote_xui_data(host, ssh_port, ssh_user, ssh_password)
+    if not ssh_data:
+        return False, False
+    inbound_payload = _get_master_inbound_payload()
+    inbound_synced = False
+    if inbound_payload:
+        inbound_synced = _ssh_sync_remote_inbound(host, ssh_port, ssh_user, ssh_password, inbound_payload)
+    if not inbound_synced:
+        logging.warning(f"Remote inbound sync failed for {host}:{ssh_port}")
+    web_port = _safe_int(ssh_data.get("web_port"))
+    web_base_path = ssh_data.get("web_base_path")
+    panel_base_url: Optional[str] = _build_remote_panel_base_url(host, web_port, web_base_path)
+    panel_id = None
+    panel_ready = False
+    if panel_base_url:
+        panel_id = _get_remote_panel_id_by_base_url(panel_base_url)
+        if panel_id is None:
+            panel_id = _insert_remote_panel(name, panel_base_url, None)
+        panel_ready = panel_id is not None
+    inbound_port = _safe_int(ssh_data.get("inbound_port")) or PORT
+    public_key_raw = ssh_data.get("public_key")
+    sni_raw = ssh_data.get("sni")
+    sid_raw = ssh_data.get("sid")
+    remote_public_key = str(public_key_raw) if public_key_raw else None
+    remote_sni = str(sni_raw) if sni_raw else None
+    remote_sid = str(sid_raw) if sid_raw else None
+    flow_raw = ssh_data.get("flow")
+    remote_flow = str(flow_raw) if flow_raw else "xtls-rprx-vision"
+    location_ready = False
+    if inbound_port:
+        location_host = name if _looks_like_host(name) else host
+        location_name = _auto_location_name(location_host)
+        sub_host, sub_port, sub_path = _get_remote_location_sub_settings(location_host)
+        if not sub_host:
+            candidate = location_host if _looks_like_host(location_host) else host
+            if candidate and _looks_like_host(candidate):
+                sub_host = candidate
+        sub_enable = str(ssh_data.get("sub_enable") or "").lower() == "true"
+        raw_sub_port = ssh_data.get("sub_port")
+        raw_sub_path = str(ssh_data.get("sub_path") or "/sub/")
+        raw_web_port = ssh_data.get("web_port")
+        raw_web_base_path = str(ssh_data.get("web_base_path") or "/")
+        if sub_host:
+            if sub_enable:
+                if sub_port is None:
+                    sub_port = _safe_int(raw_sub_port) or 2096
+                if sub_path is None:
+                    sub_path = raw_sub_path
+            else:
+                if sub_port is None:
+                    sub_port = _safe_int(raw_web_port)
+                if sub_path is None:
+                    base_path = raw_web_base_path or "/"
+                    if base_path and not base_path.endswith("/"):
+                        base_path += "/"
+                    if base_path and not base_path.startswith("/"):
+                        base_path = "/" + base_path
+                    if raw_sub_path.startswith("/"):
+                        sub_path = f"{base_path}{raw_sub_path[1:]}" if base_path else raw_sub_path
+                    else:
+                        sub_path = f"{base_path}{raw_sub_path}" if base_path else f"/{raw_sub_path}"
+        if sub_host and not sub_path:
+            sub_path = "/sub/"
+        _upsert_remote_location(
+            name=location_name,
+            host=location_host,
+            port=int(inbound_port),
+            public_key=remote_public_key,
+            sni=remote_sni,
+            sid=remote_sid,
+            flow=remote_flow,
+            sub_host=sub_host,
+            sub_port=sub_port,
+            sub_path=sub_path,
+            panel_id=panel_id,
+        )
+        location_ready = True
+    node_ready = bool(location_ready and inbound_synced)
+    return panel_ready, node_ready
+
+def _sync_remote_nodes_locations() -> bool:
+    nodes = _fetch_remote_nodes()
+    if not nodes:
+        return False
+    any_synced = False
+    for node in nodes:
+        node_full = _get_remote_node(int(node["id"]))
+        if not node_full:
+            continue
+        ssh_user = node_full.get("ssh_user")
+        ssh_password = node_full.get("ssh_password")
+        if not ssh_user or not ssh_password:
+            continue
+        host = node_full.get("host") or ""
+        ssh_port = int(node_full.get("port") or 22)
+        name = node_full.get("name") or host
+        panel_ready, location_ready = _sync_remote_node_data(
+            host,
+            ssh_port,
+            ssh_user,
+            ssh_password,
+            name,
+        )
+        if panel_ready or location_ready:
+            any_synced = True
+    return any_synced
+
+def _get_master_inbound_hash() -> Optional[str]:
+    payload = _get_master_inbound_payload()
+    if not payload:
+        return None
+    raw = f"{payload.get('port')}|{payload.get('protocol')}|{payload.get('settings')}|{payload.get('stream_settings')}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+async def _auto_sync_remote_nodes_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    if AUTO_SYNC_INTERVAL_SEC <= 0:
+        return
+    nodes = _fetch_remote_nodes()
+    if not nodes:
+        return
+    inbound_hash = _get_master_inbound_hash()
+    if not inbound_hash:
+        return
+    last_hash = _get_sync_state("master_inbound_hash")
+    if inbound_hash == last_hash:
+        return
+    await asyncio.get_running_loop().run_in_executor(None, _sync_remote_nodes_locations)
+    _set_sync_state("master_inbound_hash", inbound_hash)
+    _set_sync_state("master_inbound_synced_at", str(int(time.time())))
+
+async def _check_remote_panel(base_url: str) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(base_url, follow_redirects=True)
+            return resp.status_code < 500
+    except Exception:
+        return False
+
+async def _check_tcp(host: str, port: int) -> bool:
+    latency = await _check_tcp_latency(host, port)
+    return latency is not None
+
+async def _check_tcp_latency(host: str, port: int) -> Optional[int]:
+    try:
+        start = time.monotonic()
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=3.0)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        del reader
+        ms = int((time.monotonic() - start) * 1000)
+        return ms
+    except Exception:
+        return None
+
+def _get_user_client(tg_id: str) -> Optional[dict[str, Any]]:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    settings = json.loads(row[0])
+    clients = settings.get("clients", [])
+    for client in clients:
+        if str(client.get("tgId", "")) == tg_id or client.get("email") == f"tg_{tg_id}":
+            return client
+    return None
+
+def _get_user_client_by_token(token: str) -> Optional[dict[str, Any]]:
+    if not token:
+        return None
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    settings = json.loads(row[0])
+    clients = settings.get("clients", [])
+    for client in clients:
+        sub_id = str(client.get("subId") or "").strip()
+        client_id = str(client.get("id") or "").strip()
+        if sub_id and sub_id == token:
+            return client
+        if client_id and client_id == token:
+            return client
+    return None
+
+def _get_spiderx_encoded() -> str:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT stream_settings FROM inbounds WHERE id=?", (INBOUND_ID,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return "%2F"
+        ss = json.loads(row[0])
+        reality = ss.get("realitySettings", {})
+        settings_inner = reality.get("settings", {})
+        spider_x = settings_inner.get("spiderX", "/")
+        import urllib.parse
+        return urllib.parse.quote(str(spider_x))
+    except Exception:
+        return "%2F"
+
+def _build_location_vless_link(
+    location: dict[str, Any],
+    user_uuid: str,
+    client_email: str,
+) -> str:
+    return _build_location_vless_link_with_settings(location, user_uuid, client_email)
+
+def _build_location_vless_link_with_settings(
+    location: dict[str, Any],
+    user_uuid: str,
+    client_email: str,
+    base_settings: Optional[dict[str, Any]] = None,
+    client_flow: Optional[str] = None,
+    spx_val: Optional[str] = None,
+) -> str:
+    base = base_settings or {}
+    host = location.get("host")
+    if not host:
+        return ""
+    port = location.get("port") or base.get("port") or PORT
+    public_key = location.get("public_key") or base.get("public_key") or PUBLIC_KEY
+    sni = location.get("sni") or base.get("sni") or SNI
+    sid = location.get("sid") or base.get("sid") or SID
+    flow = client_flow or base.get("flow") or location.get("flow") or ""
+    if not port or not public_key or not sni or not sid:
+        return ""
+    spx_final = spx_val or "%2F"
+    flow_part = f"&flow={flow}" if flow else ""
+    return (
+        f"vless://{user_uuid}@{host}:{port}?"
+        f"type=tcp&encryption=none&security=reality&pbk={public_key}"
+        f"&fp=chrome&sni={sni}&sid={sid}&spx={spx_final}{flow_part}#{client_email}"
+    )
+
+def _location_label(location: dict[str, Any]) -> str:
+    name = str(location.get("name") or "").strip()
+    if name:
+        return name
+    host = str(location.get("host") or "").strip()
+    return host or "Location"
+
+def _build_location_sub_link(location: dict[str, Any], token: Optional[str]) -> Optional[str]:
+    sub_host = location.get("sub_host")
+    if not sub_host:
+        if not token:
+            return None
+        master_link = _build_master_sub_link(token)
+        if master_link:
+            return master_link
+        multi_url = _build_multi_sub_public_url(token)
+        return multi_url if _is_https_url(multi_url) else None
+    sub_port = location.get("sub_port") or 443
+    sub_path = location.get("sub_path") or "/sub/"
+    if not sub_path.startswith("/"):
+        sub_path = f"/{sub_path}"
+    return f"https://{sub_host}:{sub_port}{sub_path}"
+
+def _ru_bridge_location() -> Optional[dict[str, Any]]:
+    if not RU_BRIDGE_HOST or not RU_BRIDGE_PORT or not RU_BRIDGE_PUBLIC_KEY or not RU_BRIDGE_SNI or not RU_BRIDGE_SID:
+        return None
+    return {
+        "host": RU_BRIDGE_HOST,
+        "port": RU_BRIDGE_PORT,
+        "public_key": RU_BRIDGE_PUBLIC_KEY,
+        "sni": RU_BRIDGE_SNI,
+        "sid": RU_BRIDGE_SID,
+        "flow": RU_BRIDGE_FLOW,
+        "spx": RU_BRIDGE_SPX,
+        "network": RU_BRIDGE_NETWORK,
+        "xhttp_path": RU_BRIDGE_XHTTP_PATH,
+        "xhttp_mode": RU_BRIDGE_XHTTP_MODE,
+        "sub_host": RU_BRIDGE_SUB_HOST,
+        "sub_port": RU_BRIDGE_SUB_PORT,
+        "sub_path": RU_BRIDGE_SUB_PATH,
+    }
+
+def _resolve_ru_bridge_inbound_id() -> Optional[int]:
+    global RU_BRIDGE_INBOUND_ID
+    if RU_BRIDGE_INBOUND_ID is not None:
+        return RU_BRIDGE_INBOUND_ID
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, remark, tag FROM inbounds")
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows:
+            return None
+        def _norm(value: str) -> str:
+            return (value or "").strip().lower()
+        candidates = []
+        if RU_BRIDGE_INBOUND_REMARK:
+            candidates.append(RU_BRIDGE_INBOUND_REMARK)
+        else:
+            candidates.extend([
+                "ru_bridge_outbound",
+                "ru bridge outbound",
+                "ru-bridge outbound",
+                "Vless RU>NL",
+            ])
+        lookup: dict[str, int] = {}
+        for iid, remark, tag in rows:
+            if remark:
+                lookup[_norm(remark)] = int(iid)
+            if tag:
+                lookup[_norm(tag)] = int(iid)
+        for candidate in candidates:
+            cid = lookup.get(_norm(candidate))
+            if cid:
+                RU_BRIDGE_INBOUND_ID = int(cid)
+                return RU_BRIDGE_INBOUND_ID
+        if RU_BRIDGE_INBOUND_REMARK:
+            logging.warning("RU-Bridge inbound remark not found, inbound selection stopped")
+            return None
+        for iid, remark, tag in rows:
+            value = _norm(remark or tag or "")
+            if "ru_bridge" in value or "ru bridge" in value:
+                RU_BRIDGE_INBOUND_ID = int(iid)
+                return RU_BRIDGE_INBOUND_ID
+    except Exception as e:
+        logging.error(f"Failed to resolve RU-Bridge inbound id: {e}")
+    return None
+
+def _build_ru_bridge_sub_link(token: Optional[str]) -> Optional[str]:
+    if not RU_BRIDGE_SUB_HOST or not token:
+        return None
+    sub_port = RU_BRIDGE_SUB_PORT or 443
+    sub_path = RU_BRIDGE_SUB_PATH or "/sub/"
+    if "{token}" in sub_path:
+        path = sub_path.replace("{token}", token)
+        if not path.startswith("/"):
+            path = f"/{path}"
+        return f"https://{RU_BRIDGE_SUB_HOST}:{sub_port}{path}"
+    if not sub_path.startswith("/"):
+        sub_path = f"/{sub_path}"
+    if not sub_path.endswith("/"):
+        sub_path = f"{sub_path}/"
+    return f"https://{RU_BRIDGE_SUB_HOST}:{sub_port}{sub_path}{token}"
+
+def _build_ru_bridge_vless_link(
+    user_uuid: str,
+    client_email: str,
+    client_flow: Optional[str] = None,
+) -> str:
+    location = _ru_bridge_location()
+    if not location:
+        return ""
+    host = location.get("host")
+    port = location.get("port")
+    public_key = location.get("public_key")
+    sni = location.get("sni")
+    sid = location.get("sid")
+    if not host or not port or not public_key or not sni or not sid:
+        return ""
+    flow = client_flow or location.get("flow") or ""
+    spx_val = location.get("spx") or "%2F"
+    network = location.get("network") or "xhttp"
+    import urllib.parse
+    params = [
+        f"type={urllib.parse.quote(str(network))}",
+        "encryption=none",
+        "security=reality",
+        f"pbk={public_key}",
+        "fp=chrome",
+        f"sni={sni}",
+        f"sid={sid}",
+        f"spx={spx_val}",
+    ]
+    if flow:
+        params.append(f"flow={flow}")
+    if network == "xhttp":
+        path = location.get("xhttp_path") or "/"
+        mode = location.get("xhttp_mode") or "packet-up"
+        params.append(f"path={urllib.parse.quote(str(path))}")
+        params.append(f"mode={urllib.parse.quote(str(mode))}")
+    query = "&".join(params)
+    return f"vless://{user_uuid}@{host}:{port}?{query}#{client_email}"
+
+def _build_master_sub_link(token: str) -> Optional[str]:
+    if not token or not IP:
+        return None
+    try:
+        conn_set = sqlite3.connect(DB_PATH)
+        cursor_set = conn_set.cursor()
+        cursor_set.execute(
+            "SELECT key, value FROM settings WHERE key IN "
+            "('subEnable', 'subPort', 'subPath', 'webPort', 'webBasePath', 'webCertFile', 'subCertFile')"
+        )
+        rows_set = cursor_set.fetchall()
+        conn_set.close()
+    except Exception:
+        return None
+    settings_map = {k: v for k, v in rows_set}
+    sub_enable = settings_map.get("subEnable", "false") == "true"
+    sub_port = settings_map.get("subPort", "2096")
+    sub_path = settings_map.get("subPath", "/sub/")
+    web_port = settings_map.get("webPort", "2053")
+    web_base_path = settings_map.get("webBasePath", "/")
+    web_cert = settings_map.get("webCertFile", "")
+    sub_cert = settings_map.get("subCertFile", "")
+    protocol = "http"
+    port = web_port
+    path = sub_path
+    if sub_enable:
+        port = sub_port
+        if sub_cert:
+            protocol = "https"
+    else:
+        base_path = web_base_path or "/"
+        if base_path and not base_path.endswith("/"):
+            base_path += "/"
+        if not base_path.startswith("/"):
+            base_path = "/" + base_path
+        if sub_path.startswith("/"):
+            path = base_path + sub_path[1:]
+        else:
+            path = base_path + sub_path
+        if web_cert:
+            protocol = "https"
+    return f"{protocol}://{IP}:{port}{path}{token}"
+
+
+def _build_remote_xui_sub_link(host: str, token: str, settings: Mapping[str, Any]) -> Optional[str]:
+    if not host or not token:
+        return None
+    override = MOBILE_SUB_PUBLIC_URL
+    if override:
+        override = override.strip()
+        if "{token}" in override:
+            return override.replace("{token}", token)
+        override = override.rstrip("/")
+        return f"{override}/{token}"
+
+    sub_enable = str(settings.get("sub_enable") or "").lower() == "true"
+    sub_port = str(settings.get("sub_port") or "2096")
+    sub_path = str(settings.get("sub_path") or "/sub/")
+    web_port = str(settings.get("web_port") or "2053")
+    web_base_path = str(settings.get("web_base_path") or "/")
+    web_cert = str(settings.get("web_cert") or "")
+    sub_cert = str(settings.get("sub_cert") or "")
+
+    protocol = "http"
+    port = web_port
+    path = sub_path
+    if sub_enable:
+        port = sub_port
+        if sub_cert:
+            protocol = "https"
+    else:
+        base_path = web_base_path or "/"
+        if base_path and not base_path.endswith("/"):
+            base_path += "/"
+        if base_path and not base_path.startswith("/"):
+            base_path = "/" + base_path
+        if sub_path.startswith("/"):
+            path = base_path + sub_path[1:]
+        else:
+            path = base_path + sub_path
+        if web_cert:
+            protocol = "https"
+
+    if "{token}" in path:
+        full_path = path.replace("{token}", token)
+    else:
+        if not path.endswith("/"):
+            path += "/"
+        full_path = f"{path}{token}"
+    if not full_path.startswith("/"):
+        full_path = "/" + full_path
+    return f"{protocol}://{host}:{port}{full_path}"
+
+def _build_all_locations_subscription_payload(
+    user_uuid: str,
+    client_email: str,
+    client_flow: str,
+) -> tuple[Optional[str], int, Optional[str]]:
+    links: list[str] = []
+    import urllib.parse
+    base_settings = {
+        "port": PORT,
+        "public_key": PUBLIC_KEY,
+        "sni": SNI,
+        "sid": SID,
+    }
+    spx_val = _get_spiderx_encoded()
+    if IP:
+        local_location = {
+            "host": IP,
+            "port": PORT,
+            "name": _auto_location_name(IP),
+        }
+        link = _build_location_vless_link_with_settings(
+            local_location,
+            user_uuid,
+            urllib.parse.quote(_location_label(local_location)),
+            base_settings=base_settings,
+            client_flow=client_flow,
+            spx_val=spx_val,
+        )
+        if link:
+            links.append(link)
+    remote_locations = [loc for loc in _fetch_remote_locations() if loc.get("enabled")]
+    for location in remote_locations:
+        link = _build_location_vless_link_with_settings(
+            location,
+            user_uuid,
+            urllib.parse.quote(_location_label(location)),
+            base_settings=base_settings,
+            client_flow=client_flow,
+            spx_val=spx_val,
+        )
+        if link:
+            links.append(link)
+    if not links:
+        return None, 0, None
+    payload = "\n".join(links)
+    encoded = base64.b64encode(payload.encode("utf-8")).decode("utf-8")
+    return encoded, len(links), payload
+
+def _build_all_locations_subscription(
+    user_uuid: str,
+    client_email: str,
+    client_flow: str,
+) -> tuple[Optional[str], int, Optional[str]]:
+    encoded, count, payload = _build_all_locations_subscription_payload(
+        user_uuid=user_uuid,
+        client_email=client_email,
+        client_flow=client_flow,
+    )
+    if not encoded:
+        return None, 0, None
+    return f"sub://{encoded}", count, payload
+
+def _build_multi_sub_public_url(token: str) -> Optional[str]:
+    if not token:
+        return None
+    base = MULTI_SUB_PUBLIC_URL
+    if not base:
+        if not IP:
+            return None
+        base = f"http://{IP}:{MULTI_SUB_PORT}"
+    base = base.rstrip("/")
+    return f"{base}/sub/{token}"
+
+def _is_https_url(url: Optional[str]) -> bool:
+    if not url:
+        return False
+    return url.startswith("https://")
+
+def _build_multi_sub_encoded_by_token(token: str) -> Optional[str]:
+    client = _get_user_client_by_token(token)
+    if not client:
+        return None
+    expiry_ms = int(client.get("expiryTime", 0) or 0)
+    now_ms = int(time.time() * 1000)
+    if expiry_ms > 0 and expiry_ms <= now_ms:
+        return None
+    user_uuid = str(client.get("id") or "").strip()
+    if not user_uuid:
+        return None
+    email = client.get("email") or f"tg_{client.get('tgId', '')}"
+    client_flow = str(client.get("flow") or "")
+    encoded, count, _payload = _build_all_locations_subscription_payload(
+        user_uuid=user_uuid,
+        client_email=email,
+        client_flow=client_flow,
+    )
+    if not encoded or count <= 0:
+        return None
+    return encoded
+
+class _MultiSubHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) < 2 or parts[0] != "sub":
+            self.send_response(404)
+            self.end_headers()
+            return
+        token = parts[1].strip()
+        encoded = _build_multi_sub_encoded_by_token(token)
+        if not encoded:
+            self.send_response(404)
+            self.end_headers()
+            return
+        data = encoded.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, _format: str, *_args: Any) -> None:
+        return
+
+_MULTI_SUB_SERVER: Optional[http.server.ThreadingHTTPServer] = None
+_MULTI_SUB_THREAD: Optional[threading.Thread] = None
+
+def _start_multi_sub_server() -> None:
+    global _MULTI_SUB_SERVER, _MULTI_SUB_THREAD
+    if not MULTI_SUB_ENABLE:
+        return
+    if _MULTI_SUB_SERVER is not None:
+        return
+    try:
+        _purge_log_file_lines("Multi-sub server started on")
+        server = http.server.ThreadingHTTPServer((MULTI_SUB_HOST, MULTI_SUB_PORT), _MultiSubHandler)
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, name="multi-sub-server", daemon=True)
+        _MULTI_SUB_SERVER = server
+        _MULTI_SUB_THREAD = thread
+        thread.start()
+    except Exception as e:
+        logging.error(f"Failed to start multi-sub server: {e}")
 
 def _transaction_dedupe_key(
     tg_id: str,
@@ -1608,7 +3501,7 @@ def get_prices():
     if not rows:
         return PRICES # Fallback
 
-    prices_dict = {}
+    prices_dict = dict(PRICES)
     for r in rows:
         key = str(r[0])
         amount_raw = r[1]
@@ -2112,12 +4005,13 @@ async def change_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lang):
     tg_id = str(update.message.from_user.id)
     keyboard = [
-        [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+        [InlineKeyboardButton(t("btn_buy", lang), callback_data="shop")],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
         [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')],
         [InlineKeyboardButton(t("btn_support", lang), callback_data='support_menu')]
     ]
+    keyboard.insert(2, [InlineKeyboardButton(t("btn_mobile", lang), callback_data="mobile_menu")])
     if tg_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
 
@@ -2178,12 +4072,13 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, lan
 async def show_main_menu_query(query, context, lang):
     tg_id = str(query.from_user.id)
     keyboard = [
-        [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+        [InlineKeyboardButton(t("btn_buy", lang), callback_data="shop")],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
         [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')],
         [InlineKeyboardButton(t("btn_support", lang), callback_data='support_menu')]
     ]
+    keyboard.insert(2, [InlineKeyboardButton(t("btn_mobile", lang), callback_data="mobile_menu")])
     if tg_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
 
@@ -2259,7 +4154,6 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_prices = get_prices()
 
     keyboard = []
-    # Order: 1_week, 2_weeks, 1_month, 3_months, 6_months, 1_year
     order = ["1_week", "2_weeks", "1_month", "3_months", "6_months", "1_year"]
 
     for key in order:
@@ -2288,6 +4182,96 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  reply_markup=InlineKeyboardMarkup(keyboard),
                  parse_mode='Markdown'
              )
+
+
+async def mobile_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+
+    if not _mobile_feature_enabled():
+        try:
+            await query.edit_message_text(
+                _mobile_not_configured_text(tg_id, lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=_mobile_not_configured_text(tg_id, lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                parse_mode="Markdown",
+            )
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(t("btn_mobile_buy", lang), callback_data="mobile_shop")],
+        [InlineKeyboardButton(t("btn_mobile_config", lang), callback_data="mobile_config")],
+        [InlineKeyboardButton(t("btn_mobile_stats", lang), callback_data="mobile_stats")],
+        [InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")],
+    ]
+
+    try:
+        await query.edit_message_text(
+            f"{t('mobile_menu_title', lang)}\n\n{t('mobile_menu_desc', lang)}",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=f"{t('mobile_menu_title', lang)}\n\n{t('mobile_menu_desc', lang)}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+            )
+
+
+async def mobile_shop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+
+    if not _mobile_feature_enabled():
+        await mobile_menu(update, context)
+        return
+
+    current_prices = get_prices()
+    keyboard: list[list[InlineKeyboardButton]] = []
+    order = ["m_1_month", "m_3_months", "m_6_months", "m_1_year"]
+
+    for key in order:
+        if key in current_prices:
+            data = current_prices[key]
+            label = t(f"label_{key}", lang)
+            keyboard.append([InlineKeyboardButton(f"{label} - {data['amount']} ⭐️", callback_data=f"buy_{key}")])
+
+    keyboard.append([InlineKeyboardButton(t("btn_how_to_buy_stars", lang), callback_data="how_to_buy_stars")])
+    keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")])
+
+    try:
+        await query.edit_message_text(
+            t("mobile_shop_title", lang),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=t("mobile_shop_title", lang),
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+            )
 
 async def how_to_buy_stars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2328,11 +4312,12 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['admin_action'] = None
 
     keyboard = [
-        [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+        [InlineKeyboardButton(t("btn_buy", lang), callback_data="shop")],
         [InlineKeyboardButton(t("btn_trial", lang), callback_data='try_trial'), InlineKeyboardButton(t("btn_promo", lang), callback_data='enter_promo')],
         [InlineKeyboardButton(t("btn_config", lang), callback_data='get_config'), InlineKeyboardButton(t("btn_stats", lang), callback_data='stats')],
         [InlineKeyboardButton(t("btn_ref", lang), callback_data='referral'), InlineKeyboardButton(t("btn_lang", lang), callback_data='change_lang')]
     ]
+    keyboard.insert(2, [InlineKeyboardButton(t("btn_mobile", lang), callback_data="mobile_menu")])
     if tg_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton(t("btn_admin_panel", lang), callback_data='admin_panel')])
 
@@ -2390,40 +4375,96 @@ async def try_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
 
+    keyboard = [
+        [InlineKeyboardButton(t("btn_trial_3d", lang), callback_data="try_trial_3d")],
+        [InlineKeyboardButton(t("btn_mobile_trial_1d", lang), callback_data="try_trial_mobile")],
+        [InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")],
+    ]
+    try:
+        await query.edit_message_text(
+            t("trial_menu_title", lang),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=t("trial_menu_title", lang),
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+            )
+
+async def try_trial_3d(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+
     user_data = get_user_data(tg_id)
-    if user_data['trial_used']:
+    if user_data["trial_used"]:
         date_str = "Unknown"
-        if user_data.get('trial_activated_at'):
-            date_str = datetime.datetime.fromtimestamp(user_data['trial_activated_at'], tz=TIMEZONE).strftime("%d.%m.%Y %H:%M")
+        if user_data.get("trial_activated_at"):
+            date_str = datetime.datetime.fromtimestamp(user_data["trial_activated_at"], tz=TIMEZONE).strftime("%d.%m.%Y %H:%M")
 
         text = t("trial_used", lang).format(date=date_str)
         try:
             await query.edit_message_text(
                 text,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
-                parse_mode='Markdown'
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                parse_mode="Markdown",
             )
         except Exception as e:
             if "Message is not modified" not in str(e):
-                 await query.message.delete()
-                 await context.bot.send_message(
-                     chat_id=tg_id,
-                     text=text,
-                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
-                     parse_mode='Markdown'
-                 )
+                await query.message.delete()
+                await context.bot.send_message(
+                    chat_id=tg_id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                    parse_mode="Markdown",
+                )
         return
 
-    # Activate 3 days
     log_action(f"ACTION: User {tg_id} (@{query.from_user.username}) activated TRIAL subscription.")
-    await process_subscription(tg_id, 3, update, context, lang, is_callback=True)
-    mark_trial_used(tg_id)
+    ok = await process_subscription(tg_id, 3, update, context, lang, is_callback=True)
+    if ok:
+        mark_trial_used(tg_id)
 
-    # We need to send a separate message or edit properly because process_subscription sends messages too.
-    # Actually process_subscription uses update.message.reply_text, which might fail on callback query if not handled.
-    # Let's fix process_subscription to handle callback query or we just reuse logic.
-    # Wait, process_subscription currently expects update.message.
-    # I should refactor process_subscription to be more flexible.
+async def try_trial_mobile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+
+    trial = get_mobile_trial_data(tg_id)
+    if int(trial.get("mobile_trial_used") or 0) == 1:
+        date_str = "Unknown"
+        activated_at = trial.get("mobile_trial_activated_at")
+        if activated_at:
+            date_str = datetime.datetime.fromtimestamp(int(activated_at), tz=TIMEZONE).strftime("%d.%m.%Y %H:%M")
+        text = t("mobile_trial_used", lang).format(date=date_str)
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                await query.message.delete()
+                await context.bot.send_message(
+                    chat_id=tg_id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                    parse_mode="Markdown",
+                )
+        return
+
+    log_action(f"ACTION: User {tg_id} (@{query.from_user.username}) activated MOBILE TRIAL subscription.")
+    ok = await process_mobile_subscription(tg_id, 1, update, context, lang, is_callback=True)
+    if ok:
+        mark_mobile_trial_used(tg_id)
 
 async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2578,27 +4619,24 @@ async def show_qrcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
             u_uuid = user_client['id']
             client_email = user_client.get('email', f"VPN_{username}")
             client_flow = user_client.get('flow', '')
-
-            conn2 = sqlite3.connect(DB_PATH)
-            cursor2 = conn2.cursor()
-            cursor2.execute("SELECT stream_settings FROM inbounds WHERE id=?", (INBOUND_ID,))
-            row_ss = cursor2.fetchone()
-            conn2.close()
-
-            spx_val = "%2F"
-            if row_ss:
-                 try:
-                     ss = json.loads(row_ss[0])
-                     reality = ss.get('realitySettings', {})
-                     settings_inner = reality.get('settings', {})
-                     spiderX = settings_inner.get('spiderX', '/')
-                     import urllib.parse
-                     spx_val = urllib.parse.quote(spiderX)
-                 except Exception:
-                     pass
-
-            flow_part = f"&flow={client_flow}" if client_flow else ""
-            vless_link = f"vless://{u_uuid}@{IP}:{PORT}?type=tcp&encryption=none&security=reality&pbk={PUBLIC_KEY}&fp=chrome&sni={SNI}&sid={SID}&spx={spx_val}{flow_part}#{client_email}"
+            spx_val = _get_spiderx_encoded()
+            vless_link = _build_location_vless_link_with_settings(
+                {"host": IP or "", "port": PORT or 443},
+                u_uuid,
+                client_email,
+                base_settings={"port": PORT, "public_key": PUBLIC_KEY, "sni": SNI, "sid": SID},
+                client_flow=client_flow,
+                spx_val=spx_val,
+            )
+            if not vless_link:
+                await query.edit_message_text(
+                    t("error_generic", lang),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                )
+                return
+            if not vless_link:
+                await query.message.reply_text(t("error_generic", lang))
+                return
 
             # Generate QR
             qr = qrcode.QRCode(
@@ -3495,20 +5533,25 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lang = get_lang(tg_id)
 
-    keyboard = [
-        [InlineKeyboardButton(t("btn_admin_stats", lang), callback_data='admin_stats')],
-        [InlineKeyboardButton(t("btn_admin_server", lang), callback_data='admin_server')],
-        [InlineKeyboardButton(t("btn_admin_prices", lang), callback_data='admin_prices')],
-        [InlineKeyboardButton(t("btn_admin_promos", lang), callback_data='admin_promos_menu')],
-        [InlineKeyboardButton(t("btn_suspicious", lang), callback_data='admin_suspicious')],
-        [InlineKeyboardButton(t("btn_leaderboard", lang), callback_data='admin_leaderboard')],
-        [InlineKeyboardButton(t("btn_admin_poll", lang), callback_data='admin_poll_menu')],
-        [InlineKeyboardButton(t("btn_admin_broadcast", lang), callback_data='admin_broadcast')],
-        [InlineKeyboardButton(t("btn_admin_sales", lang), callback_data='admin_sales_log')],
-        [InlineKeyboardButton(t("btn_admin_backup", lang), callback_data='admin_backup_menu')],
-        [InlineKeyboardButton(t("btn_admin_logs", lang), callback_data='admin_logs')],
-        [InlineKeyboardButton(t("btn_main_menu_back", lang), callback_data='back_to_main')]
+    buttons = [
+        InlineKeyboardButton(t("btn_admin_stats", lang), callback_data='admin_stats'),
+        InlineKeyboardButton(t("btn_admin_server", lang), callback_data='admin_server'),
+        InlineKeyboardButton(t("btn_admin_ru_bridge", lang), callback_data='ru_bridge_config'),
+        InlineKeyboardButton(t("btn_admin_prices", lang), callback_data='admin_prices'),
+        InlineKeyboardButton(t("btn_admin_promos", lang), callback_data='admin_promos_menu'),
+        InlineKeyboardButton(t("btn_suspicious", lang), callback_data='admin_suspicious'),
+        InlineKeyboardButton(t("btn_leaderboard", lang), callback_data='admin_leaderboard'),
+        InlineKeyboardButton(t("btn_admin_poll", lang), callback_data='admin_poll_menu'),
+        InlineKeyboardButton(t("btn_admin_broadcast", lang), callback_data='admin_broadcast'),
+        InlineKeyboardButton(t("btn_admin_sales", lang), callback_data='admin_sales_log'),
+        InlineKeyboardButton(t("btn_admin_remote_panels", lang), callback_data='admin_remote_panels'),
+        InlineKeyboardButton(t("btn_admin_remote_locations", lang), callback_data='admin_remote_locations'),
+        InlineKeyboardButton(t("btn_admin_remote_nodes", lang), callback_data='admin_remote_nodes'),
+        InlineKeyboardButton(t("btn_admin_backup", lang), callback_data='admin_backup_menu'),
+        InlineKeyboardButton(t("btn_admin_logs", lang), callback_data='admin_logs'),
     ]
+    keyboard = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    keyboard.append([InlineKeyboardButton(t("btn_main_menu_back", lang), callback_data='back_to_main')])
 
     text = t("admin_menu_text", lang)
 
@@ -3522,6 +5565,477 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  await context.bot.send_message(chat_id=tg_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     else:
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_remote_panels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        tg_id = str(query.from_user.id)
+    else:
+        tg_id = str(update.message.from_user.id)
+
+    if tg_id != ADMIN_ID:
+        return
+
+    lang = get_lang(tg_id)
+    keyboard = [
+        [InlineKeyboardButton(t("btn_remote_add", lang), callback_data="admin_remote_panels_add")],
+        [InlineKeyboardButton(t("btn_remote_list", lang), callback_data="admin_remote_panels_list")],
+        [InlineKeyboardButton(t("btn_remote_check", lang), callback_data="admin_remote_panels_check")],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")],
+    ]
+    text = t("remote_panels_title", lang)
+
+    if query:
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                await query.message.delete()
+                await context.bot.send_message(chat_id=tg_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_panels_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    context.user_data["admin_action"] = "awaiting_remote_panel"
+    await query.edit_message_text(t("remote_panel_prompt", lang), parse_mode="Markdown")
+
+async def admin_remote_panels_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    panels = _fetch_remote_panels()
+    if not panels:
+        await asyncio.get_running_loop().run_in_executor(None, _sync_remote_nodes_locations)
+        panels = _fetch_remote_panels()
+    if not panels:
+        text = t("remote_list_empty", lang)
+    else:
+        lines = []
+        for idx, panel in enumerate(panels, start=1):
+            name = _escape_markdown(panel["name"] or "")
+            base_url = _escape_markdown(panel["base_url"] or "")
+            lines.append(f"{idx}. {name} | {base_url}")
+        text = f"{t('remote_panels_title', lang)}\n\n" + "\n".join(lines)
+    keyboard = [
+        [InlineKeyboardButton(f"🗑 {t('btn_delete', lang)} {panel['name']}", callback_data=f"admin_remote_panels_del_{panel['id']}")]
+        for panel in panels
+    ]
+    keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data="admin_remote_panels")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_panels_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    panels = _fetch_remote_panels()
+    if not panels:
+        text = t("remote_list_empty", lang)
+    else:
+        lines = []
+        for idx, panel in enumerate(panels, start=1):
+            ok = await _check_remote_panel(panel["base_url"])
+            status = t("remote_check_ok", lang) if ok else t("remote_check_fail", lang)
+            name = _escape_markdown(panel["name"] or "")
+            lines.append(f"{idx}. {name} — {status}")
+        text = f"{t('remote_panels_title', lang)}\n\n" + "\n".join(lines)
+    keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="admin_remote_panels")]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_panels_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    try:
+        panel_id = int(query.data.split("_")[-1])
+    except Exception:
+        panel_id = 0
+    if panel_id:
+        _delete_remote_panel(panel_id)
+    await query.edit_message_text(t("remote_panel_deleted", lang), parse_mode="Markdown")
+    await admin_remote_panels(update, context)
+
+async def admin_remote_locations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        tg_id = str(query.from_user.id)
+    else:
+        tg_id = str(update.message.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    keyboard = [
+        [InlineKeyboardButton(t("btn_remote_add", lang), callback_data="admin_remote_locations_add")],
+        [InlineKeyboardButton(t("btn_remote_list", lang), callback_data="admin_remote_locations_list")],
+        [InlineKeyboardButton(t("btn_remote_check", lang), callback_data="admin_remote_locations_check")],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")],
+    ]
+    text = t("remote_locations_title", lang)
+    if query:
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                await query.message.delete()
+                await context.bot.send_message(chat_id=tg_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_locations_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    context.user_data["admin_action"] = "awaiting_remote_location"
+    await query.edit_message_text(t("remote_location_prompt", lang), parse_mode="Markdown")
+
+async def admin_remote_locations_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    locations = _fetch_remote_locations()
+    if not locations:
+        await asyncio.get_running_loop().run_in_executor(None, _sync_remote_nodes_locations)
+        locations = _fetch_remote_locations()
+    if not locations:
+        text = t("remote_list_empty", lang)
+    else:
+        lines = []
+        for idx, location in enumerate(locations, start=1):
+            name = _escape_markdown(location["name"] or "")
+            host = _escape_markdown(location["host"] or "")
+            port = location["port"] or 0
+            lines.append(f"{idx}. {name} | {host}:{port}")
+        text = f"{t('remote_locations_title', lang)}\n\n" + "\n".join(lines)
+    keyboard = [
+        [InlineKeyboardButton(f"🗑 {t('btn_delete', lang)} {location['name']}", callback_data=f"admin_remote_locations_del_{location['id']}")]
+        for location in locations
+    ]
+    keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data="admin_remote_locations")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_locations_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    locations = _fetch_remote_locations()
+    if not locations:
+        text = t("remote_list_empty", lang)
+    else:
+        lines = []
+        for idx, location in enumerate(locations, start=1):
+            host = location["host"] or ""
+            port = location["port"] or 0
+            latency = await _check_tcp_latency(host, int(port))
+            status = t("remote_check_ok", lang) if latency is not None else t("remote_check_fail", lang)
+            latency_label = f"{status} ({latency}ms)" if latency is not None else status
+            name = _escape_markdown(location["name"] or "")
+            lines.append(f"{idx}. {name} — {latency_label}")
+        text = f"{t('remote_locations_title', lang)}\n\n" + "\n".join(lines)
+    keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="admin_remote_locations")]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_locations_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    try:
+        location_id = int(query.data.split("_")[-1])
+    except Exception:
+        location_id = 0
+    if location_id:
+        _delete_remote_location(location_id)
+    await query.edit_message_text(t("remote_location_deleted", lang), parse_mode="Markdown")
+    await admin_remote_locations(update, context)
+
+async def admin_remote_nodes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query:
+        await query.answer()
+        tg_id = str(query.from_user.id)
+    else:
+        tg_id = str(update.message.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    keyboard = [
+        [InlineKeyboardButton(t("btn_remote_add", lang), callback_data="admin_remote_nodes_add")],
+        [InlineKeyboardButton(t("btn_remote_list", lang), callback_data="admin_remote_nodes_list")],
+        [InlineKeyboardButton(t("btn_remote_check", lang), callback_data="admin_remote_nodes_check")],
+        [InlineKeyboardButton(t("btn_remote_sync", lang), callback_data="admin_remote_nodes_sync_menu")],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")],
+    ]
+    text = t("remote_nodes_title", lang)
+    if query:
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                await query.message.delete()
+                await context.bot.send_message(chat_id=tg_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_nodes_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    context.user_data["admin_action"] = "awaiting_remote_node"
+    await query.edit_message_text(t("remote_node_prompt", lang), parse_mode="Markdown")
+
+async def admin_remote_nodes_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    nodes = _fetch_remote_nodes()
+    lines = []
+    local_settings = _get_local_panel_settings()
+    local_port = local_settings.get("port") or "22"
+    if IP:
+        local_name = _escape_markdown(t("local_node_label", lang))
+        local_host = _escape_markdown(IP)
+        local_location = _escape_markdown(_auto_location_name(IP))
+        lines.append(f"1. {local_name} | {local_host}:{local_port} | {local_location}")
+    start_idx = len(lines) + 1
+    for idx, node in enumerate(nodes, start=start_idx):
+        name = _escape_markdown(node["name"] or "")
+        host = _escape_markdown(node["host"] or "")
+        port = node["port"] or 0
+        location = _escape_markdown(_auto_location_name(node["host"] or ""))
+        lines.append(f"{idx}. {name} | {host}:{port} | {location}")
+    if not lines:
+        text = t("remote_list_empty", lang)
+    else:
+        text = f"{t('remote_nodes_title', lang)}\n\n" + "\n".join(lines)
+    keyboard = [
+        [InlineKeyboardButton(f"🗑 {t('btn_delete', lang)} {node['name']}", callback_data=f"admin_remote_nodes_del_{node['id']}")]
+        for node in nodes
+    ]
+    keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data="admin_remote_nodes")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_nodes_sync_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    nodes = _fetch_remote_nodes()
+    if not nodes:
+        text = t("remote_list_empty", lang)
+        keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="admin_remote_nodes")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+    text = t("remote_nodes_sync_title", lang)
+    keyboard = [
+        [InlineKeyboardButton(f"🔄 {node['name']}", callback_data=f"admin_remote_nodes_sync_{node['id']}")]
+        for node in nodes
+    ]
+    keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data="admin_remote_nodes")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_nodes_sync_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    try:
+        node_id = int(query.data.split("_")[-1])
+    except Exception:
+        node_id = 0
+    node = _get_remote_node(node_id) if node_id else None
+    if not node:
+        await query.edit_message_text(t("error_generic", lang), parse_mode="Markdown")
+        return
+    ssh_user = node.get("ssh_user")
+    ssh_password = node.get("ssh_password")
+    if not ssh_user or not ssh_password:
+        await query.edit_message_text(t("remote_node_sync_missing_ssh", lang), parse_mode="Markdown")
+        return
+    host = node.get("host") or ""
+    ssh_port = int(node.get("port") or 22)
+    panel_ready, location_ready = await asyncio.get_running_loop().run_in_executor(
+        None, _sync_remote_node_data, host, ssh_port, ssh_user, ssh_password, node.get("name") or host
+    )
+    if panel_ready or location_ready:
+        await query.edit_message_text(t("remote_node_sync_ok", lang), parse_mode="Markdown")
+    else:
+        await query.edit_message_text(t("remote_node_sync_failed", lang), parse_mode="Markdown")
+    await admin_remote_nodes(update, context)
+
+async def admin_remote_nodes_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    nodes = _fetch_remote_nodes()
+    lines = []
+    local_settings = _get_local_panel_settings()
+    local_port = local_settings.get("port") or "22"
+    if IP:
+        latency = await _check_tcp_latency(IP, int(local_port))
+        status = t("remote_check_ok", lang) if latency is not None else t("remote_check_fail", lang)
+        latency_label = f"{status} ({latency}ms)" if latency is not None else status
+        local_name = _escape_markdown(t("local_node_label", lang))
+        lines.append(f"1. {local_name} — {latency_label}")
+    start_idx = len(lines) + 1
+    for idx, node in enumerate(nodes, start=start_idx):
+        host = node["host"] or ""
+        port = node["port"] or 22
+        latency = await _check_tcp_latency(host, int(port))
+        status = t("remote_check_ok", lang) if latency is not None else t("remote_check_fail", lang)
+        latency_label = f"{status} ({latency}ms)" if latency is not None else status
+        name = _escape_markdown(node["name"] or "")
+        lines.append(f"{idx}. {name} — {latency_label}")
+    if not lines:
+        text = t("remote_list_empty", lang)
+    else:
+        text = f"{t('remote_nodes_title', lang)}\n\n" + "\n".join(lines)
+    keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="admin_remote_nodes")]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_remote_nodes_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    try:
+        node_id = int(query.data.split("_")[-1])
+    except Exception:
+        node_id = 0
+    if node_id:
+        _delete_remote_node(node_id)
+    await query.edit_message_text(t("remote_node_deleted", lang), parse_mode="Markdown")
+    await admin_remote_nodes(update, context)
+
+async def user_locations_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    locations = [loc for loc in _fetch_remote_locations() if loc.get("enabled")]
+    if not locations:
+        await asyncio.get_running_loop().run_in_executor(None, _sync_remote_nodes_locations)
+        locations = [loc for loc in _fetch_remote_locations() if loc.get("enabled")]
+    if not locations:
+        text = t("remote_list_empty", lang)
+        keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="get_config")]]
+    else:
+        text = t("user_locations_title", lang)
+        keyboard = [
+            [InlineKeyboardButton(loc["name"], callback_data=f"user_location_{loc['id']}")]
+            for loc in locations
+        ]
+        keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data="get_config")])
+    try:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+            )
+
+async def user_location_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    try:
+        location_id = int(query.data.split("_")[-1])
+    except Exception:
+        location_id = 0
+    location = _get_remote_location(location_id) if location_id else None
+    if not location or not location.get("enabled"):
+        await query.edit_message_text(t("user_location_not_found", lang), parse_mode="Markdown")
+        return
+    user_client = _get_user_client(tg_id)
+    if not user_client:
+        await query.edit_message_text(t("sub_not_found", lang), parse_mode="Markdown")
+        return
+    user_uuid = user_client.get("id")
+    client_email = user_client.get("email") or f"tg_{tg_id}"
+    client_flow = user_client.get("flow", "")
+    if not user_uuid:
+        await query.edit_message_text(t("sub_not_found", lang), parse_mode="Markdown")
+        return
+    spx_val = _get_spiderx_encoded()
+    vless_link = _build_location_vless_link_with_settings(
+        location,
+        user_uuid,
+        client_email,
+        base_settings={"port": PORT, "public_key": PUBLIC_KEY, "sni": SNI, "sid": SID},
+        client_flow=client_flow,
+        spx_val=spx_val,
+    )
+    if not vless_link:
+        await query.edit_message_text(t("error_generic", lang), parse_mode="Markdown")
+        return
+    sub_token = str(user_client.get("subId") or user_uuid).strip()
+    sub_link = _build_location_sub_link(location, sub_token)
+    if sub_link:
+        sub_block = t("user_location_sub_block", lang).format(sub=html.escape(sub_link))
+    else:
+        sub_block = t("user_location_sub_empty", lang)
+    ping_status = t("remote_check_fail", lang)
+    latency = await _check_tcp_latency(str(location.get("host") or ""), int(location.get("port") or 0))
+    if latency is not None:
+        ping_status = f"{t('remote_check_ok', lang)} ({latency}ms)"
+    ping_block = t("user_location_ping", lang).format(status=html.escape(ping_status))
+    sub_block = f"{sub_block}\n\n{ping_block}"
+    text = t("user_location_config", lang).format(
+        name=html.escape(str(location["name"])),
+        key=html.escape(vless_link),
+        sub_block=sub_block,
+    )
+    keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="user_locations")]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 def get_net_io_counters():
     try:
@@ -3695,6 +6209,7 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_live_monitor", lang), callback_data='admin_server_live')],
         [InlineKeyboardButton(t("btn_admin_health", lang), callback_data='admin_health')],
         [InlineKeyboardButton(t("btn_update_xui_xray", lang), callback_data='admin_update_xui_xray')],
+        [InlineKeyboardButton(t("btn_server_nodes", lang), callback_data='admin_server_nodes')],
         [InlineKeyboardButton(t("btn_refresh", lang), callback_data='admin_server')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
@@ -3705,6 +6220,95 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # If message content is same (Telegram API error), we just ignore or answer
         if "Message is not modified" not in str(e):
              await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+async def admin_server_nodes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    nodes = _fetch_remote_nodes()
+    if not nodes:
+        text = t("remote_list_empty", lang)
+        keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="admin_server")]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+    lines = []
+    for idx, node in enumerate(nodes, start=1):
+        name = _escape_markdown(node["name"] or "")
+        host = _escape_markdown(node["host"] or "")
+        port = node["port"] or 22
+        location = _escape_markdown(_auto_location_name(node["host"] or ""))
+        lines.append(f"{idx}. {name} | {host}:{port} | {location}")
+    text = f"{t('admin_server_nodes_title', lang)}\n\n" + "\n".join(lines)
+    keyboard = [
+        [InlineKeyboardButton(f"🔍 {node['name']}", callback_data=f"admin_server_node_{node['id']}")]
+        for node in nodes
+    ]
+    keyboard.append([InlineKeyboardButton(t("btn_back", lang), callback_data="admin_server")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_server_node_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    try:
+        node_id = int(query.data.split("_")[-1])
+    except Exception:
+        node_id = 0
+    node = _get_remote_node(node_id) if node_id else None
+    if not node:
+        await query.edit_message_text(t("error_generic", lang), parse_mode="Markdown")
+        return
+    host = node.get("host") or ""
+    ssh_port = int(node.get("port") or 22)
+    ssh_user = node.get("ssh_user")
+    ssh_password = node.get("ssh_password")
+    if not ssh_user or not ssh_password:
+        keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="admin_server_nodes")]]
+        await query.edit_message_text(t("remote_node_sync_missing_ssh", lang), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+    ssh_data = await asyncio.get_running_loop().run_in_executor(
+        None, _ssh_fetch_remote_xui_data, host, ssh_port, ssh_user, ssh_password
+    )
+    if not ssh_data:
+        keyboard = [[InlineKeyboardButton(t("btn_back", lang), callback_data="admin_server_nodes")]]
+        await query.edit_message_text(t("remote_node_sync_failed", lang), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+    web_port = _safe_int(ssh_data.get("web_port"))
+    web_base_path = ssh_data.get("web_base_path")
+    panel_base_url = _build_remote_panel_base_url(host, web_port, web_base_path)
+    inbound_port = _safe_int(ssh_data.get("inbound_port"))
+    public_key_raw = ssh_data.get("public_key")
+    sni_raw = ssh_data.get("sni")
+    sid_raw = ssh_data.get("sid")
+    flow_raw = ssh_data.get("flow")
+    public_key = str(public_key_raw) if public_key_raw else "—"
+    sni = str(sni_raw) if sni_raw else "—"
+    sid = str(sid_raw) if sid_raw else "—"
+    flow = str(flow_raw) if flow_raw else "xtls-rprx-vision"
+    panel_line = panel_base_url or "—"
+    inbound_line = str(inbound_port) if inbound_port else "—"
+    text = (
+        f"{t('admin_server_node_title', lang)}\n\n"
+        f"• {t('node_label', lang)}: {_escape_markdown(node.get('name') or '')}\n"
+        f"• HOST: {_escape_markdown(host)}:{ssh_port}\n"
+        f"• Panel: {_escape_markdown(panel_line)}\n"
+        f"• Inbound: {_escape_markdown(inbound_line)}\n"
+        f"• PBK: {_escape_markdown(public_key)}\n"
+        f"• SNI: {_escape_markdown(sni)}\n"
+        f"• SID: {_escape_markdown(sid)}\n"
+        f"• FLOW: {_escape_markdown(flow)}"
+    )
+    keyboard = [
+        [InlineKeyboardButton(t("btn_remote_sync", lang), callback_data=f"admin_remote_nodes_sync_{node['id']}")],
+        [InlineKeyboardButton(t("btn_back", lang), callback_data="admin_server_nodes")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 def _health_check_bot_db() -> tuple[bool, str]:
     try:
@@ -3965,7 +6569,7 @@ async def admin_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_prices = get_prices()
 
     keyboard = []
-    order = ["1_week", "2_weeks", "1_month", "3_months", "6_months", "1_year"]
+    order = ["1_week", "2_weeks", "1_month", "ru_bridge", "3_months", "6_months", "1_year"]
 
     for key in order:
         if key in current_prices:
@@ -3997,7 +6601,8 @@ async def admin_edit_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1_month": t("plan_1_month", lang),
         "3_months": t("plan_3_months", lang),
         "6_months": t("plan_6_months", lang),
-        "1_year": t("plan_1_year", lang)
+        "1_year": t("plan_1_year", lang),
+        "ru_bridge": t("plan_ru_bridge", lang)
     }
 
     await query.edit_message_text(
@@ -4151,6 +6756,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_cleanup_db", lang), callback_data='admin_cleanup_db')],
         [InlineKeyboardButton(t("btn_db_audit", lang), callback_data='admin_db_audit')],
         [InlineKeyboardButton(t("btn_sync_nicks", lang), callback_data='admin_sync_nicks')],
+        [InlineKeyboardButton(t("btn_sync_mobile_nicks", lang), callback_data='admin_sync_mobile_nicks')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -4301,6 +6907,117 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
         pass
 
     # Return to stats
+    await admin_stats(update, context)
+
+async def admin_sync_mobile_nicknames(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    await query.answer(t("sync_start", lang), show_alert=False)
+
+    if not _mobile_feature_enabled():
+        try:
+            await context.bot.send_message(chat_id=tg_id, text=_mobile_not_configured_text(tg_id, lang), parse_mode="Markdown")
+        except Exception:
+            pass
+        await admin_stats(update, context)
+        return
+
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT tg_id, uuid, sub_id, expiry_time FROM mobile_subscriptions")
+        rows = cursor.fetchall()
+        conn.close()
+    except Exception:
+        rows = []
+
+    total = len(rows)
+    if total == 0:
+        try:
+            await context.bot.send_message(chat_id=tg_id, text=t("sync_mobile_empty", lang))
+        except Exception:
+            pass
+        await admin_stats(update, context)
+        return
+
+    updated_count = 0
+    failed_count = 0
+    progress_msg = await context.bot.send_message(
+        chat_id=tg_id,
+        text=t("sync_progress", lang).format(current=0, total=total),
+    )
+
+    for i, row in enumerate(rows):
+        sub_tg_id, user_uuid, sub_id, expiry_time = row
+        sub_tg_id_str = str(sub_tg_id)
+
+        uname = None
+        fname = None
+        lname = None
+        try:
+            chat = await context.bot.get_chat(sub_tg_id_str)
+            uname = chat.username
+            fname = chat.first_name
+            lname = chat.last_name
+            update_user_info(sub_tg_id_str, uname, fname, lname)
+        except Exception:
+            try:
+                conn_bot = sqlite3.connect(BOT_DB_PATH)
+                cursor_bot = conn_bot.cursor()
+                cursor_bot.execute(
+                    "SELECT username, first_name, last_name FROM user_prefs WHERE tg_id=?",
+                    (sub_tg_id_str,),
+                )
+                row_u = cursor_bot.fetchone()
+                conn_bot.close()
+                if row_u:
+                    uname = row_u[0]
+                    fname = row_u[1]
+                    lname = row_u[2]
+            except Exception:
+                pass
+
+        user_nick = ""
+        if uname:
+            user_nick = f"@{uname}"
+        elif fname:
+            user_nick = fname
+            if lname:
+                user_nick += f" {lname}"
+        if not user_nick:
+            user_nick = f"tg_{sub_tg_id_str}"
+
+        try:
+            ok = await _sync_mobile_inbound_client(
+                tg_id=sub_tg_id_str,
+                user_uuid=str(user_uuid),
+                sub_id=str(sub_id),
+                expiry_ms=int(expiry_time or 0),
+                comment=user_nick,
+            )
+            if ok:
+                updated_count += 1
+            else:
+                failed_count += 1
+        except Exception:
+            failed_count += 1
+
+        if (i + 1) % 2 == 0 or (i + 1) == total:
+            try:
+                await progress_msg.edit_text(t("sync_progress", lang).format(current=i + 1, total=total))
+            except Exception:
+                pass
+
+        await asyncio.sleep(0.05)
+
+    try:
+        await progress_msg.edit_text(t("sync_complete", lang).format(updated=updated_count, failed=failed_count))
+    except Exception:
+        pass
+
     await admin_stats(update, context)
 
 async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5756,11 +8473,12 @@ async def admin_flash_errors(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for r in rows:
             uid, err = r
             name_info = user_map.get(uid)
-            name_str = f"`{uid}`"
+            safe_uid = _escape_markdown(uid)
+            name_str = f"`{safe_uid}`"
             if name_info:
-                fn = name_info[0] or ""
-                un = f"@{name_info[1]}" if name_info[1] else ""
-                name_str = f"{fn} {un} (`{uid}`)"
+                fn = _escape_markdown(name_info[0] or "")
+                un = _escape_markdown(f"@{name_info[1]}") if name_info[1] else ""
+                name_str = f"{fn} {un} (`{safe_uid}`)".strip()
 
             # Simplify error
             err_clean = str(err)
@@ -5768,6 +8486,7 @@ async def admin_flash_errors(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 err_clean = "Бот заблокирован"
             elif "chat not found" in err_clean.lower():
                 err_clean = "Чат не найден"
+            err_clean = _escape_markdown(err_clean)
 
             text += f"👤 {name_str}\n❌ {err_clean}\n\n"
 
@@ -6684,6 +9403,148 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Неверный формат. Используйте: `КОД ДНИ ЛИМИТ`")
             return
 
+        if action == "awaiting_remote_panel":
+            if not text:
+                return
+            try:
+                parts = [p.strip() for p in text.split("|")]
+                if len(parts) < 1:
+                    raise ValueError
+                name = ""
+                base_url = ""
+                api_token = None
+                if len(parts) == 1:
+                    base_url = parts[0]
+                elif parts[0].startswith("http"):
+                    base_url = parts[0]
+                    api_token = parts[1] if len(parts) > 1 and parts[1] else None
+                else:
+                    name = parts[0]
+                    base_url = parts[1] if len(parts) > 1 else ""
+                    api_token = parts[2] if len(parts) > 2 and parts[2] else None
+                if not base_url:
+                    raise ValueError
+                if not name or name.lower() in ("-", "auto"):
+                    host = _extract_host_from_url(base_url)
+                    name = _auto_location_name(host)
+                _insert_remote_panel(name, base_url, api_token)
+                await update.message.reply_text(t("remote_panel_added", lang))
+                context.user_data["admin_action"] = None
+                await admin_remote_panels(update, context)
+            except Exception:
+                await update.message.reply_text(t("error_generic", lang))
+            return
+
+        if action == "awaiting_remote_location":
+            if not text:
+                return
+            try:
+                parts = [p.strip() for p in text.split("|")]
+                if not parts:
+                    raise ValueError
+                name = ""
+                offset = 0
+                if len(parts) > 1 and parts[0] and parts[0].lower() not in ("-", "auto") and not _looks_like_host(parts[0]):
+                    name = parts[0]
+                    offset = 1
+                remaining = parts[offset:]
+                if not remaining or not remaining[0]:
+                    raise ValueError
+                host = remaining[0]
+                rest = remaining[1:]
+                port: Optional[int] = None
+                if rest and rest[0]:
+                    if rest[0].isdigit():
+                        port = int(rest[0])
+                        rest = rest[1:]
+                if port is None:
+                    port = PORT or 443
+                public_key = None
+                sni = None
+                sid = None
+                flow = None
+                sub_host = None
+                sub_port = None
+                sub_path = None
+                if rest:
+                    if len(rest) == 1 or (len(rest) >= 2 and rest[1].isdigit()):
+                        sub_host = rest[0] or None
+                        if len(rest) > 1 and rest[1]:
+                            sub_port = int(rest[1])
+                        if len(rest) > 2 and rest[2]:
+                            sub_path = rest[2]
+                    elif len(rest) >= 3:
+                        public_key = rest[0] or None
+                        sni = rest[1] or None
+                        sid = rest[2] or None
+                        flow = rest[3] if len(rest) > 3 and rest[3] else None
+                        sub_host = rest[4] if len(rest) > 4 and rest[4] else None
+                        sub_port = int(rest[5]) if len(rest) > 5 and rest[5] else None
+                        sub_path = rest[6] if len(rest) > 6 and rest[6] else None
+                if not name or name.lower() in ("-", "auto"):
+                    name = _auto_location_name(host)
+                _insert_remote_location(
+                    name=name,
+                    host=host,
+                    port=port,
+                    public_key=public_key,
+                    sni=sni,
+                    sid=sid,
+                    flow=flow,
+                    sub_host=sub_host,
+                    sub_port=sub_port,
+                    sub_path=sub_path,
+                    panel_id=None,
+                )
+                await update.message.reply_text(t("remote_location_added", lang))
+                context.user_data["admin_action"] = None
+                await admin_remote_locations(update, context)
+            except Exception:
+                await update.message.reply_text(t("error_generic", lang))
+            return
+
+        if action == "awaiting_remote_node":
+            if not text:
+                return
+            try:
+                parts = [p.strip() for p in text.split("|")]
+                if len(parts) < 4:
+                    raise ValueError
+                name = parts[0]
+                host_value = parts[1]
+                ssh_port: Optional[int] = None
+                ssh_user: Optional[str] = None
+                ssh_password: Optional[str] = None
+                if len(parts) == 4:
+                    ssh_user = parts[2]
+                    ssh_password = parts[3]
+                else:
+                    ssh_port = int(parts[2]) if parts[2] else None
+                    ssh_user = parts[3] if len(parts) > 3 else None
+                    ssh_password = parts[4] if len(parts) > 4 else None
+                host, parsed_port = _split_host_port(host_value)
+                if not host:
+                    raise ValueError
+                if ssh_port is None:
+                    ssh_port = parsed_port or 22
+                if not ssh_user or not ssh_password:
+                    raise ValueError
+                if not name or name.lower() in ("-", "auto"):
+                    name = _auto_location_name(host)
+                _insert_remote_node(name, host, int(ssh_port), ssh_user, ssh_password)
+                panel_ready, location_ready = await asyncio.get_running_loop().run_in_executor(
+                    None, _sync_remote_node_data, host, int(ssh_port), ssh_user, ssh_password, name
+                )
+                if panel_ready or location_ready:
+                    await update.message.reply_text(t("remote_node_added_auto", lang))
+                else:
+                    await update.message.reply_text(t("remote_node_added", lang))
+                context.user_data["admin_action"] = None
+                await admin_remote_nodes(update, context)
+            except Exception:
+                await update.message.reply_text(t("error_generic", lang))
+            return
+
 
 
         elif action == 'awaiting_price_amount':
@@ -6705,11 +9566,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Let's show the menu again
                     current_prices = get_prices()
                     keyboard = []
-                    order = ["1_week", "2_weeks", "1_month", "3_months", "6_months", "1_year"]
+                    order = ["1_week", "2_weeks", "1_month", "ru_bridge", "3_months", "6_months", "1_year"]
                     labels = {
                         "1_week": "1 Неделя",
                         "2_weeks": "2 Недели",
                         "1_month": "1 Месяц",
+                        "ru_bridge": "RU-Bridge (1 месяц)",
                         "3_months": "3 Месяца",
                         "6_months": "6 Месяцев",
                         "1_year": "1 Год"
@@ -7218,7 +10080,7 @@ async def initiate_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan = current_prices[plan_key]
 
     chat_id = query.message.chat_id
-    title = t("invoice_title", lang)
+    title = t("invoice_title_mobile", lang) if str(plan_key).startswith("m_") else t("invoice_title", lang)
     description = t(f"label_{plan_key}", lang)
     payload = plan_key
     currency = "XTR"
@@ -7355,7 +10217,7 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
             buyer_username = update.message.from_user.username or "NoUsername"
             plan_name = t(f"plan_{payload}", admin_lang)
             now_ms = int(time.time() * 1000)
-            old_expiry_ms = _get_user_client_expiry_ms(tg_id)
+            old_expiry_ms = _get_mobile_subscription_expiry_ms(tg_id) if str(payload).startswith("m_") else _get_user_client_expiry_ms(tg_id)
             ms_to_add = days_to_add * 24 * 60 * 60 * 1000
 
             if admin_lang == "ru":
@@ -7438,7 +10300,13 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             logging.error(f"Failed to notify admin: {e}")
 
-        processed_ok = await process_subscription(tg_id, days_to_add, update, context, lang)
+        processed_ok = False
+        if payload == "ru_bridge":
+            processed_ok = await process_ru_bridge_subscription(tg_id, days_to_add, update, context, lang)
+        elif str(payload).startswith("m_"):
+            processed_ok = await process_mobile_subscription(tg_id, days_to_add, update, context, lang)
+        else:
+            processed_ok = await process_subscription(tg_id, days_to_add, update, context, lang)
         if processed_ok and charge_id:
             try:
                 conn = sqlite3.connect(BOT_DB_PATH)
@@ -7607,6 +10475,906 @@ async def add_days_to_user(tg_id, days_to_add, context):
     conn.close()
 
     await _systemctl("start", "x-ui")
+
+def _fetch_ru_bridge_subscription(tg_id: str) -> Optional[dict[str, Any]]:
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT uuid, sub_id, expiry_time FROM ru_bridge_subscriptions WHERE tg_id=?",
+            (tg_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "tg_id": tg_id,
+            "uuid": row[0],
+            "sub_id": row[1],
+            "expiry_time": row[2],
+        }
+    except Exception as e:
+        logging.error(f"Failed to fetch RU-Bridge subscription: {e}")
+        return None
+
+def _ru_bridge_email(tg_id: str) -> str:
+    return f"ru_bridge_{tg_id}"
+
+def _upsert_ru_bridge_subscription(tg_id: str, days_to_add: int) -> Optional[dict[str, Any]]:
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT uuid, sub_id, expiry_time FROM ru_bridge_subscriptions WHERE tg_id=?",
+            (tg_id,),
+        )
+        row = cursor.fetchone()
+        current_time_ms = int(time.time() * 1000)
+        ms_to_add = days_to_add * 24 * 60 * 60 * 1000
+        if row:
+            user_uuid, sub_id, current_expiry = row
+            current_expiry = int(current_expiry or 0)
+            if current_expiry == 0:
+                new_expiry = 0
+            elif current_expiry < current_time_ms:
+                new_expiry = current_time_ms + ms_to_add
+            else:
+                new_expiry = current_expiry + ms_to_add
+            cursor.execute(
+                "UPDATE ru_bridge_subscriptions SET expiry_time=?, updated_at=? WHERE tg_id=?",
+                (new_expiry, current_time_ms, tg_id),
+            )
+            created = False
+        else:
+            user_uuid = str(uuid.uuid4())
+            sub_id = str(uuid.uuid4()).replace("-", "")[:16]
+            new_expiry = current_time_ms + ms_to_add
+            cursor.execute(
+                "INSERT INTO ru_bridge_subscriptions (tg_id, uuid, sub_id, expiry_time, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (tg_id, user_uuid, sub_id, new_expiry, current_time_ms, current_time_ms),
+            )
+            created = True
+        conn.commit()
+        conn.close()
+        return {
+            "tg_id": tg_id,
+            "uuid": user_uuid,
+            "sub_id": sub_id,
+            "expiry_time": new_expiry,
+            "created": created,
+        }
+    except Exception as e:
+        logging.error(f"Failed to upsert RU-Bridge subscription: {e}")
+        return None
+
+def get_mobile_trial_data(tg_id: str) -> dict[str, Any]:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT mobile_trial_used, mobile_trial_activated_at FROM user_prefs WHERE tg_id=?",
+            (str(tg_id),),
+        )
+        row = cursor.fetchone()
+        if row:
+            return {"mobile_trial_used": int(row[0] or 0), "mobile_trial_activated_at": row[1]}
+        return {"mobile_trial_used": 0, "mobile_trial_activated_at": None}
+    finally:
+        conn.close()
+
+def mark_mobile_trial_used(tg_id: str) -> None:
+    conn = sqlite3.connect(BOT_DB_PATH)
+    cursor = conn.cursor()
+    try:
+        current_time = int(time.time())
+        cursor.execute(
+            """
+            INSERT INTO user_prefs (tg_id, mobile_trial_used, mobile_trial_activated_at)
+            VALUES (?, 1, ?)
+            ON CONFLICT(tg_id) DO UPDATE SET mobile_trial_used=1, mobile_trial_activated_at=?
+            """,
+            (str(tg_id), current_time, current_time),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+def _fetch_mobile_subscription(tg_id: str) -> Optional[dict[str, Any]]:
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT uuid, sub_id, expiry_time FROM mobile_subscriptions WHERE tg_id=?",
+            (tg_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "tg_id": tg_id,
+            "uuid": row[0],
+            "sub_id": row[1],
+            "expiry_time": row[2],
+        }
+    except Exception as e:
+        logging.error(f"Failed to fetch mobile subscription: {e}")
+        return None
+
+
+def _get_mobile_subscription_expiry_ms(tg_id: str) -> Optional[int]:
+    sub = _fetch_mobile_subscription(tg_id)
+    if not sub:
+        return None
+    try:
+        return int(sub.get("expiry_time") or 0)
+    except Exception:
+        return None
+
+
+def _mobile_email(tg_id: str) -> str:
+    return f"mobile_{tg_id}"
+
+def _upsert_mobile_subscription(tg_id: str, days_to_add: int) -> Optional[dict[str, Any]]:
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT uuid, sub_id, expiry_time FROM mobile_subscriptions WHERE tg_id=?",
+            (tg_id,),
+        )
+        row = cursor.fetchone()
+        current_time_ms = int(time.time() * 1000)
+        ms_to_add = days_to_add * 24 * 60 * 60 * 1000
+        if row:
+            user_uuid, sub_id, current_expiry = row
+            current_expiry = int(current_expiry or 0)
+            if current_expiry == 0:
+                new_expiry = 0
+            elif current_expiry < current_time_ms:
+                new_expiry = current_time_ms + ms_to_add
+            else:
+                new_expiry = current_expiry + ms_to_add
+            cursor.execute(
+                "UPDATE mobile_subscriptions SET expiry_time=?, updated_at=? WHERE tg_id=?",
+                (new_expiry, current_time_ms, tg_id),
+            )
+            created = False
+        else:
+            user_uuid = str(uuid.uuid4())
+            sub_id = str(uuid.uuid4()).replace("-", "")[:16]
+            new_expiry = current_time_ms + ms_to_add
+            cursor.execute(
+                "INSERT INTO mobile_subscriptions (tg_id, uuid, sub_id, expiry_time, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (tg_id, user_uuid, sub_id, new_expiry, current_time_ms, current_time_ms),
+            )
+            created = True
+        conn.commit()
+        conn.close()
+        return {
+            "tg_id": tg_id,
+            "uuid": user_uuid,
+            "sub_id": sub_id,
+            "expiry_time": new_expiry,
+            "created": created,
+        }
+    except Exception as e:
+        logging.error(f"Failed to upsert mobile subscription: {e}")
+        return None
+
+async def _sync_ru_bridge_inbound_client(tg_id: str, user_uuid: str, sub_id: str, expiry_ms: int) -> bool:
+    inbound_id = _resolve_ru_bridge_inbound_id()
+    if inbound_id is None:
+        return False
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT settings FROM inbounds WHERE id=?", (inbound_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return False
+        settings_raw = row[0] or "{}"
+        try:
+            settings = json.loads(settings_raw)
+        except Exception:
+            settings = {}
+        clients = settings.get("clients", [])
+        email = _ru_bridge_email(tg_id)
+        user_client = None
+        client_index = -1
+        for idx, client in enumerate(clients):
+            if str(client.get("tgId")) == str(tg_id) or client.get("email") == email:
+                user_client = client
+                client_index = idx
+                break
+        current_time_ms = int(time.time() * 1000)
+        flow_value = RU_BRIDGE_FLOW or ""
+        if user_client:
+            user_client["id"] = user_uuid
+            user_client["email"] = email
+            user_client["expiryTime"] = expiry_ms
+            user_client["enable"] = True
+            user_client["subId"] = sub_id
+            user_client["tgId"] = int(tg_id) if tg_id.isdigit() else tg_id
+            if flow_value and not user_client.get("flow"):
+                user_client["flow"] = flow_value
+            user_client["updated_at"] = current_time_ms
+            if not user_client.get("created_at"):
+                user_client["created_at"] = current_time_ms
+            clients[client_index] = user_client
+        else:
+            new_client = {
+                "id": user_uuid,
+                "email": email,
+                "limitIp": 0,
+                "totalGB": 0,
+                "expiryTime": expiry_ms,
+                "enable": True,
+                "tgId": int(tg_id) if tg_id.isdigit() else tg_id,
+                "subId": sub_id,
+                "created_at": current_time_ms,
+                "updated_at": current_time_ms,
+                "comment": "RU-Bridge",
+                "reset": 0,
+            }
+            if flow_value:
+                new_client["flow"] = flow_value
+            clients.append(new_client)
+        settings["clients"] = clients
+        if email:
+            try:
+                cursor.execute(
+                    "UPDATE client_traffics SET expiry_time=?, enable=1 WHERE inbound_id=? AND email=?",
+                    (expiry_ms, inbound_id, email),
+                )
+                if cursor.rowcount == 0:
+                    cursor.execute(
+                        "INSERT INTO client_traffics (inbound_id, enable, email, up, down, expiry_time, total, reset, all_time, last_online) "
+                        "VALUES (?, ?, ?, 0, 0, ?, 0, 0, 0, 0)",
+                        (inbound_id, 1, email, expiry_ms),
+                    )
+            except Exception as e:
+                logging.error(f"Error updating client_traffics for RU-Bridge: {e}")
+        await _systemctl("stop", XUI_SYSTEMD_SERVICE)
+        cursor.execute(
+            "UPDATE inbounds SET settings=? WHERE id=?",
+            (json.dumps(settings), inbound_id),
+        )
+        conn.commit()
+        conn.close()
+        await _systemctl("start", XUI_SYSTEMD_SERVICE)
+        return True
+    except Exception as e:
+        logging.error(f"Failed to sync RU-Bridge inbound client: {e}")
+        return False
+
+async def _add_days_ru_bridge(tg_id: str, days_to_add: int) -> Optional[int]:
+    data = _upsert_ru_bridge_subscription(tg_id, days_to_add)
+    if not data:
+        return None
+    synced = await _sync_ru_bridge_inbound_client(
+        tg_id=tg_id,
+        user_uuid=str(data["uuid"]),
+        sub_id=str(data["sub_id"]),
+        expiry_ms=int(data["expiry_time"]),
+    )
+    if not synced:
+        return None
+    return int(data["expiry_time"])
+
+async def process_ru_bridge_subscription(tg_id, days_to_add, update, context, lang, is_callback=False) -> bool:
+    if not _ru_bridge_location():
+        try:
+            if is_callback:
+                await update.callback_query.edit_message_text(
+                    t("ru_bridge_not_configured", lang),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                )
+            else:
+                await update.message.reply_text(
+                    t("ru_bridge_not_configured", lang),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                )
+        except Exception:
+            pass
+        return False
+    if _resolve_ru_bridge_inbound_id() is None:
+        try:
+            if is_callback:
+                await update.callback_query.edit_message_text(
+                    t("ru_bridge_not_configured", lang),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                )
+            else:
+                await update.message.reply_text(
+                    t("ru_bridge_not_configured", lang),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+                )
+        except Exception:
+            pass
+        return False
+    try:
+        data = _upsert_ru_bridge_subscription(tg_id, days_to_add)
+        if not data:
+            raise RuntimeError("ru_bridge_db_failed")
+        synced = await _sync_ru_bridge_inbound_client(
+            tg_id=tg_id,
+            user_uuid=str(data["uuid"]),
+            sub_id=str(data["sub_id"]),
+            expiry_ms=int(data["expiry_time"]),
+        )
+        if not synced:
+            raise RuntimeError("ru_bridge_inbound_failed")
+        msg_key = "ru_bridge_success_extended" if days_to_add > 0 else "ru_bridge_success_updated"
+        if data.get("created"):
+            msg_key = "ru_bridge_success_created"
+        expiry_date = format_expiry_display(int(data["expiry_time"]), lang)
+        text = t(msg_key, lang).format(expiry=expiry_date)
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(t("btn_ru_bridge", lang), callback_data='ru_bridge_config')],
+            [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')],
+        ])
+        if is_callback:
+            try:
+                await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+            except Exception:
+                await update.callback_query.message.delete()
+                await context.bot.send_message(chat_id=tg_id, text=text, parse_mode='Markdown', reply_markup=reply_markup)
+        else:
+            await update.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+        return True
+    except Exception as e:
+        logging.error(f"Error processing RU-Bridge subscription: {e}")
+        if is_callback:
+            try:
+                await update.callback_query.edit_message_text(t("error_generic", lang))
+            except Exception:
+                pass
+        else:
+            await update.message.reply_text(t("error_generic", lang))
+        return False
+
+
+async def process_mobile_subscription(tg_id, days_to_add, update, context, lang, is_callback=False) -> bool:
+    if not _mobile_feature_enabled():
+        try:
+            if is_callback:
+                await update.callback_query.edit_message_text(
+                    _mobile_not_configured_text(str(tg_id), lang),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                    parse_mode="Markdown",
+                )
+            else:
+                await update.message.reply_text(
+                    _mobile_not_configured_text(str(tg_id), lang),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                    parse_mode="Markdown",
+                )
+        except Exception:
+            pass
+        return False
+    try:
+        data = _upsert_mobile_subscription(str(tg_id), int(days_to_add))
+        if not data:
+            raise RuntimeError("mobile_db_failed")
+        user_nick = ""
+        user = None
+        if update.callback_query:
+            user = update.callback_query.from_user
+        elif update.message:
+            user = update.message.from_user
+        if user:
+            if user.username:
+                user_nick = f"@{user.username}"
+            elif user.first_name:
+                user_nick = user.first_name
+                if user.last_name:
+                    user_nick += f" {user.last_name}"
+        if not user_nick:
+            user_nick = f"tg_{tg_id}"
+        synced = await _sync_mobile_inbound_client(
+            tg_id=str(tg_id),
+            user_uuid=str(data["uuid"]),
+            sub_id=str(data["sub_id"]),
+            expiry_ms=int(data["expiry_time"]),
+            comment=user_nick,
+        )
+        if not synced:
+            raise RuntimeError("mobile_inbound_failed")
+        msg_key = "mobile_success_extended" if int(days_to_add) > 0 else "mobile_success_updated"
+        if data.get("created"):
+            msg_key = "mobile_success_created"
+        expiry_date = format_expiry_display(int(data["expiry_time"]), lang)
+        text = t(msg_key, lang).format(expiry=expiry_date)
+        reply_markup = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton(t("btn_mobile_config", lang), callback_data="mobile_config")],
+                [InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")],
+            ]
+        )
+        if is_callback:
+            try:
+                await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+            except Exception:
+                await update.callback_query.message.delete()
+                await context.bot.send_message(chat_id=tg_id, text=text, parse_mode="Markdown", reply_markup=reply_markup)
+        else:
+            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+        return True
+    except Exception as e:
+        logging.error(f"Error processing mobile subscription: {e}")
+        if is_callback:
+            try:
+                await update.callback_query.edit_message_text(t("error_generic", lang))
+            except Exception:
+                pass
+        else:
+            await update.message.reply_text(t("error_generic", lang))
+        return False
+
+async def ru_bridge_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+    if not _ru_bridge_location():
+        try:
+            await query.edit_message_text(
+                t("ru_bridge_not_configured", lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+            )
+        except Exception:
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=t("ru_bridge_not_configured", lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]]),
+            )
+        return
+    sub = _fetch_ru_bridge_subscription(tg_id)
+    if not sub:
+        try:
+            await query.edit_message_text(
+                t("ru_bridge_sub_not_found", lang),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+                    [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')],
+                ]),
+                parse_mode='Markdown',
+            )
+        except Exception:
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=t("ru_bridge_sub_not_found", lang),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+                    [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')],
+                ]),
+                parse_mode='Markdown',
+            )
+        return
+    expiry_ms = int(sub.get("expiry_time") or 0)
+    current_ms = int(time.time() * 1000)
+    if expiry_ms > 0 and expiry_ms < current_ms:
+        try:
+            await query.edit_message_text(
+                t("ru_bridge_sub_expired", lang),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+                    [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')],
+                ]),
+                parse_mode='Markdown',
+            )
+        except Exception:
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=t("ru_bridge_sub_expired", lang),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t("btn_buy", lang), callback_data='shop')],
+                    [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')],
+                ]),
+                parse_mode='Markdown',
+            )
+        return
+    user_uuid = str(sub.get("uuid") or "")
+    if not user_uuid:
+        await query.edit_message_text(t("error_generic", lang))
+        return
+    sub_id = str(sub.get("sub_id") or "").strip()
+    sub_link = _build_ru_bridge_sub_link(sub_id)
+    sub_block = t("ru_bridge_sub_block", lang).format(sub=html.escape(sub_link)) if sub_link else t("ru_bridge_sub_empty", lang)
+    expiry_str = format_expiry_display(expiry_ms, lang)
+    msg_text = t("ru_bridge_sub_active", lang).format(
+        expiry=expiry_str,
+        sub_block=sub_block,
+    )
+    try:
+        await query.edit_message_text(
+            msg_text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
+                [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')],
+            ]),
+        )
+    except Exception:
+        await query.message.delete()
+        await context.bot.send_message(
+            chat_id=tg_id,
+            text=msg_text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
+                [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')],
+            ]),
+        )
+
+
+def _ssh_fetch_remote_client_traffic(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    email: str,
+) -> Optional[dict[str, Any]]:
+    client = None
+    try:
+        email_b64 = base64.b64encode(email.encode("utf-8")).decode("utf-8")
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=6,
+            banner_timeout=6,
+            auth_timeout=6,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        cmd = (
+            "python3 - <<'PY'\n"
+            "import base64, json, sqlite3, os\n"
+            "db=os.getenv('XUI_DB_PATH','/etc/x-ui/x-ui.db')\n"
+            "email=base64.b64decode('" + email_b64 + "').decode('utf-8', errors='ignore')\n"
+            "conn=sqlite3.connect(db)\n"
+            "cur=conn.cursor()\n"
+            "cur.execute('SELECT up, down, expiry_time, last_online FROM client_traffics WHERE email=? LIMIT 1', (email,))\n"
+            "row=cur.fetchone()\n"
+            "conn.close()\n"
+            "if row:\n"
+            "    up, down, expiry_time, last_online = row\n"
+            "    print(json.dumps({'ok': True, 'up': up or 0, 'down': down or 0, 'expiry_time': expiry_time or 0, 'last_online': last_online or 0}))\n"
+            "else:\n"
+            "    print(json.dumps({'ok': False}))\n"
+            "PY"
+        )
+        _, stdout, stderr = client.exec_command(cmd, timeout=12)
+        output = stdout.read().decode("utf-8", errors="ignore").strip()
+        error = stderr.read().decode("utf-8", errors="ignore").strip()
+        if not output:
+            if error:
+                logging.warning(f"SSH traffic fetch error for {host}:{port}: {error}")
+            return None
+        try:
+            data = json.loads(output)
+        except Exception:
+            logging.warning(f"SSH traffic fetch invalid json for {host}:{port}: {output}")
+            return None
+        if not isinstance(data, dict):
+            return None
+        if error:
+            logging.warning(f"SSH traffic fetch stderr for {host}:{port}: {error}")
+        return data
+    except Exception as exc:
+        logging.warning(f"SSH traffic fetch exception for {host}:{port}: {exc}")
+        return None
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+
+async def _fetch_mobile_remote_xui_data() -> Optional[dict[str, Any]]:
+    if not _mobile_feature_enabled():
+        return None
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        _ssh_fetch_remote_xui_data,
+        MOBILE_SSH_HOST,
+        MOBILE_SSH_PORT,
+        MOBILE_SSH_USER,
+        MOBILE_SSH_PASSWORD,
+    )
+
+
+async def _fetch_mobile_remote_client_traffic(email: str) -> Optional[dict[str, Any]]:
+    if not _mobile_feature_enabled():
+        return None
+    return await asyncio.get_running_loop().run_in_executor(
+        None,
+        _ssh_fetch_remote_client_traffic,
+        MOBILE_SSH_HOST,
+        MOBILE_SSH_PORT,
+        MOBILE_SSH_USER,
+        MOBILE_SSH_PASSWORD,
+        email,
+    )
+
+
+async def mobile_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+
+    if not _mobile_feature_enabled():
+        try:
+            await query.edit_message_text(
+                _mobile_not_configured_text(tg_id, lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=_mobile_not_configured_text(tg_id, lang),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="back_to_main")]]),
+                parse_mode="Markdown",
+            )
+        return
+
+    sub = _fetch_mobile_subscription(tg_id)
+    if not sub:
+        try:
+            await query.edit_message_text(
+                t("mobile_sub_not_found", lang),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton(t("btn_mobile_buy", lang), callback_data="mobile_shop")],
+                        [InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")],
+                    ]
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=t("mobile_sub_not_found", lang),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton(t("btn_mobile_buy", lang), callback_data="mobile_shop")],
+                        [InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")],
+                    ]
+                ),
+                parse_mode="Markdown",
+            )
+        return
+
+    expiry_ms = int(sub.get("expiry_time") or 0)
+    current_ms = int(time.time() * 1000)
+    if expiry_ms > 0 and expiry_ms < current_ms:
+        try:
+            await query.edit_message_text(
+                t("mobile_sub_expired", lang),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton(t("btn_mobile_buy", lang), callback_data="mobile_shop")],
+                        [InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")],
+                    ]
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=t("mobile_sub_expired", lang),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton(t("btn_mobile_buy", lang), callback_data="mobile_shop")],
+                        [InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")],
+                    ]
+                ),
+                parse_mode="Markdown",
+            )
+        return
+
+    sub_token = str(sub.get("sub_id") or "").strip()
+    if not sub_token:
+        await query.edit_message_text(t("error_generic", lang))
+        return
+
+    remote = await _fetch_mobile_remote_xui_data()
+    if not remote:
+        await query.edit_message_text(t("error_generic", lang))
+        return
+
+    sub_link = _build_remote_xui_sub_link(MOBILE_SSH_HOST, sub_token, remote)
+    if not sub_link:
+        await query.edit_message_text(t("error_generic", lang))
+        return
+
+    expiry_str = format_expiry_display(expiry_ms, lang)
+    msg_text = t("mobile_sub_active_html", lang).format(expiry=expiry_str)
+    msg_text += f"\n\n<code>{html.escape(sub_link)}</code>"
+
+    try:
+        await query.edit_message_text(
+            msg_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton(t("btn_qrcode", lang), callback_data="mobile_show_qrcode")],
+                    [InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")],
+                ]
+            ),
+        )
+    except Exception:
+        await query.message.delete()
+        await context.bot.send_message(
+            chat_id=tg_id,
+            text=msg_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton(t("btn_qrcode", lang), callback_data="mobile_show_qrcode")],
+                    [InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")],
+                ]
+            ),
+        )
+
+
+async def show_mobile_qrcode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+
+    if not _mobile_feature_enabled():
+        await mobile_menu(update, context)
+        return
+
+    sub = _fetch_mobile_subscription(tg_id)
+    if not sub:
+        await mobile_config(update, context)
+        return
+
+    expiry_ms = int(sub.get("expiry_time") or 0)
+    current_ms = int(time.time() * 1000)
+    if expiry_ms > 0 and expiry_ms < current_ms:
+        await mobile_config(update, context)
+        return
+    sub_token = str(sub.get("sub_id") or "").strip()
+    if not sub_token:
+        await query.edit_message_text(t("error_generic", lang))
+        return
+
+    remote = await _fetch_mobile_remote_xui_data()
+    if not remote:
+        await query.edit_message_text(t("error_generic", lang))
+        return
+    sub_link = _build_remote_xui_sub_link(MOBILE_SSH_HOST, sub_token, remote)
+    if not sub_link:
+        await query.edit_message_text(t("error_generic", lang))
+        return
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(sub_link)
+    qr.make(fit=True)
+
+    img = qr.make_image(fill_color="black", back_color="white")
+    bio = BytesIO()
+    bio.name = "qrcode.png"
+    img.save(bio, "PNG")
+    bio.seek(0)
+
+    client_email = _mobile_email(tg_id)
+    await context.bot.send_photo(
+        chat_id=tg_id,
+        photo=bio,
+        caption=f"Subscription QR for: <code>{html.escape(client_email)}</code>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_config")]]),
+    )
+
+
+async def mobile_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+
+    if not _mobile_feature_enabled():
+        await mobile_menu(update, context)
+        return
+
+    sub = _fetch_mobile_subscription(tg_id)
+    if not sub:
+        text = t("mobile_sub_not_found", lang)
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")]]),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")]]),
+                parse_mode="Markdown",
+            )
+        return
+
+    email = _mobile_email(tg_id)
+    traffic = await _fetch_mobile_remote_client_traffic(email)
+    if not traffic or not traffic.get("ok"):
+        text = "Нет данных по трафику 3G/4G." if lang == "ru" else "No 3G/4G traffic data found."
+        try:
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")]]),
+            )
+        except Exception:
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=tg_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")]]),
+            )
+        return
+
+    up = int(traffic.get("up") or 0)
+    down = int(traffic.get("down") or 0)
+    total = up + down
+
+    title = "📶 *Моя статистика 3G/4G*" if lang == "ru" else "📶 *My 3G/4G Stats*"
+    text = (
+        f"{title}\n\n"
+        f"⬇️ Download: {down / (1024 ** 3):.2f} GB\n"
+        f"⬆️ Upload: {up / (1024 ** 3):.2f} GB\n"
+        f"📦 Total: {total / (1024 ** 3):.2f} GB"
+    )
+
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")]]),
+        )
+    except Exception:
+        await query.message.delete()
+        await context.bot.send_message(
+            chat_id=tg_id,
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("btn_back", lang), callback_data="mobile_menu")]]),
+        )
+
 
 async def process_subscription(tg_id, days_to_add, update, context, lang, is_callback=False) -> bool:
     try:
@@ -7898,102 +11666,42 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             client_email = user_client.get('email', f"VPN_{username}")
             client_flow = user_client.get('flow', '')
 
-            # Retrieve Reality Settings from Inbound Settings (row[0])
-            # Note: stream_settings might be a JSON string or dict depending on X-UI version
-            # In previous tool output, we saw stream_settings as a key in row_dict, but here we only fetched 'settings' column from inbounds table.
-            # Wait, the SELECT query was: SELECT settings FROM inbounds WHERE id=?
-            # The 'settings' column in database only contains client list mostly.
-            # The REAL stream settings are in 'stream_settings' column.
-            # We need to fetch stream_settings column as well.
-            pass
-
-            # Direct VLESS link
-            # vless://UUID@IP:PORT?type=tcp&encryption=none&security=reality&pbk=KEY&fp=chrome&sni=google.com&sid=b2&spx=%2F#tg_ID
-
-            # We need to fetch stream_settings from DB to be accurate
-            conn2 = sqlite3.connect(DB_PATH)
-            cursor2 = conn2.cursor()
-            cursor2.execute("SELECT stream_settings FROM inbounds WHERE id=?", (INBOUND_ID,))
-            row_ss = cursor2.fetchone()
-            conn2.close()
-
-            spx_val = "%2F" # Default
-            if row_ss:
-                 try:
-                     ss = json.loads(row_ss[0])
-                     reality = ss.get('realitySettings', {})
-                     settings_inner = reality.get('settings', {})
-                     spiderX = settings_inner.get('spiderX', '/')
-                     import urllib.parse
-                     spx_val = urllib.parse.quote(spiderX)
-                 except Exception:
-                     pass
-
-            flow_part = f"&flow={client_flow}" if client_flow else ""
-
-            vless_link = f"vless://{u_uuid}@{IP}:{PORT}?type=tcp&encryption=none&security=reality&pbk={PUBLIC_KEY}&fp=chrome&sni={SNI}&sid={SID}&spx={spx_val}{flow_part}#{client_email}"
-
-            # Subscription URL
-            conn_set = sqlite3.connect(DB_PATH)
-            cursor_set = conn_set.cursor()
-            cursor_set.execute("SELECT key, value FROM settings WHERE key IN ('subEnable', 'subPort', 'subPath', 'webPort', 'webBasePath', 'webCertFile', 'subCertFile')")
-            rows_set = cursor_set.fetchall()
-            conn_set.close()
-
-            settings_map = {k: v for k, v in rows_set}
-
-            sub_enable = settings_map.get('subEnable', 'false') == 'true'
-            sub_port = settings_map.get('subPort', '2096')
-            sub_path = settings_map.get('subPath', '/sub/')
-            web_port = settings_map.get('webPort', '2053')
-            web_base_path = settings_map.get('webBasePath', '/')
-            web_cert = settings_map.get('webCertFile', '')
-            sub_cert = settings_map.get('subCertFile', '')
-
-            protocol = "http"
-            port = web_port
-            path = sub_path
-
-            if sub_enable:
-                port = sub_port
-                path = sub_path
-                if sub_cert:
-                    protocol = "https"
-            else:
-                # Fallback to web port
-                port = web_port
-                # Ensure web_base_path ends with / if not empty
-                if web_base_path and not web_base_path.endswith('/'):
-                    web_base_path += '/'
-                if not web_base_path.startswith('/'):
-                     web_base_path = '/' + web_base_path
-
-                # path = web_base_path + sub_path (without leading slash if web_base_path has it)
-                if sub_path.startswith('/'):
-                    path = web_base_path + sub_path[1:]
-                else:
-                    path = web_base_path + sub_path
-
-                if web_cert:
-                    protocol = "https"
-
             sub_id = user_client.get('subId')
-            if sub_id:
-                sub_link = f"{protocol}://{IP}:{port}{path}{sub_id}"
-            else:
-                sub_link = f"{protocol}://{IP}:{port}{path}{u_uuid}"
+            sub_token = str(sub_id).strip() if sub_id else str(u_uuid).strip()
+            sub_link = _build_master_sub_link(sub_token) if sub_token else None
 
             expiry_str = format_expiry_display(expiry_ms, lang)
             msg_text = t("sub_active_html", lang).format(expiry=expiry_str)
 
-            msg_text += t("sub_recommendation", lang).format(link=html.escape(sub_link), key=html.escape(vless_link))
+            all_sub_link, all_sub_count, all_sub_payload = _build_all_locations_subscription(
+                user_uuid=u_uuid,
+                client_email=client_email,
+                client_flow=client_flow,
+            )
+            multi_sub_url = _build_multi_sub_public_url(sub_token) if MULTI_SUB_ENABLE and all_sub_count > 1 else None
+            primary_sub_link = multi_sub_url or sub_link
+            if primary_sub_link:
+                msg_text += t("sub_recommendation", lang).format(link=html.escape(primary_sub_link))
+            location_items: list[str] = []
+            if IP:
+                location_items.append(_auto_location_name(IP))
+            for loc in [loc for loc in _fetch_remote_locations() if loc.get("enabled")]:
+                location_items.append(_location_label(loc))
+            unique_items = []
+            for item in location_items:
+                if item and item not in unique_items:
+                    unique_items.append(item)
+            if unique_items:
+                locations_text = "\n".join(f"• {html.escape(item)}" for item in unique_items)
+                block = t("sub_locations_list", lang).format(list=locations_text)
+                if len(msg_text) + len(block) <= 3500:
+                    msg_text += block
 
             try:
                 await query.edit_message_text(
                     msg_text,
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton(t("btn_qrcode", lang), callback_data='show_qrcode')],
                         [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
                         [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
                     ])
@@ -8008,11 +11716,15 @@ async def get_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=msg_text,
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton(t("btn_qrcode", lang), callback_data='show_qrcode')],
                         [InlineKeyboardButton(t("btn_instructions", lang), callback_data='instructions')],
                         [InlineKeyboardButton(t("btn_back", lang), callback_data='back_to_main')]
                     ])
                 )
+            if (not multi_sub_url) and all_sub_payload and all_sub_count > 0:
+                if all_sub_count > 1 or len(all_sub_payload) > 1500:
+                    bio = BytesIO(all_sub_payload.encode("utf-8"))
+                    bio.name = "all_locations.txt"
+                    await context.bot.send_document(chat_id=tg_id, document=bio)
         else:
             try:
                 await query.edit_message_text(
@@ -8779,10 +12491,10 @@ async def watch_access_log(app):
                         else:
                              def _fetch_country_code():
                                  requests = __import__("requests")
-                                 resp = requests.get(f"http://ip-api.com/json/{ip}?fields=countryCode", timeout=2)
+                                 resp = requests.get(f"https://ipinfo.io/{ip}/json", timeout=2)
                                  if resp.status_code == 200:
                                      data = resp.json()
-                                     return data.get('countryCode')
+                                     return data.get("country")
                                  return None
 
                              country_code = await asyncio.get_running_loop().run_in_executor(None, _fetch_country_code)
@@ -9315,12 +13027,22 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(set_language, pattern='^set_lang_'))
     application.add_handler(CallbackQueryHandler(change_lang, pattern='^change_lang$'))
     application.add_handler(CallbackQueryHandler(shop, pattern='^shop$'))
+    application.add_handler(CallbackQueryHandler(mobile_menu, pattern='^mobile_menu$'))
+    application.add_handler(CallbackQueryHandler(mobile_shop, pattern='^mobile_shop$'))
     application.add_handler(CallbackQueryHandler(how_to_buy_stars, pattern='^how_to_buy_stars$'))
     application.add_handler(CallbackQueryHandler(back_to_main, pattern='^back_to_main$'))
     application.add_handler(CallbackQueryHandler(initiate_payment, pattern='^buy_'))
     application.add_handler(CallbackQueryHandler(get_config, pattern='^get_config$'))
+    application.add_handler(CallbackQueryHandler(mobile_config, pattern='^mobile_config$'))
+    application.add_handler(CallbackQueryHandler(mobile_stats, pattern='^mobile_stats$'))
+    application.add_handler(CallbackQueryHandler(show_mobile_qrcode, pattern='^mobile_show_qrcode$'))
+    application.add_handler(CallbackQueryHandler(ru_bridge_config, pattern='^ru_bridge_config$'))
+    application.add_handler(CallbackQueryHandler(user_locations_menu, pattern='^user_locations$'))
+    application.add_handler(CallbackQueryHandler(user_location_select, pattern='^user_location_'))
     application.add_handler(CallbackQueryHandler(stats, pattern='^stats$'))
     application.add_handler(CallbackQueryHandler(try_trial, pattern='^try_trial$'))
+    application.add_handler(CallbackQueryHandler(try_trial_3d, pattern='^try_trial_3d$'))
+    application.add_handler(CallbackQueryHandler(try_trial_mobile, pattern='^try_trial_mobile$'))
     application.add_handler(CallbackQueryHandler(enter_promo, pattern='^enter_promo$'))
     application.add_handler(CallbackQueryHandler(referral, pattern='^referral$'))
     application.add_handler(CallbackQueryHandler(my_referrals, pattern='^my_referrals$'))
@@ -9331,6 +13053,23 @@ def register_handlers(application):
     application.add_handler(CommandHandler('admin', admin_panel))
     application.add_handler(CommandHandler('health', admin_health))
     application.add_handler(CallbackQueryHandler(admin_panel, pattern='^admin_panel$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_panels, pattern='^admin_remote_panels$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_panels_add, pattern='^admin_remote_panels_add$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_panels_list, pattern='^admin_remote_panels_list$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_panels_check, pattern='^admin_remote_panels_check$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_panels_delete, pattern='^admin_remote_panels_del_'))
+    application.add_handler(CallbackQueryHandler(admin_remote_locations, pattern='^admin_remote_locations$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_locations_add, pattern='^admin_remote_locations_add$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_locations_list, pattern='^admin_remote_locations_list$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_locations_check, pattern='^admin_remote_locations_check$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_locations_delete, pattern='^admin_remote_locations_del_'))
+    application.add_handler(CallbackQueryHandler(admin_remote_nodes, pattern='^admin_remote_nodes$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_nodes_add, pattern='^admin_remote_nodes_add$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_nodes_list, pattern='^admin_remote_nodes_list$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_nodes_check, pattern='^admin_remote_nodes_check$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_nodes_sync_menu, pattern='^admin_remote_nodes_sync_menu$'))
+    application.add_handler(CallbackQueryHandler(admin_remote_nodes_sync_action, pattern='^admin_remote_nodes_sync_'))
+    application.add_handler(CallbackQueryHandler(admin_remote_nodes_delete, pattern='^admin_remote_nodes_del_'))
     application.add_handler(CallbackQueryHandler(admin_health, pattern='^admin_health$'))
     application.add_handler(CallbackQueryHandler(admin_stats, pattern='^admin_stats$'))
     application.add_handler(CallbackQueryHandler(admin_cleanup_db, pattern='^admin_cleanup_db$'))
@@ -9338,8 +13077,11 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(admin_db_sync_confirm, pattern='^admin_db_sync_confirm$'))
     application.add_handler(CallbackQueryHandler(admin_db_sync_all, pattern='^admin_db_sync_all$'))
     application.add_handler(CallbackQueryHandler(admin_sync_nicknames, pattern='^admin_sync_nicks$'))
+    application.add_handler(CallbackQueryHandler(admin_sync_mobile_nicknames, pattern='^admin_sync_mobile_nicks$'))
     application.add_handler(CallbackQueryHandler(admin_server, pattern='^admin_server$'))
     application.add_handler(CallbackQueryHandler(admin_server_live, pattern='^admin_server_live$'))
+    application.add_handler(CallbackQueryHandler(admin_server_nodes, pattern='^admin_server_nodes$'))
+    application.add_handler(CallbackQueryHandler(admin_server_node_detail, pattern='^admin_server_node_'))
     application.add_handler(CallbackQueryHandler(admin_update_xui_xray, pattern='^admin_update_xui_xray$'))
     application.add_handler(CallbackQueryHandler(admin_rebind_user, pattern='^admin_rebind_'))
     application.add_handler(CallbackQueryHandler(admin_users_list, pattern='^admin_users_'))
@@ -10042,7 +13784,12 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
 
             if days > 0 and should_extend:
                 try:
-                    await add_days_to_user(tg_id, days, context)
+                    if plan_id == "ru_bridge":
+                        new_expiry = await _add_days_ru_bridge(tg_id, days)
+                        if new_expiry is None:
+                            raise RuntimeError("RU-Bridge extension failed")
+                    else:
+                        await add_days_to_user(tg_id, days, context)
                     cursor.execute(
                         "UPDATE transactions SET processed_at=? "
                         "WHERE telegram_payment_charge_id=? AND processed_at IS NULL",
@@ -10055,9 +13802,26 @@ async def check_missed_transactions(context: ContextTypes.DEFAULT_TYPE):
 
                 try:
                     lang = get_lang(tg_id)
-                    msg_text = f"✅ *Payment Restored!*\n\nWe found a missing payment of {amount} Stars.\nYour subscription has been extended by {days} days."
-                    if lang == 'ru':
-                        msg_text = f"✅ *Платеж восстановлен!*\n\nМы обнаружили потерянный платеж на {amount} Stars.\nВаша подписка продлена на {days} дн."
+                    if plan_id == "ru_bridge":
+                        msg_text = (
+                            f"✅ *Payment Restored!*\n\nWe found a missing payment of {amount} Stars.\n"
+                            f"Your RU-Bridge access has been extended by {days} days."
+                        )
+                        if lang == 'ru':
+                            msg_text = (
+                                f"✅ *Платеж восстановлен!*\n\nМы обнаружили потерянный платеж на {amount} Stars.\n"
+                                f"Ваша RU-Bridge подписка продлена на {days} дн."
+                            )
+                    else:
+                        msg_text = (
+                            f"✅ *Payment Restored!*\n\nWe found a missing payment of {amount} Stars.\n"
+                            f"Your subscription has been extended by {days} days."
+                        )
+                        if lang == 'ru':
+                            msg_text = (
+                                f"✅ *Платеж восстановлен!*\n\nМы обнаружили потерянный платеж на {amount} Stars.\n"
+                                f"Ваша подписка продлена на {days} дн."
+                            )
 
                     await context.bot.send_message(chat_id=tg_id, text=msg_text, parse_mode='Markdown')
                 except Exception:
@@ -10197,6 +13961,8 @@ async def main():
     except Exception:
         pass
 
+    _start_multi_sub_server()
+
     # 1. Main Bot App
     request = HTTPXRequest(
         connect_timeout=10.0,
@@ -10218,6 +13984,8 @@ async def main():
     job_queue.run_repeating(detect_suspicious_activity, interval=300, first=30)
     job_queue.run_repeating(check_missed_transactions, interval=60, first=30)
     job_queue.run_repeating(monitor_thresholds_job, interval=_MONITOR_INTERVAL_SEC, first=60)
+    if AUTO_SYNC_INTERVAL_SEC > 0:
+        job_queue.run_repeating(_auto_sync_remote_nodes_job, interval=AUTO_SYNC_INTERVAL_SEC, first=30)
 
     # New jobs for Backup and Winback (Daily)
     # Run backup at ~4 AM (assuming start time is arbitrary, we just set interval=24h)

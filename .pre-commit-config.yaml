@@ -25,3 +25,6 @@ repos:
           - --ignore-missing-imports
           - bot
         pass_filenames: false
+        additional_dependencies:
+          - paramiko
+          - types-paramiko

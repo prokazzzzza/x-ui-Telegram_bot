@@ -86,6 +86,43 @@ async def test_successful_payment_records_transaction_and_notifies_admin_via_sup
 
 
 @pytest.mark.asyncio
+async def test_successful_payment_mobile_payload_routes_to_mobile_processor(tmp_path, monkeypatch):
+    db_path = tmp_path / "bot_data.db"
+    _prepare_bot_db(str(db_path))
+    monkeypatch.setattr(bot, "BOT_DB_PATH", str(db_path))
+    monkeypatch.setattr(bot, "ADMIN_ID", "999")
+    monkeypatch.setattr(bot, "ADMIN_ID_INT", 999)
+
+    payload = "m_1_month"
+    monkeypatch.setattr(bot, "get_prices", lambda: {payload: {"amount": 100, "days": 30}})
+    bot.process_mobile_subscription = AsyncMock()
+
+    update = MagicMock()
+    update.message = MagicMock()
+    msg_mock = MagicMock()
+    msg_mock.edit_text = AsyncMock()
+    update.message.reply_text = AsyncMock(return_value=msg_mock)
+    update.message.from_user.id = 555
+    update.message.from_user.username = "user5"
+    update.message.successful_payment = MagicMock()
+    update.message.successful_payment.invoice_payload = payload
+    update.message.successful_payment.total_amount = 100
+
+    context = MagicMock()
+    context.bot = AsyncMock()
+    context.bot_data = {}
+
+    await bot.successful_payment(update, context)
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("SELECT tg_id, amount, plan_id FROM transactions").fetchone()
+    conn.close()
+    assert row == ("555", 100, payload)
+
+    bot.process_mobile_subscription.assert_awaited()
+
+
+@pytest.mark.asyncio
 async def test_successful_payment_notifies_admin_via_main_bot_when_support_missing(tmp_path, monkeypatch):
     db_path = tmp_path / "bot_data.db"
     _prepare_bot_db(str(db_path))

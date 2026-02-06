@@ -64,7 +64,7 @@ _slugify_service_suffix() {
 }
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}    Maxi_VPN_bot Deployment Script      ${NC}"
+echo -e "${BLUE}    VPN_bot Deployment Script      ${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 # 1. Check Root

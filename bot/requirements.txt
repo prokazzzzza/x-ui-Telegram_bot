@@ -3,5 +3,7 @@ python-dotenv
 qrcode[pil]
 apscheduler
 requests
+paramiko
+types-paramiko
 ruff
 mypy
