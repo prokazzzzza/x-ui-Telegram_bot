@@ -655,6 +655,7 @@ TEXTS = {
         "rank_info_sub": "\n🏆 Your Rank (Subscription): #{rank} of {total}\n(Extend subscription to rank up!)",
         "btn_admin_stats": "📊 Statistics",
         "btn_admin_server": "🖥 Server",
+        "btn_admin_server_mobile": "📶 3G/4G Server",
         "btn_admin_ru_bridge": "🧩 RU-Bridge (test)",
         "btn_admin_health": "🩺 Health Check",
         "btn_admin_prices": "💰 Pricing",
@@ -727,6 +728,7 @@ TEXTS = {
         "poll_preview": "📊 *Poll Preview:*\n\n❓ Question: {question}\n\n🔢 Options:\n{options}\n\nSend this poll to all users?",
         "btn_send_poll": "✅ Send to All",
         "admin_server_title": "🖥 *Server Status*",
+        "admin_server_mobile_title": "📶 *3G/4G Server Status*",
         "admin_server_nodes_title": "🌐 *Remote VPS*",
         "admin_server_node_title": "🖥 *Node Details*",
         "btn_server_nodes": "🌐 Nodes/VPS",
@@ -1089,6 +1091,7 @@ TEXTS = {
         "rank_info_sub": "\n🏆 Ваше место {rank}-е в рейтинге подписок из {total}.\n💡 Продлите подписку на больший срок, чтобы стать лидером!",
         "btn_admin_stats": "📊 Статистика",
         "btn_admin_server": "🖥 Сервер",
+        "btn_admin_server_mobile": "📶 Сервер 3G/4G",
         "btn_admin_ru_bridge": "🧩 RU-Bridge (тест)",
         "btn_admin_health": "🩺 Проверка",
         "btn_admin_prices": "💰 Настройка цен",
@@ -1156,6 +1159,7 @@ TEXTS = {
         "poll_vote_registered": "✅ Ваш голос учтен!",
         "btn_send_poll": "✅ Отправить всем",
         "admin_server_title": "🖥 *Состояние сервера*",
+        "admin_server_mobile_title": "📶 *Состояние сервера 3G/4G*",
         "admin_server_nodes_title": "🌐 *Удалённые VPS*",
         "admin_server_node_title": "🖥 *Параметры узла*",
         "btn_server_nodes": "🌐 Узлы/VPS",
@@ -2245,6 +2249,446 @@ def _ssh_fetch_remote_xui_data(
             except Exception:
                 pass
 
+
+def _ssh_fetch_remote_server_status(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+) -> Optional[dict[str, Any]]:
+    client = None
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=8,
+            banner_timeout=8,
+            auth_timeout=8,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        cmd = (
+            "python3 - <<'PY'\n"
+            "import json, os, re, shutil, subprocess, time\n"
+            "\n"
+            "def _net_io():\n"
+            "    try:\n"
+            "        with open('/proc/net/dev','r') as f:\n"
+            "            lines=f.readlines()\n"
+            "        rx=0\n"
+            "        tx=0\n"
+            "        for line in lines[2:]:\n"
+            "            if ':' not in line:\n"
+            "                continue\n"
+            "            data=line.split(':',1)[1].split()\n"
+            "            if len(data) < 9:\n"
+            "                continue\n"
+            "            rx += int(data[0])\n"
+            "            tx += int(data[8])\n"
+            "        return rx, tx\n"
+            "    except Exception:\n"
+            "        return 0, 0\n"
+            "\n"
+            "def _extract_semver(text: str):\n"
+            "    m=re.search(r'(?P<v>v?\\d+\\.\\d+(?:\\.\\d+)?)', text or '')\n"
+            "    if not m:\n"
+            "        return None\n"
+            "    v=m.group('v').lstrip('v')\n"
+            "    if v.count('.') == 1:\n"
+            "        v = v + '.0'\n"
+            "    return v or None\n"
+            "\n"
+            "def _run_first_semver(cmds):\n"
+            "    probe=[]\n"
+            "    for cmd in cmds:\n"
+            "        try:\n"
+            "            p=subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=6)\n"
+            "            out=(p.stdout or '').strip()\n"
+            "            first=(out.splitlines()[0].strip() if out else '')\n"
+            "            probe.append({'cmd': ' '.join(cmd), 'rc': int(p.returncode), 'out': first[:160]})\n"
+            "            if not out:\n"
+            "                continue\n"
+            "            for line in out.splitlines()[:8]:\n"
+            "                ver=_extract_semver(line.strip())\n"
+            "                if ver:\n"
+            "                    return ver, probe\n"
+            "        except Exception as e:\n"
+            "            probe.append({'cmd': ' '.join(cmd), 'rc': 999, 'out': str(e)[:160]})\n"
+            "            continue\n"
+            "    return None, probe\n"
+            "\n"
+            "def _run_first(cmds):\n"
+            "    for cmd in cmds:\n"
+            "        try:\n"
+            "            p=subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=6)\n"
+            "            out=(p.stdout or '').strip()\n"
+            "            if out:\n"
+            "                return out\n"
+            "        except Exception:\n"
+            "            continue\n"
+            "    return ''\n"
+            "\n"
+            "rx1, tx1=_net_io()\n"
+            "try:\n"
+            "    with open('/proc/stat','r') as f:\n"
+            "        parts=f.readline().split()\n"
+            "        total_1=sum(int(x) for x in parts[1:])\n"
+            "        idle_1=int(parts[4])\n"
+            "except Exception:\n"
+            "    total_1=0\n"
+            "    idle_1=0\n"
+            "time.sleep(1.0)\n"
+            "rx2, tx2=_net_io()\n"
+            "try:\n"
+            "    with open('/proc/stat','r') as f:\n"
+            "        parts=f.readline().split()\n"
+            "        total_2=sum(int(x) for x in parts[1:])\n"
+            "        idle_2=int(parts[4])\n"
+            "except Exception:\n"
+            "    total_2=total_1\n"
+            "    idle_2=idle_1\n"
+            "diff_total=total_2-total_1\n"
+            "diff_idle=idle_2-idle_1\n"
+            "cpu=0.0\n"
+            "if diff_total>0:\n"
+            "    cpu=(1.0-(diff_idle/diff_total))*100.0\n"
+            "tx_speed=max(0, tx2-tx1)\n"
+            "rx_speed=max(0, rx2-rx1)\n"
+            "\n"
+            "mem={}\n"
+            "try:\n"
+            "    with open('/proc/meminfo','r') as f:\n"
+            "        for line in f:\n"
+            "            parts=line.split(':',1)\n"
+            "            if len(parts)!=2:\n"
+            "                continue\n"
+            "            key=parts[0].strip()\n"
+            "            val=int(parts[1].split()[0])\n"
+            "            mem[key]=val\n"
+            "except Exception:\n"
+            "    mem={}\n"
+            "total_ram=mem.get('MemTotal',0)\n"
+            "avail_ram=mem.get('MemAvailable',0)\n"
+            "used_ram=max(0,total_ram-avail_ram)\n"
+            "ram_usage=(used_ram/total_ram)*100.0 if total_ram>0 else 0.0\n"
+            "ram_total_gb=total_ram/(1024*1024) if total_ram else 0.0\n"
+            "ram_used_gb=used_ram/(1024*1024) if used_ram else 0.0\n"
+            "total_swap=mem.get('SwapTotal',0)\n"
+            "free_swap=mem.get('SwapFree',0)\n"
+            "used_swap=max(0,total_swap-free_swap)\n"
+            "swap_usage=(used_swap/total_swap)*100.0 if total_swap>0 else 0.0\n"
+            "swap_total_gb=total_swap/(1024*1024) if total_swap else 0.0\n"
+            "swap_used_gb=used_swap/(1024*1024) if used_swap else 0.0\n"
+            "\n"
+            "uptime_sec=0\n"
+            "try:\n"
+            "    with open('/proc/uptime','r') as f:\n"
+            "        uptime_sec=int(float(f.readline().strip().split()[0]))\n"
+            "except Exception:\n"
+            "    uptime_sec=0\n"
+            "\n"
+            "disk_total_gb=0.0\n"
+            "disk_used_gb=0.0\n"
+            "disk_free_gb=0.0\n"
+            "disk_usage=0.0\n"
+            "try:\n"
+            "    disk=shutil.disk_usage('/')\n"
+            "    disk_total_gb=disk.total/(1024**3)\n"
+            "    disk_used_gb=disk.used/(1024**3)\n"
+            "    disk_free_gb=disk.free/(1024**3)\n"
+            "    disk_usage=(disk.used/disk.total)*100.0 if disk.total else 0.0\n"
+            "except Exception:\n"
+            "    pass\n"
+            "\n"
+            "xui_ver, xui_probe=_run_first_semver([\n"
+            "  ['x-ui','-v'],\n"
+            "  ['x-ui','version'],\n"
+            "  ['x-ui','--version'],\n"
+            "  ['/usr/local/x-ui/x-ui','-v'],\n"
+            "  ['/usr/local/x-ui/x-ui','version'],\n"
+            "  ['/usr/local/x-ui/x-ui','--version'],\n"
+            "  ['/usr/bin/x-ui','-v'],\n"
+            "  ['/usr/bin/x-ui','version'],\n"
+            "  ['/usr/bin/x-ui','--version'],\n"
+            "  ['/usr/local/bin/x-ui','-v'],\n"
+            "  ['/usr/local/bin/x-ui','version'],\n"
+            "  ['/etc/x-ui/x-ui','-v'],\n"
+            "  ['/etc/x-ui/x-ui','version'],\n"
+            "])\n"
+            "xray_out=_run_first([['/usr/local/x-ui/bin/xray-linux-amd64','version'],['/usr/local/x-ui/bin/xray','version'],['xray','version']])\n"
+            "xray_ver=_extract_semver((xray_out.splitlines()[0].strip() if xray_out else ''))\n"
+            "\n"
+            "result={\n"
+            "  'cpu': float(cpu),\n"
+            "  'ram_usage': float(ram_usage),\n"
+            "  'ram_total': float(ram_total_gb),\n"
+            "  'ram_used': float(ram_used_gb),\n"
+            "  'swap_usage': float(swap_usage),\n"
+            "  'swap_total': float(swap_total_gb),\n"
+            "  'swap_used': float(swap_used_gb),\n"
+            "  'disk_usage': float(disk_usage),\n"
+            "  'disk_total': float(disk_total_gb),\n"
+            "  'disk_used': float(disk_used_gb),\n"
+            "  'disk_free': float(disk_free_gb),\n"
+            "  'rx_speed': int(rx_speed),\n"
+            "  'tx_speed': int(tx_speed),\n"
+            "  'uptime_sec': int(uptime_sec),\n"
+            "  'xui_version': xui_ver,\n"
+            "  'xray_version': xray_ver,\n"
+            "  'xui_probe': xui_probe,\n"
+            "}\n"
+            "print(json.dumps(result))\n"
+            "PY"
+        )
+        _, stdout, stderr = client.exec_command(cmd, timeout=25)
+        output = stdout.read().decode("utf-8", errors="ignore").strip()
+        error = stderr.read().decode("utf-8", errors="ignore").strip()
+        if not output:
+            if error:
+                logging.warning(f"SSH server status error for {host}:{port}: {error}")
+            return None
+        try:
+            data = json.loads(output)
+        except Exception:
+            logging.warning(f"SSH server status invalid json for {host}:{port}: {output}")
+            return None
+        if not isinstance(data, dict):
+            return None
+        if error:
+            logging.warning(f"SSH server status stderr for {host}:{port}: {error}")
+        return data
+    except Exception as exc:
+        logging.warning(f"SSH server status exception for {host}:{port}: {exc}")
+        return None
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+
+def _ssh_run_remote_command(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    command: str,
+    timeout: int = 180,
+) -> tuple[int, str, str]:
+    client = None
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=8,
+            banner_timeout=8,
+            auth_timeout=8,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        _, stdout, stderr = client.exec_command(command, timeout=timeout)
+        rc = int(stdout.channel.recv_exit_status())
+        out = stdout.read().decode("utf-8", errors="ignore").strip()
+        err = stderr.read().decode("utf-8", errors="ignore").strip()
+        return rc, out, err
+    except Exception as exc:
+        return 1, "", str(exc)
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+
+def _ssh_update_remote_xray(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+) -> tuple[bool, str]:
+    client = None
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            password=password,
+            timeout=8,
+            banner_timeout=8,
+            auth_timeout=8,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        cmd = (
+            "python3 - <<'PY'\n"
+            "import io, json, os, platform, re, shutil, stat, subprocess, tempfile, urllib.request, zipfile\n"
+            "\n"
+            "def _extract_semver(text: str):\n"
+            "    m=re.search(r'(?P<v>v?\\d+\\.\\d+\\.\\d+)', text or '')\n"
+            "    if not m:\n"
+            "        return None\n"
+            "    v=m.group('v').lstrip('v')\n"
+            "    return v or None\n"
+            "\n"
+            "def _cmd_out(cmd):\n"
+            "    try:\n"
+            "        p=subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=8)\n"
+            "        return p.returncode, (p.stdout or '').strip()\n"
+            "    except Exception as e:\n"
+            "        return 1, str(e)\n"
+            "\n"
+            "def _get_target_path():\n"
+            "    candidates=(\n"
+            "        '/usr/local/x-ui/bin/xray-linux-amd64',\n"
+            "        '/usr/local/x-ui/bin/xray',\n"
+            "        '/usr/bin/xray',\n"
+            "    )\n"
+            "    for p in candidates:\n"
+            "        if os.path.isfile(p):\n"
+            "            return p\n"
+            "    rc, out=_cmd_out(['bash','-lc','command -v xray || true'])\n"
+            "    if rc==0 and out:\n"
+            "        p=out.splitlines()[0].strip()\n"
+            "        if p and os.path.isfile(p):\n"
+            "            return p\n"
+            "    return None\n"
+            "\n"
+            "def _select_asset(machine: str):\n"
+            "    m=(machine or '').strip().lower()\n"
+            "    if m in {'x86_64','amd64'}:\n"
+            "        return 'Xray-linux-64.zip'\n"
+            "    if m in {'aarch64','arm64'}:\n"
+            "        return 'Xray-linux-arm64-v8a.zip'\n"
+            "    if m in {'armv7l','armv7'}:\n"
+            "        return 'Xray-linux-arm32-v7a.zip'\n"
+            "    if m in {'armv6l','armv6'}:\n"
+            "        return 'Xray-linux-arm32-v6.zip'\n"
+            "    if m in {'i386','i686'}:\n"
+            "        return 'Xray-linux-32.zip'\n"
+            "    return None\n"
+            "\n"
+            "target=_get_target_path()\n"
+            "if not target:\n"
+            "    print(json.dumps({'ok': False, 'detail': 'Не найден путь к бинарнику Xray'}))\n"
+            "    raise SystemExit(0)\n"
+            "\n"
+            "before_rc, before_out=_cmd_out([target,'version'])\n"
+            "before_first=(before_out.splitlines()[0].strip() if before_out else '')\n"
+            "before_ver=_extract_semver(before_first) or (before_first if before_first else None)\n"
+            "\n"
+            "req=urllib.request.Request(\n"
+            "  'https://api.github.com/repos/XTLS/Xray-core/releases/latest',\n"
+            "  headers={'Accept':'application/vnd.github+json','User-Agent':'x-ui-bot'}\n"
+            ")\n"
+            "with urllib.request.urlopen(req, timeout=25) as resp:\n"
+            "    raw=resp.read().decode('utf-8', errors='replace')\n"
+            "release=json.loads(raw)\n"
+            "assets=release.get('assets') or []\n"
+            "if not isinstance(assets, list) or not assets:\n"
+            "    print(json.dumps({'ok': False, 'detail': 'Не найдены assets в релизе Xray-core'}))\n"
+            "    raise SystemExit(0)\n"
+            "\n"
+            "preferred=_select_asset(platform.machine())\n"
+            "chosen=None\n"
+            "for a in assets:\n"
+            "    if not isinstance(a, dict):\n"
+            "        continue\n"
+            "    name=str(a.get('name') or '')\n"
+            "    url=str(a.get('browser_download_url') or '')\n"
+            "    if not name.endswith('.zip') or not url:\n"
+            "        continue\n"
+            "    if preferred and name==preferred:\n"
+            "        chosen=(name, url)\n"
+            "        break\n"
+            "if not chosen:\n"
+            "    for a in assets:\n"
+            "        if not isinstance(a, dict):\n"
+            "            continue\n"
+            "        name=str(a.get('name') or '')\n"
+            "        url=str(a.get('browser_download_url') or '')\n"
+            "        if not name.endswith('.zip') or not url:\n"
+            "            continue\n"
+            "        if name.startswith('Xray-linux-') and 'dgst' not in name:\n"
+            "            chosen=(name, url)\n"
+            "            break\n"
+            "if not chosen:\n"
+            "    print(json.dumps({'ok': False, 'detail': 'Не удалось выбрать архив Xray под текущую архитектуру'}))\n"
+            "    raise SystemExit(0)\n"
+            "\n"
+            "name, url=chosen\n"
+            "req2=urllib.request.Request(url, headers={'User-Agent':'x-ui-bot'})\n"
+            "with urllib.request.urlopen(req2, timeout=60) as resp:\n"
+            "    zip_bytes=resp.read()\n"
+            "\n"
+            "zf=zipfile.ZipFile(io.BytesIO(zip_bytes))\n"
+            "xray_member=None\n"
+            "for info in zf.infolist():\n"
+            "    fn=info.filename\n"
+            "    if fn.endswith('/'):\n"
+            "        continue\n"
+            "    base=fn.rsplit('/',1)[-1]\n"
+            "    if base=='xray':\n"
+            "        xray_member=fn\n"
+            "        break\n"
+            "if not xray_member:\n"
+            "    print(json.dumps({'ok': False, 'detail': 'В архиве релиза не найден файл xray'}))\n"
+            "    raise SystemExit(0)\n"
+            "xray_bin=zf.read(xray_member)\n"
+            "\n"
+            "dir_name=os.path.dirname(target)\n"
+            "tmp_path=os.path.join(dir_name, '.xray.tmp')\n"
+            "with open(tmp_path, 'wb') as f:\n"
+            "    f.write(xray_bin)\n"
+            "os.chmod(tmp_path, 0o755)\n"
+            "os.replace(tmp_path, target)\n"
+            "\n"
+            "after_rc, after_out=_cmd_out([target,'version'])\n"
+            "after_first=(after_out.splitlines()[0].strip() if after_out else '')\n"
+            "after_ver=_extract_semver(after_first) or (after_first if after_first else None)\n"
+            "\n"
+            "os.system('systemctl restart x-ui >/dev/null 2>&1 || x-ui restart >/dev/null 2>&1 || true')\n"
+            "before_disp=before_ver or 'unknown'\n"
+            "after_disp=after_ver or 'unknown'\n"
+            "print(json.dumps({'ok': after_rc==0, 'detail': f\"{before_disp} → {after_disp}\"}))\n"
+            "PY"
+        )
+        _, stdout, stderr = client.exec_command(cmd, timeout=220)
+        output = stdout.read().decode("utf-8", errors="ignore").strip()
+        error = stderr.read().decode("utf-8", errors="ignore").strip()
+        if not output:
+            return False, error or "empty_output"
+        try:
+            data = json.loads(output)
+        except Exception:
+            return False, output[:1500]
+        if not isinstance(data, dict):
+            return False, "invalid_json"
+        ok = bool(data.get("ok"))
+        detail = str(data.get("detail") or "").strip() or "—"
+        if error:
+            detail = f"{detail}\n{error}".strip()
+        return ok, detail[:1500]
+    except Exception as exc:
+        return False, str(exc)[:1500]
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+
 def _get_master_inbound_payload() -> Optional[dict[str, Any]]:
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -2404,6 +2848,7 @@ def _ssh_upsert_remote_inbound_client(
     expiry_ms: int,
     flow: str,
     comment: str,
+    force_comment: bool = False,
 ) -> bool:
     client = None
     try:
@@ -2444,6 +2889,7 @@ def _ssh_upsert_remote_inbound_client(
             f"tg_id=base64.b64decode('{tg_b64}').decode('utf-8', errors='ignore')\n"
             f"flow=base64.b64decode('{flow_b64}').decode('utf-8', errors='ignore')\n"
             f"comment=base64.b64decode('{comment_b64}').decode('utf-8', errors='ignore')\n"
+            f"force_comment=bool(int({1 if force_comment else 0}))\n"
             "conn=sqlite3.connect(db)\n"
             "cur=conn.cursor()\n"
             "target_id=None\n"
@@ -2509,8 +2955,13 @@ def _ssh_upsert_remote_inbound_client(
             "            c['tgId']=tg_id\n"
             "        if flow and not c.get('flow'):\n"
             "            c['flow']=flow\n"
-            "        if comment and not c.get('comment'):\n"
-            "            c['comment']=comment\n"
+            "        if comment:\n"
+            "            existing=c.get('comment')\n"
+            "            if force_comment or not existing or str(existing)!=comment:\n"
+            "                c['comment']=comment\n"
+            "            existing2=c.get('_comment')\n"
+            "            if force_comment or not existing2 or str(existing2)!=comment:\n"
+            "                c['_comment']=comment\n"
             "        if not c.get('created_at'):\n"
             "            c['created_at']=now\n"
             "        c['updated_at']=now\n"
@@ -2530,6 +2981,7 @@ def _ssh_upsert_remote_inbound_client(
             "        'created_at': now,\n"
             "        'updated_at': now,\n"
             "        'comment': comment,\n"
+            "        '_comment': comment,\n"
             "        'reset': 0,\n"
             "    }\n"
             "    try:\n"
@@ -2589,6 +3041,7 @@ async def _sync_mobile_inbound_client(
     sub_id: str,
     expiry_ms: int,
     comment: str = "",
+    force_comment: bool = False,
 ) -> bool:
     if not MOBILE_SSH_HOST or not MOBILE_SSH_USER or not MOBILE_SSH_PASSWORD:
         return False
@@ -2608,6 +3061,7 @@ async def _sync_mobile_inbound_client(
         int(expiry_ms),
         MOBILE_FLOW,
         comment,
+        bool(force_comment),
     )
 
 def _sync_remote_node_data(
@@ -5533,24 +5987,30 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lang = get_lang(tg_id)
 
-    buttons = [
-        InlineKeyboardButton(t("btn_admin_stats", lang), callback_data='admin_stats'),
-        InlineKeyboardButton(t("btn_admin_server", lang), callback_data='admin_server'),
-        InlineKeyboardButton(t("btn_admin_ru_bridge", lang), callback_data='ru_bridge_config'),
-        InlineKeyboardButton(t("btn_admin_prices", lang), callback_data='admin_prices'),
-        InlineKeyboardButton(t("btn_admin_promos", lang), callback_data='admin_promos_menu'),
-        InlineKeyboardButton(t("btn_suspicious", lang), callback_data='admin_suspicious'),
-        InlineKeyboardButton(t("btn_leaderboard", lang), callback_data='admin_leaderboard'),
-        InlineKeyboardButton(t("btn_admin_poll", lang), callback_data='admin_poll_menu'),
-        InlineKeyboardButton(t("btn_admin_broadcast", lang), callback_data='admin_broadcast'),
-        InlineKeyboardButton(t("btn_admin_sales", lang), callback_data='admin_sales_log'),
-        InlineKeyboardButton(t("btn_admin_remote_panels", lang), callback_data='admin_remote_panels'),
-        InlineKeyboardButton(t("btn_admin_remote_locations", lang), callback_data='admin_remote_locations'),
-        InlineKeyboardButton(t("btn_admin_remote_nodes", lang), callback_data='admin_remote_nodes'),
-        InlineKeyboardButton(t("btn_admin_backup", lang), callback_data='admin_backup_menu'),
-        InlineKeyboardButton(t("btn_admin_logs", lang), callback_data='admin_logs'),
+    keyboard: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(t("btn_admin_stats", lang), callback_data="admin_stats"),
+            InlineKeyboardButton(t("btn_admin_server", lang), callback_data="admin_server"),
+            InlineKeyboardButton(t("btn_admin_server_mobile", lang), callback_data="admin_server_mobile"),
+        ]
     ]
-    keyboard = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+
+    buttons = [
+        InlineKeyboardButton(t("btn_admin_ru_bridge", lang), callback_data="ru_bridge_config"),
+        InlineKeyboardButton(t("btn_admin_prices", lang), callback_data="admin_prices"),
+        InlineKeyboardButton(t("btn_admin_promos", lang), callback_data="admin_promos_menu"),
+        InlineKeyboardButton(t("btn_suspicious", lang), callback_data="admin_suspicious"),
+        InlineKeyboardButton(t("btn_leaderboard", lang), callback_data="admin_leaderboard"),
+        InlineKeyboardButton(t("btn_admin_poll", lang), callback_data="admin_poll_menu"),
+        InlineKeyboardButton(t("btn_admin_broadcast", lang), callback_data="admin_broadcast"),
+        InlineKeyboardButton(t("btn_admin_sales", lang), callback_data="admin_sales_log"),
+        InlineKeyboardButton(t("btn_admin_remote_panels", lang), callback_data="admin_remote_panels"),
+        InlineKeyboardButton(t("btn_admin_remote_locations", lang), callback_data="admin_remote_locations"),
+        InlineKeyboardButton(t("btn_admin_remote_nodes", lang), callback_data="admin_remote_nodes"),
+        InlineKeyboardButton(t("btn_admin_backup", lang), callback_data="admin_backup_menu"),
+        InlineKeyboardButton(t("btn_admin_logs", lang), callback_data="admin_logs"),
+    ]
+    keyboard.extend([buttons[i : i + 2] for i in range(0, len(buttons), 2)])
     keyboard.append([InlineKeyboardButton(t("btn_main_menu_back", lang), callback_data='back_to_main')])
 
     text = t("admin_menu_text", lang)
@@ -6220,6 +6680,220 @@ async def admin_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # If message content is same (Telegram API error), we just ignore or answer
         if "Message is not modified" not in str(e):
              await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+
+async def admin_server_mobile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["live_monitoring_active"] = False
+    query = update.callback_query
+    try:
+        await query.answer("Обновление данных...")
+    except Exception:
+        pass
+    tg_id = str(query.from_user.id)
+    if tg_id != ADMIN_ID:
+        return
+    lang = get_lang(tg_id)
+
+    if not MOBILE_SSH_HOST or not MOBILE_SSH_USER or not MOBILE_SSH_PASSWORD:
+        keyboard = [[InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")]]
+        await query.edit_message_text(t("mobile_not_configured", lang), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    stats = await asyncio.get_running_loop().run_in_executor(
+        None,
+        _ssh_fetch_remote_server_status,
+        MOBILE_SSH_HOST,
+        MOBILE_SSH_PORT,
+        MOBILE_SSH_USER,
+        MOBILE_SSH_PASSWORD,
+    )
+    if not stats:
+        keyboard = [[InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")]]
+        await query.edit_message_text(t("error_generic", lang), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    remote_xui_v = stats.get("xui_version")
+    remote_xray_v = stats.get("xray_version")
+    latest_xui_v, latest_xray_v = await asyncio.gather(
+        _github_latest_version("MHSanaei", "3x-ui"),
+        _github_latest_version("XTLS", "Xray-core"),
+    )
+
+    tx_speed_str = format_bytes(int(stats.get("tx_speed") or 0)) + "/s"
+    rx_speed_str = format_bytes(int(stats.get("rx_speed") or 0)) + "/s"
+    uptime_str = format_uptime(int(stats.get("uptime_sec") or 0))
+
+    xui_status = _format_update_status(str(remote_xui_v) if remote_xui_v else None, latest_xui_v, lang)
+    xui_probe_block = ""
+    if not remote_xui_v:
+        probe = stats.get("xui_probe") or []
+        if isinstance(probe, list) and probe:
+            rendered: list[str] = []
+            for item in probe[-6:]:
+                if not isinstance(item, dict):
+                    continue
+                cmd_s = str(item.get("cmd") or "").strip()
+                rc_s = str(item.get("rc") or "").strip()
+                out_s = str(item.get("out") or "").strip()
+                if not cmd_s and not out_s:
+                    continue
+                out_s = out_s.replace("```", "'''").replace("`", "'")
+                rendered.append(f"{cmd_s} -> rc={rc_s} | {out_s}")
+            if rendered:
+                xui_probe_block = "\n```" + "\n".join(rendered)[:900] + "```"
+
+    text = (
+        f"{t('admin_server_mobile_title', lang)}\n\n"
+        f"{t('updates_title', lang)}\n"
+        f"{t('xui_version_label', lang)} {xui_status}{xui_probe_block}\n"
+        f"{t('xray_version_label', lang)} {_format_update_status(str(remote_xray_v) if remote_xray_v else None, latest_xray_v, lang)}\n\n"
+        f"{t('cpu_label', lang)} {float(stats.get('cpu') or 0.0):.1f}%\n"
+        f"{t('ram_label', lang)} {float(stats.get('ram_usage') or 0.0):.1f}% ({float(stats.get('ram_used') or 0.0):.2f} / {float(stats.get('ram_total') or 0.0):.2f} GB)\n"
+        f"{t('swap_label', lang)} {float(stats.get('swap_usage') or 0.0):.1f}% ({float(stats.get('swap_used') or 0.0):.2f} / {float(stats.get('swap_total') or 0.0):.2f} GB)\n"
+        f"{t('disk_label', lang)} {float(stats.get('disk_usage') or 0.0):.1f}%\n"
+        f"{t('disk_used', lang)} {float(stats.get('disk_used') or 0.0):.2f} GB\n"
+        f"{t('disk_free', lang)} {float(stats.get('disk_free') or 0.0):.2f} GB\n"
+        f"{t('disk_total', lang)} {float(stats.get('disk_total') or 0.0):.2f} GB\n\n"
+        f"{t('uptime_label', lang)} {uptime_str}\n\n"
+        f"{t('traffic_speed_title', lang)}\n"
+        f"{t('upload_label', lang)}\n{tx_speed_str}\n"
+        f"{t('download_label', lang)}\n{rx_speed_str}\n\n"
+        f"{t('updated_label', lang)} {datetime.datetime.now(TIMEZONE).strftime('%H:%M:%S')}"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton(t("btn_update_xui_xray", lang), callback_data="admin_update_xui_xray_mobile")],
+        [InlineKeyboardButton(t("btn_refresh", lang), callback_data="admin_server_mobile")],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+
+async def admin_update_xui_xray_mobile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data["live_monitoring_active"] = False
+    query = update.callback_query
+    tg_id = str(query.from_user.id)
+    lang = get_lang(tg_id)
+    if tg_id != ADMIN_ID:
+        await query.answer()
+        return
+
+    await query.answer(t("update_starting", lang))
+
+    if not MOBILE_SSH_HOST or not MOBILE_SSH_USER or not MOBILE_SSH_PASSWORD:
+        keyboard = [[InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")]]
+        await query.edit_message_text(t("mobile_not_configured", lang), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    current = await asyncio.get_running_loop().run_in_executor(
+        None,
+        _ssh_fetch_remote_server_status,
+        MOBILE_SSH_HOST,
+        MOBILE_SSH_PORT,
+        MOBILE_SSH_USER,
+        MOBILE_SSH_PASSWORD,
+    )
+    if not current:
+        keyboard = [[InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")]]
+        await query.edit_message_text(t("error_generic", lang), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    remote_xui_v = str(current.get("xui_version") or "") or None
+    remote_xray_v = str(current.get("xray_version") or "") or None
+    latest_xui_v, latest_xray_v = await asyncio.gather(
+        _github_latest_version("MHSanaei", "3x-ui"),
+        _github_latest_version("XTLS", "Xray-core"),
+    )
+
+    need_xui_update = latest_xui_v is not None and (
+        remote_xui_v is None or _version_tuple(remote_xui_v) < _version_tuple(latest_xui_v)
+    )
+    need_xray_update = latest_xray_v is not None and (
+        remote_xray_v is None or _version_tuple(remote_xray_v) < _version_tuple(latest_xray_v)
+    )
+
+    status_lines: list[str] = []
+    restart_needed = False
+
+    if need_xui_update:
+        xui_rc, xui_out, xui_err = await asyncio.get_running_loop().run_in_executor(
+            None,
+            _ssh_run_remote_command,
+            MOBILE_SSH_HOST,
+            MOBILE_SSH_PORT,
+            MOBILE_SSH_USER,
+            MOBILE_SSH_PASSWORD,
+            'bash -lc "x-ui update"',
+            220,
+        )
+        xui_details = (xui_out or xui_err or "").strip()[:1200] or "—"
+        xui_details = f"```{xui_details}```"
+        if xui_rc == 0:
+            status_lines.append(t("update_done", lang).format(details=xui_details))
+            restart_needed = True
+        else:
+            status_lines.append(t("update_failed", lang).format(details=xui_details))
+    else:
+        status_lines.append(
+            f"{t('xui_version_label', lang)} {_format_update_status(remote_xui_v, latest_xui_v, lang)}"
+        )
+
+    if need_xray_update:
+        xray_ok, xray_details = await asyncio.get_running_loop().run_in_executor(
+            None,
+            _ssh_update_remote_xray,
+            MOBILE_SSH_HOST,
+            MOBILE_SSH_PORT,
+            MOBILE_SSH_USER,
+            MOBILE_SSH_PASSWORD,
+        )
+        if xray_ok:
+            status_lines.append(f"{t('xray_version_label', lang)} ✅ {xray_details}")
+            restart_needed = True
+        else:
+            status_lines.append(f"{t('xray_version_label', lang)} ❌ {xray_details}")
+    else:
+        status_lines.append(
+            f"{t('xray_version_label', lang)} {_format_update_status(remote_xray_v, latest_xray_v, lang)}"
+        )
+
+    if restart_needed:
+        await asyncio.get_running_loop().run_in_executor(
+            None,
+            _ssh_run_remote_command,
+            MOBILE_SSH_HOST,
+            MOBILE_SSH_PORT,
+            MOBILE_SSH_USER,
+            MOBILE_SSH_PASSWORD,
+            "bash -lc \"systemctl restart x-ui >/dev/null 2>&1 || x-ui restart >/dev/null 2>&1 || true\"",
+            90,
+        )
+
+    after = await asyncio.get_running_loop().run_in_executor(
+        None,
+        _ssh_fetch_remote_server_status,
+        MOBILE_SSH_HOST,
+        MOBILE_SSH_PORT,
+        MOBILE_SSH_USER,
+        MOBILE_SSH_PASSWORD,
+    )
+    after_xui = str((after or {}).get("xui_version") or "") or "—"
+    after_xray = str((after or {}).get("xray_version") or "") or "—"
+    status_lines.append(
+        "\n".join(
+            [
+                f"{t('xui_version_label', lang)} `{after_xui}`",
+                f"{t('xray_version_label', lang)} `{after_xray}`",
+            ]
+        )
+    )
+
+    text = "\n\n".join(status_lines).strip()
+    keyboard = [
+        [InlineKeyboardButton(t("btn_refresh", lang), callback_data="admin_server_mobile")],
+        [InlineKeyboardButton(t("btn_back_admin", lang), callback_data="admin_panel")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def admin_server_nodes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -6997,6 +7671,7 @@ async def admin_sync_mobile_nicknames(update: Update, context: ContextTypes.DEFA
                 sub_id=str(sub_id),
                 expiry_ms=int(expiry_time or 0),
                 comment=user_nick,
+                force_comment=True,
             )
             if ok:
                 updated_count += 1
@@ -13079,10 +13754,12 @@ def register_handlers(application):
     application.add_handler(CallbackQueryHandler(admin_sync_nicknames, pattern='^admin_sync_nicks$'))
     application.add_handler(CallbackQueryHandler(admin_sync_mobile_nicknames, pattern='^admin_sync_mobile_nicks$'))
     application.add_handler(CallbackQueryHandler(admin_server, pattern='^admin_server$'))
+    application.add_handler(CallbackQueryHandler(admin_server_mobile, pattern='^admin_server_mobile$'))
     application.add_handler(CallbackQueryHandler(admin_server_live, pattern='^admin_server_live$'))
     application.add_handler(CallbackQueryHandler(admin_server_nodes, pattern='^admin_server_nodes$'))
     application.add_handler(CallbackQueryHandler(admin_server_node_detail, pattern='^admin_server_node_'))
     application.add_handler(CallbackQueryHandler(admin_update_xui_xray, pattern='^admin_update_xui_xray$'))
+    application.add_handler(CallbackQueryHandler(admin_update_xui_xray_mobile, pattern='^admin_update_xui_xray_mobile$'))
     application.add_handler(CallbackQueryHandler(admin_rebind_user, pattern='^admin_rebind_'))
     application.add_handler(CallbackQueryHandler(admin_users_list, pattern='^admin_users_'))
     application.add_handler(CallbackQueryHandler(admin_user_detail, pattern='^admin_u_'))
@@ -13163,9 +13840,9 @@ _ONLINE_SPIKE_ABS = int(os.getenv("ONLINE_SPIKE_ABS", "50"))
 _ONLINE_SPIKE_FACTOR = float(os.getenv("ONLINE_SPIKE_FACTOR", "3.0"))
 _ONLINE_EMA_ALPHA = float(os.getenv("ONLINE_EMA_ALPHA", "0.2"))
 
-_TRAFFIC_SPIKE_BPS = int(os.getenv("TRAFFIC_SPIKE_BPS", str(50 * 1024 * 1024)))
+_TRAFFIC_SPIKE_BPS = int(os.getenv("TRAFFIC_SPIKE_BPS", str(int((100 * 1024 * 1024) / 8))))
 _TRAFFIC_SPIKE_FACTOR = float(os.getenv("TRAFFIC_SPIKE_FACTOR", "4.0"))
-_TRAFFIC_SPIKE_MIN_BPS = int(os.getenv("TRAFFIC_SPIKE_MIN_BPS", str(5 * 1024 * 1024)))
+_TRAFFIC_SPIKE_MIN_BPS = int(os.getenv("TRAFFIC_SPIKE_MIN_BPS", str(_TRAFFIC_SPIKE_BPS)))
 _TRAFFIC_EMA_ALPHA = float(os.getenv("TRAFFIC_EMA_ALPHA", "0.2"))
 
 _PAYMENT_ERROR_THRESHOLD = int(os.getenv("PAYMENT_ERROR_THRESHOLD", "3"))
@@ -13282,6 +13959,47 @@ def _get_online_users_count() -> int:
         return 0
 
 
+def _monitor_guess_recent_connection(now: float, window_sec: int = 120) -> tuple[str, str | None, str | None, str | None] | None:
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        row = None
+        if window_sec > 0:
+            cutoff = int(now - float(window_sec))
+            cursor.execute(
+                "SELECT ip, email, country_code FROM connection_logs WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT 1",
+                (cutoff,),
+            )
+            row = cursor.fetchone()
+        if not row:
+            cursor.execute(
+                "SELECT ip, email, country_code FROM connection_logs ORDER BY timestamp DESC LIMIT 1"
+            )
+            row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        ip, email, country_code = row
+        ip_s = str(ip or "")
+        email_s = str(email or "")
+        cc_s = str(country_code or "") or None
+
+        username: str | None = None
+        if email_s.startswith("tg_"):
+            possible = email_s[3:].split("_", 1)[0]
+            if possible.isdigit():
+                cursor.execute("SELECT username FROM user_prefs WHERE tg_id=?", (possible,))
+                urow = cursor.fetchone()
+                if urow and urow[0]:
+                    username = str(urow[0])
+
+        conn.close()
+        return ip_s, cc_s, username, (email_s or None)
+    except Exception:
+        return None
+
+
 async def monitor_thresholds_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     global _MONITOR_NET_LAST
     global _MONITOR_TRAFFIC_EMA_BPS
@@ -13348,17 +14066,43 @@ async def monitor_thresholds_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     if _TRAFFIC_SPIKE_BPS > 0 and _monitor_can_alert("traffic_spike", now):
         over_abs = traffic_bps >= float(_TRAFFIC_SPIKE_BPS)
         over_factor = False
+        min_gate_bps = float(max(_TRAFFIC_SPIKE_MIN_BPS, _TRAFFIC_SPIKE_BPS))
         if _TRAFFIC_SPIKE_FACTOR > 0 and _MONITOR_TRAFFIC_EMA_BPS is not None:
-            if traffic_bps >= float(_TRAFFIC_SPIKE_MIN_BPS) and traffic_bps >= (_MONITOR_TRAFFIC_EMA_BPS * _TRAFFIC_SPIKE_FACTOR):
+            if traffic_bps >= min_gate_bps and traffic_bps >= (_MONITOR_TRAFFIC_EMA_BPS * _TRAFFIC_SPIKE_FACTOR):
                 over_factor = True
         if over_abs or over_factor:
             admin_lang = get_lang(ADMIN_ID)
+            thr_mbit = (float(_TRAFFIC_SPIKE_BPS) * 8.0) / (1024.0 * 1024.0)
+            source = _monitor_guess_recent_connection(now, max(int(_MONITOR_INTERVAL_SEC * 2), 120))
+            src_line_ru = ""
+            src_line_en = ""
+            if source:
+                ip_s, cc_s, username, email_s = source
+                label = ip_s
+                if cc_s:
+                    label = f"{label} ({cc_s})"
+                if username:
+                    user_label = f"@{str(username).lstrip('@')}"
+                    src_line_ru = f"Источник: *{_escape_markdown(label)}* — {_escape_markdown(user_label)}\n"
+                    src_line_en = f"Source: *{_escape_markdown(label)}* — {_escape_markdown(user_label)}\n"
+                else:
+                    tg_label = ""
+                    if email_s and str(email_s).startswith("tg_"):
+                        possible = str(email_s)[3:].split("_", 1)[0]
+                        if possible.isdigit():
+                            tg_label = possible
+                    src_line_ru = f"Источник: *{_escape_markdown(label)}*\n"
+                    src_line_en = f"Source: *{_escape_markdown(label)}*\n"
+                    if tg_label:
+                        src_line_ru = f"Источник: *{_escape_markdown(label)}* — tg:{_escape_markdown(tg_label)}\n"
+                        src_line_en = f"Source: *{_escape_markdown(label)}* — tg:{_escape_markdown(tg_label)}\n"
             if admin_lang == "ru":
                 msg = (
                     "🚨 *Алерт: аномальный трафик*\n\n"
                     f"Скорость: *{format_bytes(float(traffic_bps))}/s*\n"
                     f"База (EMA): *{format_bytes(float(_MONITOR_TRAFFIC_EMA_BPS or 0.0))}/s*\n"
-                    f"Порог: *{format_bytes(float(_TRAFFIC_SPIKE_BPS))}/s* или ×{_TRAFFIC_SPIKE_FACTOR}\n"
+                    f"Порог: *{format_bytes(float(_TRAFFIC_SPIKE_BPS))}/s* (~{thr_mbit:.0f} Мбит/с) или ×{_TRAFFIC_SPIKE_FACTOR}\n"
+                    f"{src_line_ru}"
                     f"Время: {datetime.datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')}"
                 )
             else:
@@ -13366,7 +14110,8 @@ async def monitor_thresholds_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                     "🚨 *Alert: abnormal traffic*\n\n"
                     f"Speed: *{format_bytes(float(traffic_bps))}/s*\n"
                     f"Baseline (EMA): *{format_bytes(float(_MONITOR_TRAFFIC_EMA_BPS or 0.0))}/s*\n"
-                    f"Threshold: *{format_bytes(float(_TRAFFIC_SPIKE_BPS))}/s* or ×{_TRAFFIC_SPIKE_FACTOR}\n"
+                    f"Threshold: *{format_bytes(float(_TRAFFIC_SPIKE_BPS))}/s* (~{thr_mbit:.0f} Mbit/s) or ×{_TRAFFIC_SPIKE_FACTOR}\n"
+                    f"{src_line_en}"
                     f"Time: {datetime.datetime.now(TIMEZONE).strftime('%Y-%m-%d %H:%M:%S')}"
                 )
             _monitor_mark_alert("traffic_spike", now)
