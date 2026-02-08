@@ -1436,6 +1436,22 @@ def init_db():
         cursor.execute("ALTER TABLE user_prefs ADD COLUMN mobile_trial_activated_at INTEGER")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN first_start_payload TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN last_start_payload TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN first_start_at INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE user_prefs ADD COLUMN last_start_at INTEGER")
+    except sqlite3.OperationalError:
+        pass
 
     # Notifications Table
     cursor.execute('''
@@ -1456,6 +1472,16 @@ def init_db():
             amount INTEGER,
             type TEXT,
             date INTEGER
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS referral_day_bonuses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            referrer_id TEXT,
+            referred_id TEXT,
+            days INTEGER,
+            date INTEGER,
+            UNIQUE(referrer_id, referred_id)
         )
     ''')
 
@@ -1491,6 +1517,10 @@ def init_db():
         pass
     try:
         cursor.execute("ALTER TABLE transactions ADD COLUMN processed_at INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE transactions ADD COLUMN start_payload TEXT")
     except sqlite3.OperationalError:
         pass
     try:
@@ -3887,6 +3917,72 @@ def set_referrer(tg_id, referrer_id):
     conn.commit()
     conn.close()
 
+def _parse_start_payload(args: list[str], tg_id: str) -> tuple[Optional[str], str]:
+    if not args:
+        return None, "organic"
+    raw = str(args[0]).strip()
+    if not raw:
+        return None, "organic"
+
+    if raw.isdigit():
+        if raw == tg_id:
+            return None, "ref"
+        return raw, "ref"
+
+    if raw.lower().startswith("ref_") and raw[4:].isdigit():
+        referrer_id = raw[4:]
+        if referrer_id == tg_id:
+            return None, "ref"
+        return referrer_id, "ref"
+
+    return None, raw[:64]
+
+
+def record_start_payload(tg_id: str, start_payload: str) -> None:
+    payload = str(start_payload).strip()
+    if not payload:
+        return
+    if len(payload) > 64:
+        payload = payload[:64]
+
+    now = int(time.time())
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO user_prefs (tg_id, first_start_payload, last_start_payload, first_start_at, last_start_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(tg_id) DO UPDATE SET
+                last_start_payload=excluded.last_start_payload,
+                last_start_at=excluded.last_start_at,
+                first_start_payload=COALESCE(user_prefs.first_start_payload, excluded.first_start_payload),
+                first_start_at=COALESCE(user_prefs.first_start_at, excluded.first_start_at)
+            """,
+            (tg_id, payload, payload, now, now),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Error recording start payload: {e}")
+
+
+def get_user_last_start_payload(tg_id: str) -> Optional[str]:
+    try:
+        conn = sqlite3.connect(BOT_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT last_start_payload, first_start_payload FROM user_prefs WHERE tg_id=?",
+            (tg_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return row[0] or row[1]
+    except Exception:
+        return None
+
 def mark_trial_used(tg_id):
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
@@ -4386,12 +4482,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     tg_id = str(update.message.from_user.id)
 
-    # Referral check
-    args = context.args
-    if args and len(args) > 0:
-        referrer_id = args[0]
-        if referrer_id != tg_id:
-            set_referrer(tg_id, referrer_id)
+    referrer_id, start_payload = _parse_start_payload(context.args, tg_id)
+    record_start_payload(tg_id, start_payload)
+    if referrer_id:
+        set_referrer(tg_id, referrer_id)
 
     # Check if user has language set
     lang = get_lang(tg_id)
@@ -10804,6 +10898,7 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         payment = update.message.successful_payment
         payload = payment.invoice_payload
         tg_id = str(update.message.from_user.id)
+        start_payload = get_user_last_start_payload(tg_id)
         charge_id = _normalize_charge_id(getattr(payment, "telegram_payment_charge_id", None))
 
         # 1. Immediate DB Insert (Fail-safe)
@@ -10827,11 +10922,21 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         conn.close()
                         log_action(f"INFO: Duplicate successful_payment ignored for {tg_id} (charge_id: {charge_id})")
                         return
-                    cursor.execute(
-                        "INSERT OR IGNORE INTO transactions (tg_id, amount, date, plan_id, telegram_payment_charge_id, processed_at) "
-                        "VALUES (?, ?, ?, ?, ?, NULL)",
-                        (tg_id, amount, date_ts, payload, charge_id),
-                    )
+                    try:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO transactions (tg_id, amount, date, plan_id, telegram_payment_charge_id, processed_at, start_payload) "
+                            "VALUES (?, ?, ?, ?, ?, NULL, ?)",
+                            (tg_id, amount, date_ts, payload, charge_id, start_payload),
+                        )
+                    except sqlite3.OperationalError as e:
+                        if "start_payload" in str(e):
+                            cursor.execute(
+                                "INSERT OR IGNORE INTO transactions (tg_id, amount, date, plan_id, telegram_payment_charge_id, processed_at) "
+                                "VALUES (?, ?, ?, ?, ?, NULL)",
+                                (tg_id, amount, date_ts, payload, charge_id),
+                            )
+                        else:
+                            raise
                     inserted_tx_id = cursor.lastrowid if cursor.lastrowid else None
                 except sqlite3.OperationalError as e:
                     if "no such column" in str(e):
@@ -10860,15 +10965,22 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
                 try:
                     cursor.execute(
-                        "INSERT INTO transactions (tg_id, amount, date, plan_id, processed_at) "
-                        "VALUES (?, ?, ?, ?, NULL)",
-                        (tg_id, amount, date_ts, payload),
+                        "INSERT INTO transactions (tg_id, amount, date, plan_id, processed_at, start_payload) "
+                        "VALUES (?, ?, ?, ?, NULL, ?)",
+                        (tg_id, amount, date_ts, payload, start_payload),
                     )
                 except sqlite3.OperationalError:
-                    cursor.execute(
-                        "INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)",
-                        (tg_id, amount, date_ts, payload),
-                    )
+                    try:
+                        cursor.execute(
+                            "INSERT INTO transactions (tg_id, amount, date, plan_id, processed_at) "
+                            "VALUES (?, ?, ?, ?, NULL)",
+                            (tg_id, amount, date_ts, payload),
+                        )
+                    except sqlite3.OperationalError:
+                        cursor.execute(
+                            "INSERT INTO transactions (tg_id, amount, date, plan_id) VALUES (?, ?, ?, ?)",
+                            (tg_id, amount, date_ts, payload),
+                        )
                 inserted_tx_id = cursor.lastrowid if cursor.lastrowid else None
             conn.commit()
             conn.close()
@@ -11034,19 +11146,40 @@ async def successful_payment(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
             if row and row[0]:
                 referrer_id = row[0]
-                # Grant bonus days to referrer
-                await add_days_to_user(referrer_id, REF_BONUS_DAYS, context)
+                referrer_id = str(referrer_id)
+                granted_days = False
+                if referrer_id.isdigit() and referrer_id != tg_id:
+                    try:
+                        conn = sqlite3.connect(BOT_DB_PATH)
+                        cursor = conn.cursor()
+                        now = int(time.time())
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO referral_day_bonuses (referrer_id, referred_id, days, date) "
+                            "VALUES (?, ?, ?, ?)",
+                            (referrer_id, tg_id, REF_BONUS_DAYS, now),
+                        )
+                        granted_days = cursor.rowcount > 0
+                        conn.commit()
+                        conn.close()
+                    except Exception:
+                        granted_days = False
 
-                # Notify referrer
-                ref_lang = get_lang(referrer_id)
-                msg_text = f"🎉 **Referral Bonus!**\n\nUser you invited has purchased a subscription.\nYou received +{REF_BONUS_DAYS} days!"
-                if ref_lang == 'ru':
-                    msg_text = f"🎉 **Реферальный бонус!**\n\nПриглашенный вами пользователь купил подписку.\nВам начислено +{REF_BONUS_DAYS} дней!"
+                if granted_days:
+                    await add_days_to_user(referrer_id, REF_BONUS_DAYS, context)
 
-                try:
-                    await context.bot.send_message(chat_id=referrer_id, text=msg_text, parse_mode='Markdown')
-                except Exception:
-                    pass # User might have blocked bot
+                    ref_lang = get_lang(referrer_id)
+                    msg_text = (
+                        f"🎉 **Referral Bonus!**\n\nUser you invited has purchased a subscription.\nYou received +{REF_BONUS_DAYS} days!"
+                    )
+                    if ref_lang == "ru":
+                        msg_text = (
+                            f"🎉 **Реферальный бонус!**\n\nПриглашенный вами пользователь купил подписку.\nВам начислено +{REF_BONUS_DAYS} дней!"
+                        )
+
+                    try:
+                        await context.bot.send_message(chat_id=referrer_id, text=msg_text, parse_mode="Markdown")
+                    except Exception:
+                        pass
 
             # 10% Cashback Logic
             cashback_amount = int(payment.total_amount * 0.10)
@@ -13884,6 +14017,9 @@ _MONITOR_LAST_ALERT_TS: dict[str, float] = {}
 _MONITOR_NET_LAST: tuple[int, int, float] | None = None
 _MONITOR_TRAFFIC_EMA_BPS: float | None = None
 _MONITOR_ONLINE_EMA: float | None = None
+_MONITOR_CLIENT_LAST_TS: float | None = None
+_MONITOR_CLIENT_LAST_TOTALS: dict[tuple[int, str], int] = {}
+_MONITOR_CLIENT_LAST_SUM: int | None = None
 
 _MONITOR_PAYMENT_ERRORS: deque[float] = deque(maxlen=5000)
 
@@ -13977,12 +14113,152 @@ def _get_online_users_count() -> int:
         return 0
 
 
-def _monitor_guess_recent_connection(now: float, window_sec: int = 120) -> tuple[str, str | None, str | None, str | None] | None:
+def _monitor_guess_top_talker(now: float) -> tuple[str, int, str | None, float, float] | None:
+    global _MONITOR_CLIENT_LAST_TS
+    global _MONITOR_CLIENT_LAST_TOTALS
+    global _MONITOR_CLIENT_LAST_SUM
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("PRAGMA table_info(client_traffics)")
+        cols = {str(r[1]) for r in cursor.fetchall() if r and len(r) > 1}
+        if "email" not in cols:
+            conn.close()
+            _MONITOR_CLIENT_LAST_TS = now
+            return None
+
+        sel: list[str] = []
+        if "inbound_id" in cols:
+            sel.append("inbound_id")
+        else:
+            sel.append("0 as inbound_id")
+        sel.append("email")
+        if "up" in cols:
+            sel.append("COALESCE(up, 0) as up")
+        else:
+            sel.append("0 as up")
+        if "down" in cols:
+            sel.append("COALESCE(down, 0) as down")
+        else:
+            sel.append("0 as down")
+        if "last_online" in cols:
+            sel.append("last_online")
+        else:
+            sel.append("NULL as last_online")
+
+        sql = f"SELECT {', '.join(sel)} FROM client_traffics"
+        params: list[Any] = []
+        conds: list[str] = []
+        if "enable" in cols:
+            conds.append("enable=1")
+        if "last_online" in cols:
+            active_after_ms = int(now * 1000) - (60 * 1000)
+            conds.append("last_online > ?")
+            params.append(active_after_ms)
+        if conds:
+            sql = f"{sql} WHERE {' AND '.join(conds)}"
+
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+
+        inbound_labels: dict[int, str] = {}
+        try:
+            cursor.execute("SELECT id, remark, tag FROM inbounds")
+            for iid, remark, tag in cursor.fetchall():
+                label = str((remark or tag or "")).strip()
+                if not label:
+                    label = f"inbound:{iid}"
+                inbound_labels[int(iid)] = label
+        except Exception:
+            try:
+                cursor.execute("SELECT id, remark FROM inbounds")
+                for iid, remark in cursor.fetchall():
+                    label = str((remark or "")).strip() or f"inbound:{iid}"
+                    inbound_labels[int(iid)] = label
+            except Exception:
+                inbound_labels = {}
+
+        conn.close()
+
+        last_ts = _MONITOR_CLIENT_LAST_TS
+        dt = (now - float(last_ts)) if last_ts is not None else 0.0
+        last_sum = _MONITOR_CLIENT_LAST_SUM
+        current_sum = 0
+
+        best_email: str | None = None
+        best_inbound_id = 0
+        best_speed_bps = 0.0
+
+        for inbound_id_raw, email_raw, up_raw, down_raw, _last_online in rows:
+            email = str(email_raw or "").strip()
+            if not email:
+                continue
+            inbound_id = int(inbound_id_raw or 0)
+            total = int(up_raw or 0) + int(down_raw or 0)
+            current_sum += total
+
+            key = (inbound_id, email)
+            prev_total = _MONITOR_CLIENT_LAST_TOTALS.get(key)
+            _MONITOR_CLIENT_LAST_TOTALS[key] = total
+
+            if prev_total is None or dt <= 0:
+                continue
+            delta = total - int(prev_total)
+            if delta <= 0:
+                continue
+            speed_bps = float(delta) / float(dt)
+            if speed_bps > best_speed_bps:
+                best_speed_bps = speed_bps
+                best_email = email
+                best_inbound_id = inbound_id
+
+        _MONITOR_CLIENT_LAST_TS = now
+        _MONITOR_CLIENT_LAST_SUM = int(current_sum)
+
+        total_speed_bps = 0.0
+        if last_sum is not None and dt > 0:
+            total_delta = int(current_sum) - int(last_sum)
+            if total_delta > 0:
+                total_speed_bps = float(total_delta) / float(dt)
+
+        if not best_email:
+            return None
+        inbound_label = inbound_labels.get(best_inbound_id)
+        return best_email, best_inbound_id, inbound_label, best_speed_bps, total_speed_bps
+    except Exception:
+        _MONITOR_CLIENT_LAST_TS = now
+        return None
+
+
+def _monitor_guess_recent_connection(
+    now: float,
+    window_sec: int = 120,
+    preferred_email: str | None = None,
+) -> tuple[str, str | None, str | None, str | None] | None:
     try:
         conn = sqlite3.connect(BOT_DB_PATH)
         cursor = conn.cursor()
         row = None
-        if window_sec > 0:
+        if preferred_email:
+            email_s = str(preferred_email or "")
+            if window_sec > 0:
+                cutoff = int(now - float(window_sec))
+                cursor.execute(
+                    "SELECT ip, email, country_code FROM connection_logs "
+                    "WHERE email=? AND timestamp >= ? ORDER BY timestamp DESC LIMIT 1",
+                    (email_s, cutoff),
+                )
+                row = cursor.fetchone()
+            if not row:
+                cursor.execute(
+                    "SELECT ip, email, country_code FROM connection_logs "
+                    "WHERE email=? ORDER BY timestamp DESC LIMIT 1",
+                    (email_s,),
+                )
+                row = cursor.fetchone()
+        if not row and window_sec > 0:
             cutoff = int(now - float(window_sec))
             cursor.execute(
                 "SELECT ip, email, country_code FROM connection_logs WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT 1",
@@ -14018,6 +14294,38 @@ def _monitor_guess_recent_connection(now: float, window_sec: int = 120) -> tuple
         return None
 
 
+async def _monitor_fetch_user_profile(
+    context: ContextTypes.DEFAULT_TYPE,
+    tg_id: str,
+) -> tuple[str | None, str | None, str | None]:
+    try:
+        if not tg_id or not str(tg_id).isdigit():
+            return None, None, None
+
+        application = getattr(context, "application", None)
+        if application is None:
+            return None, None, None
+        bot = getattr(application, "bot", None)
+        if bot is None:
+            return None, None, None
+
+        chat = await bot.get_chat(chat_id=int(str(tg_id)))
+        username = getattr(chat, "username", None)
+        first_name = getattr(chat, "first_name", None)
+        last_name = getattr(chat, "last_name", None)
+
+        username_s = str(username).strip() if username else None
+        first_name_s = str(first_name).strip() if first_name else None
+        last_name_s = str(last_name).strip() if last_name else None
+
+        if username_s or first_name_s or last_name_s:
+            update_user_info(str(tg_id), username_s, first_name_s, last_name_s)
+
+        return username_s, first_name_s, last_name_s
+    except Exception:
+        return None, None, None
+
+
 async def monitor_thresholds_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     global _MONITOR_NET_LAST
     global _MONITOR_TRAFFIC_EMA_BPS
@@ -14029,6 +14337,7 @@ async def monitor_thresholds_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     now = time.time()
+    top_talker = _monitor_guess_top_talker(now)
 
     online = _get_online_users_count()
     if _MONITOR_ONLINE_EMA is None:
@@ -14037,17 +14346,7 @@ async def monitor_thresholds_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         alpha = max(0.0, min(_ONLINE_EMA_ALPHA, 1.0))
         _MONITOR_ONLINE_EMA = (alpha * float(online)) + ((1.0 - alpha) * _MONITOR_ONLINE_EMA)
 
-    traffic_bps = 0.0
-    try:
-        rx, tx = get_net_io_counters()
-        if _MONITOR_NET_LAST is not None:
-            last_rx, last_tx, last_ts = _MONITOR_NET_LAST
-            dt = now - last_ts
-            if dt > 0:
-                traffic_bps = float((rx - last_rx) + (tx - last_tx)) / dt
-        _MONITOR_NET_LAST = (int(rx), int(tx), now)
-    except Exception:
-        pass
+    traffic_bps = float(top_talker[4]) if top_talker else 0.0
 
     if _MONITOR_TRAFFIC_EMA_BPS is None:
         _MONITOR_TRAFFIC_EMA_BPS = float(traffic_bps)
@@ -14091,7 +14390,13 @@ async def monitor_thresholds_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         if over_abs or over_factor:
             admin_lang = get_lang(ADMIN_ID)
             thr_mbit = (float(_TRAFFIC_SPIKE_BPS) * 8.0) / (1024.0 * 1024.0)
-            source = _monitor_guess_recent_connection(now, max(int(_MONITOR_INTERVAL_SEC * 2), 120))
+            top = top_talker
+            preferred_email = top[0] if top else None
+            source = _monitor_guess_recent_connection(
+                now,
+                max(int(_MONITOR_INTERVAL_SEC * 2), 120),
+                preferred_email=preferred_email,
+            )
             src_line_ru = ""
             src_line_en = ""
             if source:
@@ -14099,21 +14404,39 @@ async def monitor_thresholds_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 label = ip_s
                 if cc_s:
                     label = f"{label} ({cc_s})"
-                if username:
-                    user_label = f"@{str(username).lstrip('@')}"
-                    src_line_ru = f"Источник: *{_escape_markdown(label)}* — {_escape_markdown(user_label)}\n"
-                    src_line_en = f"Source: *{_escape_markdown(label)}* — {_escape_markdown(user_label)}\n"
+                resolved_username = username
+                resolved_first_name: str | None = None
+                resolved_last_name: str | None = None
+                if not resolved_username and email_s and str(email_s).startswith("tg_"):
+                    possible = str(email_s)[3:].split("_", 1)[0]
+                    if possible.isdigit():
+                        resolved_username, resolved_first_name, resolved_last_name = await _monitor_fetch_user_profile(
+                            context,
+                            possible,
+                        )
+                who_parts: list[str] = []
+                if top:
+                    _top_email, _top_inbound_id, _top_inbound_label, _top_speed_bps, _top_total_speed_bps = top
+                    if _top_inbound_label:
+                        who_parts.append(str(_top_inbound_label))
+                    elif _top_inbound_id:
+                        who_parts.append(f"inbound:{_top_inbound_id}")
+                if resolved_username:
+                    who_parts.append(f"@{str(resolved_username).lstrip('@')}")
+                elif resolved_first_name:
+                    name = str(resolved_first_name)
+                    if resolved_last_name:
+                        name = f"{name} {resolved_last_name}"
+                    who_parts.append(name)
+                elif email_s:
+                    who_parts.append(str(email_s))
+                who = " / ".join([p for p in who_parts if p])
+                if who:
+                    src_line_ru = f"Источник: *{_escape_markdown(label)}* — *{_escape_markdown(who)}*\n"
+                    src_line_en = f"Source: *{_escape_markdown(label)}* — *{_escape_markdown(who)}*\n"
                 else:
-                    tg_label = ""
-                    if email_s and str(email_s).startswith("tg_"):
-                        possible = str(email_s)[3:].split("_", 1)[0]
-                        if possible.isdigit():
-                            tg_label = possible
                     src_line_ru = f"Источник: *{_escape_markdown(label)}*\n"
                     src_line_en = f"Source: *{_escape_markdown(label)}*\n"
-                    if tg_label:
-                        src_line_ru = f"Источник: *{_escape_markdown(label)}* — tg:{_escape_markdown(tg_label)}\n"
-                        src_line_en = f"Source: *{_escape_markdown(label)}* — tg:{_escape_markdown(tg_label)}\n"
             if admin_lang == "ru":
                 msg = (
                     "🚨 *Алерт: аномальный трафик*\n\n"
