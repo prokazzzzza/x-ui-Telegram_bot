@@ -7433,7 +7433,11 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_sync_mobile_nicks", lang), callback_data='admin_sync_mobile_nicks')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    try:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            raise
 
 async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
