@@ -7291,6 +7291,15 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_id = str(query.from_user.id)
     lang = get_lang(tg_id)
 
+    text, markup = await _build_admin_stats_view(lang)
+    try:
+        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            raise
+
+
+async def _build_admin_stats_view(lang: str) -> tuple[str, InlineKeyboardMarkup]:
     conn = sqlite3.connect(BOT_DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM user_prefs")
@@ -7433,16 +7442,22 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(t("btn_sync_mobile_nicks", lang), callback_data='admin_sync_mobile_nicks')],
         [InlineKeyboardButton(t("btn_back_admin", lang), callback_data='admin_panel')]
     ]
+    return text, InlineKeyboardMarkup(keyboard)
+
+
+async def _return_to_admin_stats_after_delay(message: Message, tg_id: str, delay_seconds: float = 3.0) -> None:
     try:
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    except Exception as e:
-        if "Message is not modified" not in str(e):
-            raise
+        await asyncio.sleep(delay_seconds)
+        lang = get_lang(tg_id)
+        text, markup = await _build_admin_stats_view(lang)
+        await message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
+    except Exception:
+        return
 
 async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    tg_id = str(query.from_user.id)
-    lang = get_lang(tg_id)
+    admin_tg_id = str(query.from_user.id)
+    lang = get_lang(admin_tg_id)
     await query.answer(t("sync_start", lang), show_alert=False)
 
     conn = sqlite3.connect(DB_PATH)
@@ -7584,8 +7599,7 @@ async def admin_sync_nicknames(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception:
         pass
 
-    # Return to stats
-    await admin_stats(update, context)
+    asyncio.create_task(_return_to_admin_stats_after_delay(progress_msg, admin_tg_id))
 
 async def admin_sync_mobile_nicknames(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -7697,7 +7711,7 @@ async def admin_sync_mobile_nicknames(update: Update, context: ContextTypes.DEFA
     except Exception:
         pass
 
-    await admin_stats(update, context)
+    asyncio.create_task(_return_to_admin_stats_after_delay(progress_msg, tg_id))
 
 async def admin_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
